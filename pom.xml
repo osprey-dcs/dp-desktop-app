@@ -161,6 +161,26 @@
             <version>5.12.0</version>
         </dependency>
 
+        <!-- JavaFX Dependencies -->
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-controls</artifactId>
+            <version>21.0.2</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-fxml</artifactId>
+            <version>21.0.2</version>
+        </dependency>
+
+        <!-- BootstrapFX for styling -->
+        <dependency>
+            <groupId>org.kordamp.bootstrapfx</groupId>
+            <artifactId>bootstrapfx-core</artifactId>
+            <version>0.4.0</version>
+        </dependency>
+
     </dependencies>
 
     <build>
@@ -175,7 +195,7 @@
                         <transformer
                                 implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                             <manifestEntries>
-                                <Main-Class>com.ospreydcs.dp.service.ingest.server.IngestionGrpcServer</Main-Class>
+                                <Main-Class>com.ospreydcs.dp.gui.DpDesktopApplication</Main-Class>
                                 <Multi-Release>true</Multi-Release>
                             </manifestEntries>
                         </transformer>
@@ -202,6 +222,16 @@
                     </execution>
 
                 </executions>
+            </plugin>
+
+            <!-- JavaFX Maven Plugin -->
+            <plugin>
+                <groupId>org.openjfx</groupId>
+                <artifactId>javafx-maven-plugin</artifactId>
+                <version>0.0.8</version>
+                <configuration>
+                    <mainClass>com.ospreydcs.dp.gui.DpDesktopApplication</mainClass>
+                </configuration>
             </plugin>
 
         </plugins>

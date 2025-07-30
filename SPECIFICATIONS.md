@@ -19,6 +19,8 @@ By default, the application will utilize in-process grpc communication, though i
 
 The project will use FXML for UI layout, and the MVVM design pattern for organizing UI-related code.
 
+The implementation should prefer swapping the root JavaFX scene for changing the content of the application window, over creating enteriely new scene objects for every view transition.
+
 ## GUI styling
 
 The project will use the BootstrapFX library for styling the application.  And it better look nice.

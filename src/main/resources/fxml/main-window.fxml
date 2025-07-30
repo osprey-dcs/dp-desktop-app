@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.geometry.Insets?>
+
+<BorderPane xmlns="http://javafx.com/javafx/11.0.1" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.ospreydcs.dp.gui.MainController">
+   <top>
+      <MenuBar fx:id="menuBar" styleClass="navbar, navbar-default">
+         <menus>
+            <Menu text="File">
+               <items>
+                  <MenuItem fx:id="connectionMenuItem" disable="true" onAction="#onConnection" text="Connection" />
+                  <MenuItem fx:id="preferencesMenuItem" disable="true" onAction="#onPreferences" text="Preferences" />
+                  <SeparatorMenuItem />
+                  <MenuItem fx:id="exitMenuItem" onAction="#onExit" text="Exit" />
+               </items>
+            </Menu>
+            <Menu text="Ingest">
+               <items>
+                  <MenuItem fx:id="generateMenuItem" disable="true" onAction="#onGenerate" text="Generate" />
+                  <MenuItem fx:id="fixedMenuItem" disable="true" onAction="#onFixed" text="Fixed" />
+                  <MenuItem fx:id="importMenuItem" disable="true" onAction="#onImport" text="Import" />
+                  <MenuItem fx:id="subscribeMenuItem" disable="true" onAction="#onSubscribe" text="Subscribe" />
+               </items>
+            </Menu>
+            <Menu text="Query">
+               <items>
+                  <MenuItem fx:id="dataMenuItem" disable="true" onAction="#onData" text="Data" />
+                  <MenuItem fx:id="pvMetadataMenuItem" disable="true" onAction="#onPvMetadata" text="PV Metadata" />
+                  <MenuItem fx:id="providerMetadataMenuItem" disable="true" onAction="#onProviderMetadata" text="Provider Metadata" />
+                  <MenuItem fx:id="annotationsMenuItem" disable="true" onAction="#onAnnotations" text="Annotations" />
+               </items>
+            </Menu>
+            <Menu text="Tools">
+               <items>
+                  <MenuItem fx:id="annotateMenuItem" disable="true" onAction="#onAnnotate" text="Annotate" />
+                  <MenuItem fx:id="exportMenuItem" disable="true" onAction="#onExport" text="Export" />
+                  <MenuItem fx:id="uploadMenuItem" disable="true" onAction="#onUpload" text="Upload" />
+                  <MenuItem fx:id="consoleMenuItem" disable="true" onAction="#onConsole" text="Console" />
+               </items>
+            </Menu>
+         </menus>
+      </MenuBar>
+   </top>
+   <center>
+      <StackPane fx:id="contentPane" styleClass="container-fluid">
+         <VBox alignment="CENTER" spacing="20" styleClass="jumbotron">
+            <padding>
+               <Insets bottom="40.0" left="40.0" right="40.0" top="40.0" />
+            </padding>
+            <Label styleClass="h1" text="Data Platform Desktop Application" />
+            <Label styleClass="lead" text="Welcome to the MLDP demonstration GUI application" />
+            <Label styleClass="text-muted" text="Use the menu bar above to access application features" />
+            <Region VBox.vgrow="ALWAYS" />
+            <Label styleClass="text-info" text="Status: Ready" />
+         </VBox>
+      </StackPane>
+   </center>
+   <bottom>
+      <ToolBar styleClass="navbar, navbar-default">
+         <Label fx:id="statusLabel" styleClass="navbar-text" text="Ready" />
+         <Region HBox.hgrow="ALWAYS" />
+         <Label fx:id="connectionStatusLabel" styleClass="navbar-text" text="In-Process Mode" />
+      </ToolBar>
+   </bottom>
+</BorderPane>

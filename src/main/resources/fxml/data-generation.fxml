@@ -140,42 +140,48 @@
                   <Button fx:id="addPvButton" onAction="#onAddPv" styleClass="btn-primary" text="Add PV" />
                </HBox>
                
-               <ListView fx:id="pvDetailsList" minHeight="150" />
-               
-               <!-- PV Detail Entry Panel (initially hidden) -->
-               <VBox fx:id="pvDetailEntryPanel" spacing="10" styleClass="form-container" visible="false">
-                  <Label styleClass="section-header" text="Add Process Variable" />
-                  <GridPane hgap="10" vgap="10">
-                     <columnConstraints>
-                        <ColumnConstraints minWidth="120" prefWidth="120" />
-                        <ColumnConstraints hgrow="ALWAYS" />
-                     </columnConstraints>
-                     
-                     <Label text="PV Name:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
-                     <TextField fx:id="pvNameField" promptText="Process variable name" GridPane.columnIndex="1" GridPane.rowIndex="0" />
-                     
-                     <Label text="Data Type:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
-                     <ComboBox fx:id="pvDataTypeCombo" GridPane.columnIndex="1" GridPane.rowIndex="1" />
-                     
-                     <Label text="Sample Period (ms):" GridPane.columnIndex="0" GridPane.rowIndex="2" />
-                     <Spinner fx:id="pvSamplePeriodSpinner" editable="true" GridPane.columnIndex="1" GridPane.rowIndex="2">
-                        <valueFactory>
-                           <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="1000" max="3600000" min="1" />
-                        </valueFactory>
-                     </Spinner>
-                     
-                     <Label text="Initial Value:" GridPane.columnIndex="0" GridPane.rowIndex="3" />
-                     <TextField fx:id="pvInitialValueField" promptText="Initial value" GridPane.columnIndex="1" GridPane.rowIndex="3" />
-                     
-                     <Label text="Max Step Magnitude:" GridPane.columnIndex="0" GridPane.rowIndex="4" />
-                     <TextField fx:id="pvMaxStepField" promptText="Maximum step size" GridPane.columnIndex="1" GridPane.rowIndex="4" />
-                  </GridPane>
+               <!-- Main PV Section with List and Entry Panel side by side -->
+               <HBox spacing="20">
+                  <!-- Left side: PV List -->
+                  <VBox HBox.hgrow="ALWAYS">
+                     <ListView fx:id="pvDetailsList" minHeight="200" prefHeight="250" />
+                  </VBox>
                   
-                  <HBox spacing="10">
-                     <Button fx:id="addPvDetailButton" onAction="#onAddPvDetail" styleClass="btn-success" text="Add" />
-                     <Button fx:id="cancelPvDetailButton" onAction="#onCancelPvDetail" styleClass="btn-secondary" text="Cancel" />
-                  </HBox>
-               </VBox>
+                  <!-- Right side: PV Detail Entry Panel (initially hidden) -->
+                  <VBox fx:id="pvDetailEntryPanel" spacing="10" styleClass="form-container" visible="false" prefWidth="400" minWidth="350">
+                     <Label styleClass="section-header" text="Add Process Variable" />
+                     <GridPane hgap="10" vgap="10">
+                        <columnConstraints>
+                           <ColumnConstraints minWidth="120" prefWidth="120" />
+                           <ColumnConstraints hgrow="ALWAYS" />
+                        </columnConstraints>
+                        
+                        <Label text="PV Name:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                        <TextField fx:id="pvNameField" promptText="Process variable name" GridPane.columnIndex="1" GridPane.rowIndex="0" />
+                        
+                        <Label text="Data Type:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+                        <ComboBox fx:id="pvDataTypeCombo" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+                        
+                        <Label text="Sample Period (ms):" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+                        <Spinner fx:id="pvSamplePeriodSpinner" editable="true" GridPane.columnIndex="1" GridPane.rowIndex="2">
+                           <valueFactory>
+                              <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="1000" max="3600000" min="1" />
+                           </valueFactory>
+                        </Spinner>
+                        
+                        <Label text="Initial Value:" GridPane.columnIndex="0" GridPane.rowIndex="3" />
+                        <TextField fx:id="pvInitialValueField" promptText="Initial value" GridPane.columnIndex="1" GridPane.rowIndex="3" />
+                        
+                        <Label text="Max Step Magnitude:" GridPane.columnIndex="0" GridPane.rowIndex="4" />
+                        <TextField fx:id="pvMaxStepField" promptText="Maximum step size" GridPane.columnIndex="1" GridPane.rowIndex="4" />
+                     </GridPane>
+                     
+                     <HBox spacing="10">
+                        <Button fx:id="addPvDetailButton" onAction="#onAddPvDetail" styleClass="btn-success" text="Add" />
+                        <Button fx:id="cancelPvDetailButton" onAction="#onCancelPvDetail" styleClass="btn-secondary" text="Cancel" />
+                     </HBox>
+                  </VBox>
+               </HBox>
             </VBox>
          </VBox>
       </ScrollPane>

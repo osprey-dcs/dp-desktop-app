@@ -13,6 +13,8 @@ import org.apache.logging.log4j.Logger;
 import java.net.URL;
 import java.util.ResourceBundle;
 
+
+
 public class MainController implements Initializable {
 
     private static final Logger logger = LogManager.getLogger();

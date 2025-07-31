@@ -1,6 +1,5 @@
 package com.ospreydcs.dp.service.inprocess;
 
-import com.ospreydcs.dp.client.MongoInterface;
 import com.ospreydcs.dp.service.common.config.ConfigurationManager;
 import io.grpc.ManagedChannel;
 import org.apache.logging.log4j.LogManager;
@@ -14,7 +13,6 @@ public class InprocessServiceEcosystem {
     // constants
 
     // instance variables
-    protected MongoInterface mongoClient;
     public InprocessIngestionService ingestionService = new InprocessIngestionService();
     public InprocessQueryService queryService = new InprocessQueryService();
     public InprocessAnnotationService annotationService = new InprocessAnnotationService();
@@ -28,30 +26,26 @@ public class InprocessServiceEcosystem {
 
         logger.debug("InprocessGrpcServiceEcosystem init");
 
-        // init the mongo client interface for db verification, globally changes database name to dp-test
-        mongoClient = new MongoInterface();
-        if (!mongoClient.init()) {
-            return false;
-        }
+        MongoInterface.prepareDemoDatabase(); // Globally changes default database name to dp-demo
 
         // init ingestion service
-        if (!ingestionService.init(mongoClient)) {
+        if (!ingestionService.init()) {
             return false;
         }
         ManagedChannel ingestionChannel = ingestionService.getIngestionChannel();
 
         // init query service
-        if (!queryService.init(mongoClient)) {
+        if (!queryService.init()) {
             return false;
         }
 
         // init annotation service
-        if (!annotationService.init(mongoClient)) {
+        if (!annotationService.init()) {
             return false;
         }
 
         // init ingestion stream service
-        if (!ingestionStreamService.init(mongoClient, ingestionChannel)) {
+        if (!ingestionStreamService.init(ingestionChannel)) {
             return false;
         }
 
@@ -66,9 +60,6 @@ public class InprocessServiceEcosystem {
         annotationService.fini();
         queryService.fini();
         ingestionService.fini();
-
-        mongoClient.fini();
-        mongoClient = null;
     }
 
 }

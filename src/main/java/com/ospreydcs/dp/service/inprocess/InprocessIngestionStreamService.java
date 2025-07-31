@@ -1,6 +1,5 @@
 package com.ospreydcs.dp.service.inprocess;
 
-import com.ospreydcs.dp.client.MongoInterface;
 import com.ospreydcs.dp.service.ingestionstream.handler.IngestionStreamHandler;
 import com.ospreydcs.dp.service.ingestionstream.handler.interfaces.IngestionStreamHandlerInterface;
 import com.ospreydcs.dp.service.ingestionstream.service.IngestionStreamServiceImpl;
@@ -23,9 +22,9 @@ public class InprocessIngestionStreamService extends InprocessServiceBase<Ingest
     // instance variables (common ones inherited from base class)
     private ManagedChannel ingestionChannel;
 
-    public boolean init(MongoInterface mongoClient, ManagedChannel ingestionChannel) {
+    public boolean init(ManagedChannel ingestionChannel) {
         this.ingestionChannel = ingestionChannel;
-        return super.init(mongoClient);
+        return super.init();
     }
 
     @Override

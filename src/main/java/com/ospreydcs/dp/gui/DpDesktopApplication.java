@@ -60,6 +60,7 @@ public class DpDesktopApplication extends Application {
         stage.setMinHeight(600);
         
         // Handle application close
+        // TODO: stop() also gets called, so I'm not sure we need to do this, or at least be prepared for cleanup() to be called twice.
         stage.setOnCloseRequest(event -> {
             logger.info("Application closing...");
             cleanup();
@@ -78,6 +79,7 @@ public class DpDesktopApplication extends Application {
     private void cleanup() {
         if (dpApplication != null) {
             dpApplication.fini();
+            dpApplication = null;
             logger.info("DpApplication cleanup completed");
         }
     }

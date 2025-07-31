@@ -1,6 +1,5 @@
 package com.ospreydcs.dp.service.inprocess;
 
-import com.ospreydcs.dp.client.MongoInterface;
 import io.grpc.BindableService;
 import io.grpc.ManagedChannel;
 import io.grpc.inprocess.InProcessChannelBuilder;
@@ -17,7 +16,6 @@ public abstract class InprocessServiceBase<T extends BindableService> {
     private static final Logger logger = LogManager.getLogger();
 
     // common instance variables
-    protected MongoInterface mongoClient;
     protected T service;
     protected T serviceMock;
     protected ManagedChannel channel;
@@ -26,9 +24,7 @@ public abstract class InprocessServiceBase<T extends BindableService> {
     protected abstract void finiService();
     protected abstract T createServiceMock(T service);
 
-    public boolean init(MongoInterface mongoClient) {
-
-        this.mongoClient = mongoClient;
+    public boolean init() {
 
         if (!initService()) {
             logger.error("initService() failed for: {}", getServiceName());
@@ -57,6 +53,7 @@ public abstract class InprocessServiceBase<T extends BindableService> {
     }
 
     public void fini() {
+        logger.info("shutting down service: {}", getServiceName());
         finiService();
         service = null;
         serviceMock = null;

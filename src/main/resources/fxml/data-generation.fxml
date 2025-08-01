@@ -25,7 +25,7 @@
                      <ColumnConstraints hgrow="ALWAYS" />
                   </columnConstraints>
                   
-                  <Label text="Name:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                  <Label text="Name: *" GridPane.columnIndex="0" GridPane.rowIndex="0" />
                   <TextField fx:id="providerNameField" promptText="Provider name" GridPane.columnIndex="1" GridPane.rowIndex="0" />
                   
                   <Label text="Description:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
@@ -61,50 +61,50 @@
                      <ColumnConstraints hgrow="ALWAYS" />
                   </columnConstraints>
                   
-                  <Label text="Data Begin Time:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                  <Label text="Data Begin Time: *" GridPane.columnIndex="0" GridPane.rowIndex="0" />
                   <DatePicker fx:id="dataBeginDatePicker" GridPane.columnIndex="1" GridPane.rowIndex="0" />
                   
                   <Label text="Begin Time:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
                   <HBox spacing="5" GridPane.columnIndex="1" GridPane.rowIndex="1">
                      <Spinner fx:id="beginHourSpinner" editable="true" prefWidth="80">
                         <valueFactory>
-                           <SpinnerValueFactory.IntegerSpinnerValueFactory max="23" min="0" />
+                           <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="23" min="0" />
                         </valueFactory>
                      </Spinner>
                      <Label text=":" />
                      <Spinner fx:id="beginMinuteSpinner" editable="true" prefWidth="80">
                         <valueFactory>
-                           <SpinnerValueFactory.IntegerSpinnerValueFactory max="59" min="0" />
+                           <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="59" min="0" />
                         </valueFactory>
                      </Spinner>
                      <Label text=":" />
                      <Spinner fx:id="beginSecondSpinner" editable="true" prefWidth="80">
                         <valueFactory>
-                           <SpinnerValueFactory.IntegerSpinnerValueFactory max="59" min="0" />
+                           <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="59" min="0" />
                         </valueFactory>
                      </Spinner>
                   </HBox>
                   
-                  <Label text="Data End Time:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+                  <Label text="Data End Time: *" GridPane.columnIndex="0" GridPane.rowIndex="2" />
                   <DatePicker fx:id="dataEndDatePicker" GridPane.columnIndex="1" GridPane.rowIndex="2" />
                   
                   <Label text="End Time:" GridPane.columnIndex="0" GridPane.rowIndex="3" />
                   <HBox spacing="5" GridPane.columnIndex="1" GridPane.rowIndex="3">
                      <Spinner fx:id="endHourSpinner" editable="true" prefWidth="80">
                         <valueFactory>
-                           <SpinnerValueFactory.IntegerSpinnerValueFactory max="23" min="0" />
+                           <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="23" min="0" />
                         </valueFactory>
                      </Spinner>
                      <Label text=":" />
                      <Spinner fx:id="endMinuteSpinner" editable="true" prefWidth="80">
                         <valueFactory>
-                           <SpinnerValueFactory.IntegerSpinnerValueFactory max="59" min="0" />
+                           <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="59" min="0" />
                         </valueFactory>
                      </Spinner>
                      <Label text=":" />
                      <Spinner fx:id="endSecondSpinner" editable="true" prefWidth="80">
                         <valueFactory>
-                           <SpinnerValueFactory.IntegerSpinnerValueFactory max="59" min="0" />
+                           <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="59" min="0" />
                         </valueFactory>
                      </Spinner>
                   </HBox>
@@ -156,23 +156,23 @@
                            <ColumnConstraints hgrow="ALWAYS" />
                         </columnConstraints>
                         
-                        <Label text="PV Name:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                        <Label text="PV Name: *" GridPane.columnIndex="0" GridPane.rowIndex="0" />
                         <TextField fx:id="pvNameField" promptText="Process variable name" GridPane.columnIndex="1" GridPane.rowIndex="0" />
                         
-                        <Label text="Data Type:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+                        <Label text="Data Type: *" GridPane.columnIndex="0" GridPane.rowIndex="1" />
                         <ComboBox fx:id="pvDataTypeCombo" GridPane.columnIndex="1" GridPane.rowIndex="1" />
                         
-                        <Label text="Sample Period (ms):" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+                        <Label text="Sample Period (ms): *" GridPane.columnIndex="0" GridPane.rowIndex="2" />
                         <Spinner fx:id="pvSamplePeriodSpinner" editable="true" GridPane.columnIndex="1" GridPane.rowIndex="2">
                            <valueFactory>
                               <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="1000" max="3600000" min="1" />
                            </valueFactory>
                         </Spinner>
                         
-                        <Label text="Initial Value:" GridPane.columnIndex="0" GridPane.rowIndex="3" />
+                        <Label text="Initial Value: *" GridPane.columnIndex="0" GridPane.rowIndex="3" />
                         <TextField fx:id="pvInitialValueField" promptText="Initial value" GridPane.columnIndex="1" GridPane.rowIndex="3" />
                         
-                        <Label text="Max Step Magnitude:" GridPane.columnIndex="0" GridPane.rowIndex="4" />
+                        <Label text="Max Step Magnitude: *" GridPane.columnIndex="0" GridPane.rowIndex="4" />
                         <TextField fx:id="pvMaxStepField" promptText="Maximum step size" GridPane.columnIndex="1" GridPane.rowIndex="4" />
                      </GridPane>
                      

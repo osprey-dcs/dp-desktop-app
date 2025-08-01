@@ -251,18 +251,60 @@ public class DataGenerationViewModel {
             statusMessage.set("Please fill in all required fields");
             return;
         }
+        
+        if (dpApplication == null) {
+            statusMessage.set("DpApplication not initialized");
+            return;
+        }
 
         isGenerating.set(true);
-        statusMessage.set("Generating data...");
+        statusMessage.set("Registering provider...");
         
         try {
-            // TODO: Implement data generation logic using dpApplication
             logger.info("Starting data generation for {} PVs", pvDetails.size());
             logger.info("Provider: {}", providerName.get());
             logger.info("Time range: {} to {}", getBeginDateTime(), getEndDateTime());
             
-            // Placeholder for actual implementation
-            statusMessage.set("Data generation will be implemented in next phase");
+            // Step 1: Register provider (5.2.2)
+            Map<String, String> providerAttributesMap = convertAttributesToMap(providerAttributes);
+            com.ospreydcs.dp.service.common.model.ResultStatus registerResult = dpApplication.registerProvider(
+                providerName.get(),
+                providerDescription.get(),
+                new java.util.ArrayList<>(providerTags),
+                providerAttributesMap
+            );
+            
+            if (registerResult.isError) {
+                statusMessage.set("Provider registration failed: " + registerResult.msg);
+                logger.error("Provider registration failed: {}", registerResult.msg);
+                return;
+            }
+            
+            logger.info("Provider registered successfully: {}", registerResult.msg);
+            statusMessage.set("Generating and ingesting data...");
+            
+            // Step 2: Generate and ingest data (5.2.3)
+            Map<String, String> requestAttributesMap = convertAttributesToMap(requestAttributes);
+            java.time.Instant beginInstant = getBeginDateTime().atZone(java.time.ZoneId.systemDefault()).toInstant();
+            java.time.Instant endInstant = getEndDateTime().atZone(java.time.ZoneId.systemDefault()).toInstant();
+            
+            com.ospreydcs.dp.service.common.model.ResultStatus ingestResult = dpApplication.generateAndIngestData(
+                beginInstant,
+                endInstant,
+                new java.util.ArrayList<>(requestTags),
+                requestAttributesMap,
+                new java.util.ArrayList<>(pvDetails)
+            );
+            
+            if (ingestResult.isError) {
+                statusMessage.set("Data generation failed: " + ingestResult.msg);
+                logger.error("Data generation failed: {}", ingestResult.msg);
+                return;
+            }
+            
+            // Success!
+            statusMessage.set("Data generation completed successfully: " + ingestResult.msg);
+            logger.info("Data generation completed successfully: {}", ingestResult.msg);
             
         } catch (Exception e) {
             logger.error("Error during data generation", e);
@@ -271,13 +313,69 @@ public class DataGenerationViewModel {
             isGenerating.set(false);
         }
     }
+    
+    private Map<String, String> convertAttributesToMap(ObservableList<String> attributeList) {
+        Map<String, String> attributeMap = new java.util.HashMap<>();
+        for (String attribute : attributeList) {
+            String[] parts = attribute.split(":", 2); // Split into at most 2 parts
+            if (parts.length == 2) {
+                String key = parts[0].trim();
+                String value = parts[1].trim();
+                attributeMap.put(key, value);
+            } else {
+                logger.warn("Invalid attribute format: {}", attribute);
+            }
+        }
+        return attributeMap;
+    }
 
     private boolean isFormValid() {
-        return providerName.get() != null && !providerName.get().trim().isEmpty() &&
-               !pvDetails.isEmpty() &&
-               dataBeginDate.get() != null &&
-               dataEndDate.get() != null &&
-               getBeginDateTime().isBefore(getEndDateTime());
+        // Validate Provider Details section (5.2.1.1)
+        if (providerName.get() == null || providerName.get().trim().isEmpty()) {
+            logger.warn("Provider name is required");
+            return false;
+        }
+        
+        // Validate Request Details section (5.2.1.2)
+        if (dataBeginDate.get() == null) {
+            logger.warn("Data begin date is required");
+            return false;
+        }
+        
+        if (dataEndDate.get() == null) {
+            logger.warn("Data end date is required");
+            return false;
+        }
+        
+        
+        if (!getBeginDateTime().isBefore(getEndDateTime())) {
+            logger.warn("Begin time: {} must be before end time: {}", getBeginDateTime(), getEndDateTime());
+            return false;
+        }
+        
+        // Validate PV Details section (5.2.1.3)
+        if (pvDetails.isEmpty()) {
+            logger.warn("At least one PV detail is required");
+            return false;
+        }
+        
+        // Validate that all PV details have required fields
+        for (PvDetail pvDetail : pvDetails) {
+            if (!isPvDetailValid(pvDetail)) {
+                logger.warn("PV detail {} is missing required fields", pvDetail.getPvName());
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    private boolean isPvDetailValid(PvDetail pvDetail) {
+        return pvDetail.getPvName() != null && !pvDetail.getPvName().trim().isEmpty() &&
+               pvDetail.getDataType() != null && !pvDetail.getDataType().trim().isEmpty() &&
+               pvDetail.getSamplePeriod() > 0 &&
+               pvDetail.getInitialValue() != null && !pvDetail.getInitialValue().trim().isEmpty() &&
+               pvDetail.getMaxStepMagnitude() != null && !pvDetail.getMaxStepMagnitude().trim().isEmpty();
     }
 
     public void cancel() {

@@ -97,14 +97,20 @@ public class DataGenerationController implements Initializable {
 
         // Request Details bindings
         dataBeginDatePicker.valueProperty().bindBidirectional(viewModel.dataBeginDateProperty());
-        beginHourSpinner.getValueFactory().valueProperty().bindBidirectional(viewModel.beginHourProperty().asObject());
-        beginMinuteSpinner.getValueFactory().valueProperty().bindBidirectional(viewModel.beginMinuteProperty().asObject());
-        beginSecondSpinner.getValueFactory().valueProperty().bindBidirectional(viewModel.beginSecondProperty().asObject());
+        
+        
+        // Use manual synchronization instead of bidirectional binding for better control
+        setupSpinnerBinding(beginHourSpinner, viewModel.beginHourProperty(), "beginHour");
+        setupSpinnerBinding(beginMinuteSpinner, viewModel.beginMinuteProperty(), "beginMinute");
+        setupSpinnerBinding(beginSecondSpinner, viewModel.beginSecondProperty(), "beginSecond");
         
         dataEndDatePicker.valueProperty().bindBidirectional(viewModel.dataEndDateProperty());
-        endHourSpinner.getValueFactory().valueProperty().bindBidirectional(viewModel.endHourProperty().asObject());
-        endMinuteSpinner.getValueFactory().valueProperty().bindBidirectional(viewModel.endMinuteProperty().asObject());
-        endSecondSpinner.getValueFactory().valueProperty().bindBidirectional(viewModel.endSecondProperty().asObject());
+        
+        setupSpinnerBinding(endHourSpinner, viewModel.endHourProperty(), "endHour");
+        setupSpinnerBinding(endMinuteSpinner, viewModel.endMinuteProperty(), "endMinute");
+        setupSpinnerBinding(endSecondSpinner, viewModel.endSecondProperty(), "endSecond");
+        
+        logger.debug("Time spinner bindings completed");
         
         requestTagsList.setItems(viewModel.getRequestTags());
         requestAttributesList.setItems(viewModel.getRequestAttributes());
@@ -267,6 +273,37 @@ public class DataGenerationController implements Initializable {
         pvDataTypeCombo.getItems().addAll("integer", "float");
         
         logger.debug("ComboBox items populated");
+    }
+    
+    private void setupSpinnerBinding(Spinner<Integer> spinner, javafx.beans.property.IntegerProperty viewModelProperty, String name) {
+        if (spinner.getValueFactory() == null) {
+            logger.error("{} spinner value factory is null!", name);
+            return;
+        }
+        
+        logger.debug("Setting up binding for {} spinner", name);
+        
+        // Initialize ViewModel property from spinner value
+        viewModelProperty.set(spinner.getValue());
+        logger.debug("Initialized {} ViewModel property to: {}", name, spinner.getValue());
+        
+        // Listen for changes in spinner and update ViewModel
+        spinner.valueProperty().addListener((obs, oldVal, newVal) -> {
+            if (newVal != null) {
+                logger.debug("{} spinner changed from {} to {}", name, oldVal, newVal);
+                viewModelProperty.set(newVal);
+            }
+        });
+        
+        // Listen for changes in ViewModel and update spinner
+        viewModelProperty.addListener((obs, oldVal, newVal) -> {
+            if (!newVal.equals(spinner.getValue())) {
+                logger.debug("{} ViewModel property changed from {} to {}", name, oldVal, newVal);
+                spinner.getValueFactory().setValue(newVal.intValue());
+            }
+        });
+        
+        logger.debug("{} spinner binding completed", name);
     }
 
     // Dependency injection methods

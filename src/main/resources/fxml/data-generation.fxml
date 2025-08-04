@@ -109,8 +109,11 @@
                      </Spinner>
                   </HBox>
                   
-                  <Label text="Tags:" GridPane.columnIndex="0" GridPane.rowIndex="4" />
-                  <VBox spacing="5" GridPane.columnIndex="1" GridPane.rowIndex="4">
+                  <Label text="Bucket Size:" GridPane.columnIndex="0" GridPane.rowIndex="4" />
+                  <ComboBox fx:id="bucketSizeCombo" promptText="Select bucket size" GridPane.columnIndex="1" GridPane.rowIndex="4" />
+                  
+                  <Label text="Tags:" GridPane.columnIndex="0" GridPane.rowIndex="5" />
+                  <VBox spacing="5" GridPane.columnIndex="1" GridPane.rowIndex="5">
                      <HBox spacing="10">
                         <ComboBox fx:id="requestTagsCombo" promptText="Select tags" />
                         <Button fx:id="addRequestTagButton" onAction="#onAddRequestTag" text="Add Tag" />
@@ -118,8 +121,8 @@
                      <ListView fx:id="requestTagsList" maxHeight="80" minHeight="60" />
                   </VBox>
                   
-                  <Label text="Attributes:" GridPane.columnIndex="0" GridPane.rowIndex="5" />
-                  <VBox spacing="5" GridPane.columnIndex="1" GridPane.rowIndex="5">
+                  <Label text="Attributes:" GridPane.columnIndex="0" GridPane.rowIndex="6" />
+                  <VBox spacing="5" GridPane.columnIndex="1" GridPane.rowIndex="6">
                      <HBox spacing="10">
                         <ComboBox fx:id="requestAttributeKeyCombo" onAction="#onRequestAttributeKeyChanged" promptText="Select key" />
                         <ComboBox fx:id="requestAttributeValueCombo" promptText="Select value" />
@@ -128,8 +131,8 @@
                      <ListView fx:id="requestAttributesList" maxHeight="80" minHeight="60" />
                   </VBox>
                   
-                  <Label text="Event Name:" GridPane.columnIndex="0" GridPane.rowIndex="6" />
-                  <ComboBox fx:id="eventNameCombo" promptText="Select event" GridPane.columnIndex="1" GridPane.rowIndex="6" />
+                  <Label text="Event Name:" GridPane.columnIndex="0" GridPane.rowIndex="7" />
+                  <ComboBox fx:id="eventNameCombo" promptText="Select event" GridPane.columnIndex="1" GridPane.rowIndex="7" />
                </GridPane>
             </VBox>
             

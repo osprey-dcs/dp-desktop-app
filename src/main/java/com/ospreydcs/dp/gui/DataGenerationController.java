@@ -45,6 +45,7 @@ public class DataGenerationController implements Initializable {
     @FXML private ComboBox<String> requestAttributeValueCombo;
     @FXML private Button addRequestAttributeButton;
     @FXML private ListView<String> requestAttributesList;
+    @FXML private ComboBox<String> bucketSizeCombo;
     @FXML private ComboBox<String> eventNameCombo;
 
     // PV Details FXML components
@@ -114,6 +115,7 @@ public class DataGenerationController implements Initializable {
         
         requestTagsList.setItems(viewModel.getRequestTags());
         requestAttributesList.setItems(viewModel.getRequestAttributes());
+        bucketSizeCombo.valueProperty().bindBidirectional(viewModel.bucketSizeProperty());
         eventNameCombo.valueProperty().bindBidirectional(viewModel.eventNameProperty());
 
         // PV Details bindings
@@ -266,6 +268,9 @@ public class DataGenerationController implements Initializable {
         // Request Attribute Key ComboBox
         requestAttributeKeyCombo.getItems().addAll("status", "mode");
         
+        // Bucket Size ComboBox
+        bucketSizeCombo.getItems().addAll("1 second", "1 minute");
+        
         // Event Name ComboBox
         eventNameCombo.getItems().addAll("Commission-1", "Commission-2", "Experiment-1", "Experiment-2");
         
@@ -305,6 +310,18 @@ public class DataGenerationController implements Initializable {
         
         logger.debug("{} spinner binding completed", name);
     }
+    
+    private void setupStatusListener() {
+        // Connect ViewModel status messages to MainController status display
+        if (viewModel != null && mainController != null) {
+            viewModel.statusMessageProperty().addListener((obs, oldStatus, newStatus) -> {
+                if (newStatus != null && !newStatus.trim().isEmpty()) {
+                    mainController.getViewModel().updateStatus(newStatus);
+                }
+            });
+            logger.debug("Status listener established between DataGenerationViewModel and MainController");
+        }
+    }
 
     // Dependency injection methods
     public void setDpApplication(DpApplication dpApplication) {
@@ -322,6 +339,10 @@ public class DataGenerationController implements Initializable {
 
     public void setMainController(MainController mainController) {
         this.mainController = mainController;
+        
+        // Set up status message forwarding
+        setupStatusListener();
+        
         logger.debug("MainController injected into DataGenerationController");
     }
 

@@ -29,13 +29,14 @@ public class DataGenerationViewModel {
     private final IntegerProperty beginMinute = new SimpleIntegerProperty(0);
     private final IntegerProperty beginSecond = new SimpleIntegerProperty(0);
     
-    private final ObjectProperty<LocalDate> dataEndDate = new SimpleObjectProperty<>(LocalDate.now().plusDays(1));
+    private final ObjectProperty<LocalDate> dataEndDate = new SimpleObjectProperty<>(LocalDate.now());
     private final IntegerProperty endHour = new SimpleIntegerProperty(0);
     private final IntegerProperty endMinute = new SimpleIntegerProperty(0);
     private final IntegerProperty endSecond = new SimpleIntegerProperty(0);
     
     private final ObservableList<String> requestTags = FXCollections.observableArrayList();
     private final ObservableList<String> requestAttributes = FXCollections.observableArrayList();
+    private final StringProperty bucketSize = new SimpleStringProperty("1 second");
     private final StringProperty eventName = new SimpleStringProperty();
 
     // PV Details properties
@@ -100,6 +101,7 @@ public class DataGenerationViewModel {
     
     public ObservableList<String> getRequestTags() { return requestTags; }
     public ObservableList<String> getRequestAttributes() { return requestAttributes; }
+    public StringProperty bucketSizeProperty() { return bucketSize; }
     public StringProperty eventNameProperty() { return eventName; }
 
     // PV Details property getters
@@ -245,6 +247,15 @@ public class DataGenerationViewModel {
         LocalTime endTime = LocalTime.of(endHour.get(), endMinute.get(), endSecond.get());
         return LocalDateTime.of(dataEndDate.get(), endTime);
     }
+    
+    public int getBucketSizeSeconds() {
+        String bucketSizeValue = bucketSize.get();
+        if ("1 minute".equals(bucketSizeValue)) {
+            return 60;
+        } else {
+            return 1; // Default to 1 second
+        }
+    }
 
     public void generateData() {
         if (!isFormValid()) {
@@ -293,7 +304,8 @@ public class DataGenerationViewModel {
                 endInstant,
                 new java.util.ArrayList<>(requestTags),
                 requestAttributesMap,
-                new java.util.ArrayList<>(pvDetails)
+                new java.util.ArrayList<>(pvDetails),
+                getBucketSizeSeconds()
             );
             
             if (ingestResult.isError) {

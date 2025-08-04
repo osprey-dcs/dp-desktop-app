@@ -95,7 +95,8 @@ public class DpApplication {
             Instant endTime,
             List<String> tags,
             Map<String, String> attributes,
-            List<PvDetail> pvDetails
+            List<PvDetail> pvDetails,
+            int bucketSizeSeconds
     ) {
         if (providerId == null) {
             return new ResultStatus(true, "Provider must be registered before ingesting data");
@@ -109,7 +110,7 @@ public class DpApplication {
         try {
             // Generate and ingest data for each PV
             for (PvDetail pvDetail : pvDetails) {
-                ResultStatus result = generateAndIngestPvData(pvDetail, beginTime, endTime, tags, attributes);
+                ResultStatus result = generateAndIngestPvData(pvDetail, beginTime, endTime, tags, attributes, bucketSizeSeconds);
                 if (result.isError) {
                     return result; // Return first error encountered
                 }
@@ -124,68 +125,109 @@ public class DpApplication {
     
     private ResultStatus generateAndIngestPvData(
             PvDetail pvDetail, Instant beginTime, Instant endTime,
-            List<String> tags, Map<String, String> attributes
+            List<String> tags, Map<String, String> attributes, int bucketSizeSeconds
     ) {
         try {
-            // Calculate timing parameters
-            long totalDurationNanos = java.time.Duration.between(beginTime, endTime).toNanos();
+            // Calculate total duration and number of buckets
+            long totalDurationSeconds = java.time.Duration.between(beginTime, endTime).toSeconds();
+            int numberOfBuckets = (int) Math.ceil((double) totalDurationSeconds / bucketSizeSeconds);
+            
+            // Generate all data values for the entire time range first
             long samplePeriodNanos = pvDetail.getSamplePeriod() * 1_000_000L; // convert ms to ns
-            int sampleCount = (int) (totalDurationNanos / samplePeriodNanos) + 1;
+            long totalDurationNanos = java.time.Duration.between(beginTime, endTime).toNanos();
+            int totalSampleCount = (int) (totalDurationNanos / samplePeriodNanos) + 1;
+            List<Object> allDataValues = generateRandomWalkData(pvDetail, totalSampleCount);
             
-            // Generate random walk data values
-            List<Object> dataValues = generateRandomWalkData(pvDetail, sampleCount);
+            // Calculate how many samples per bucket
+            long bucketDurationNanos = bucketSizeSeconds * 1_000_000_000L; // convert seconds to nanoseconds
+            int samplesPerBucket = (int) (bucketDurationNanos / samplePeriodNanos);
             
-            // Prepare constructor parameters
-            String requestId = java.util.UUID.randomUUID().toString();
-            Long samplingClockStartSeconds = beginTime.getEpochSecond();
-            Long samplingClockStartNanos = (long) beginTime.getNano();
-            Long samplingClockPeriodNanos = samplePeriodNanos;
-            Integer samplingClockCount = sampleCount;
+            // Prepare common parameters
             List<String> columnNames = java.util.Arrays.asList(pvDetail.getPvName());
             IngestionClient.IngestionDataType dataType = pvDetail.getDataType().equals("integer") ? 
                 IngestionClient.IngestionDataType.INT : 
                 IngestionClient.IngestionDataType.DOUBLE;
-            List<List<Object>> values = java.util.Arrays.asList(dataValues);
             
-            // Create request parameters using extended constructor with tags and attributes
-            IngestionClient.IngestionRequestParams params = new IngestionClient.IngestionRequestParams(
-                this.providerId,                    // providerId
-                requestId,                          // requestId
-                null,                              // snapshotStartTimestampSeconds
-                null,                              // snapshotStartTimestampNanos
-                null,                              // timestampsSecondsList
-                null,                              // timestampNanosList
-                samplingClockStartSeconds,         // samplingClockStartSeconds
-                samplingClockStartNanos,           // samplingClockStartNanos
-                samplingClockPeriodNanos,          // samplingClockPeriodNanos
-                samplingClockCount,                // samplingClockCount
-                columnNames,                       // columnNames
-                dataType,                          // dataType
-                values,                            // values
-                tags,                              // tags
-                attributes,                        // attributes
-                null,                              // eventDescription
-                null,                              // eventStartSeconds
-                null,                              // eventStartNanos
-                null,                              // eventStopSeconds
-                null,                              // eventStopNanos
-                false                              // useSerializedDataColumns
-            );
+            int requestCount = 0;
             
-            // Call ingestData() API method
-            final IngestDataResponse response = api.ingestionClient.sendIngestData(params);
-            
-            // Handle response
-            if (response == null) {
-                return new ResultStatus(true, "Failed to ingest data for PV " + pvDetail.getPvName() + " - null response");
+            // Create and send multiple requests, one for each bucket
+            for (int bucketIndex = 0; bucketIndex < numberOfBuckets; bucketIndex++) {
+                // Calculate bucket start time
+                Instant bucketStartTime = beginTime.plusSeconds((long) bucketIndex * bucketSizeSeconds);
+                
+                // Calculate bucket end time (don't exceed the original end time)
+                Instant bucketEndTime = beginTime.plusSeconds((long) (bucketIndex + 1) * bucketSizeSeconds);
+                if (bucketEndTime.isAfter(endTime)) {
+                    bucketEndTime = endTime;
+                }
+                
+                // Calculate sample count for this bucket
+                long bucketDurationActualNanos = java.time.Duration.between(bucketStartTime, bucketEndTime).toNanos();
+                int bucketSampleCount = (int) (bucketDurationActualNanos / samplePeriodNanos) + 1;
+                
+                // Extract the data values for this bucket
+                int startIndex = bucketIndex * samplesPerBucket;
+                int endIndex = Math.min(startIndex + bucketSampleCount, allDataValues.size());
+                
+                if (startIndex >= allDataValues.size()) {
+                    break; // No more data to process
+                }
+                
+                List<Object> bucketDataValues = allDataValues.subList(startIndex, endIndex);
+                if (bucketDataValues.isEmpty()) {
+                    continue; // Skip empty buckets
+                }
+                
+                // Create request parameters for this bucket
+                String requestId = java.util.UUID.randomUUID().toString();
+                Long samplingClockStartSeconds = bucketStartTime.getEpochSecond();
+                Long samplingClockStartNanos = (long) bucketStartTime.getNano();
+                Long samplingClockPeriodNanos = samplePeriodNanos;
+                Integer samplingClockCount = bucketDataValues.size();
+                List<List<Object>> values = java.util.Arrays.asList(bucketDataValues);
+                
+                IngestionClient.IngestionRequestParams params = new IngestionClient.IngestionRequestParams(
+                    this.providerId,                    // providerId
+                    requestId,                          // requestId
+                    null,                              // snapshotStartTimestampSeconds
+                    null,                              // snapshotStartTimestampNanos
+                    null,                              // timestampsSecondsList
+                    null,                              // timestampNanosList
+                    samplingClockStartSeconds,         // samplingClockStartSeconds
+                    samplingClockStartNanos,           // samplingClockStartNanos
+                    samplingClockPeriodNanos,          // samplingClockPeriodNanos
+                    samplingClockCount,                // samplingClockCount
+                    columnNames,                       // columnNames
+                    dataType,                          // dataType
+                    values,                            // values
+                    tags,                              // tags
+                    attributes,                        // attributes
+                    null,                              // eventDescription
+                    null,                              // eventStartSeconds
+                    null,                              // eventStartNanos
+                    null,                              // eventStopSeconds
+                    null,                              // eventStopNanos
+                    false                              // useSerializedDataColumns
+                );
+                
+                // Call ingestData() API method for this bucket
+                final IngestDataResponse response = api.ingestionClient.sendIngestData(params);
+                requestCount++;
+                
+                // Handle response
+                if (response == null) {
+                    return new ResultStatus(true, "Failed to ingest data for PV " + pvDetail.getPvName() + 
+                        " bucket " + (bucketIndex + 1) + " - null response");
+                }
+                
+                if (response.hasExceptionalResult()) {
+                    return new ResultStatus(true, "Data ingestion failed for PV " + pvDetail.getPvName() + 
+                        " bucket " + (bucketIndex + 1) + ": " + response.getExceptionalResult().getMessage());
+                }
             }
             
-            if (response.hasExceptionalResult()) {
-                return new ResultStatus(true, "Data ingestion failed for PV " + pvDetail.getPvName() + ": " + 
-                    response.getExceptionalResult().getMessage());
-            }
-            
-            return new ResultStatus(false, "Successfully ingested data for PV " + pvDetail.getPvName());
+            return new ResultStatus(false, "Successfully ingested data for PV " + pvDetail.getPvName() + 
+                " in " + requestCount + " bucket(s) of " + bucketSizeSeconds + " second(s) each");
             
         } catch (Exception e) {
             return new ResultStatus(true, "Error ingesting data for PV " + pvDetail.getPvName() + ": " + e.getMessage());

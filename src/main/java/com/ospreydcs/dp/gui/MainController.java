@@ -95,6 +95,10 @@ public class MainController implements Initializable {
         this.primaryStage = primaryStage;
         logger.debug("Primary stage injected into MainController");
     }
+    
+    public MainViewModel getViewModel() {
+        return viewModel;
+    }
 
     // Menu action handlers - File menu
     @FXML

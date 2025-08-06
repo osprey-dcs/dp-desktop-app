@@ -4,6 +4,7 @@ import com.ospreydcs.dp.service.query.handler.interfaces.QueryHandlerInterface;
 import com.ospreydcs.dp.service.query.handler.mongo.MongoQueryHandler;
 import com.ospreydcs.dp.service.query.service.QueryServiceImpl;
 import io.grpc.Channel;
+import io.grpc.ManagedChannel;
 import io.grpc.testing.GrpcCleanupRule;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -21,7 +22,7 @@ public class InprocessQueryService extends InprocessServiceBase<QueryServiceImpl
 
     // instance variables (common ones inherited from base class)
 
-    public Channel getQueryChannel() {
+    public ManagedChannel getQueryChannel() {
         return this.channel;
     }
 

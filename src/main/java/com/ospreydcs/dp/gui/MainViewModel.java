@@ -40,6 +40,7 @@ public class MainViewModel {
 
     public void setDpApplication(DpApplication dpApplication) {
         this.dpApplication = dpApplication;
+        updateMenuStatesFromApplicationState();
         logger.debug("DpApplication injected into MainViewModel");
     }
 
@@ -127,6 +128,37 @@ public class MainViewModel {
     public void setConnected(boolean connected) {
         isConnected.set(connected);
         logger.debug("Connection state changed to: {}", connected);
+    }
+    
+    /**
+     * Updates menu item enabled states based on current application state
+     */
+    public void updateMenuStatesFromApplicationState() {
+        if (dpApplication != null) {
+            // Enable data query menu if data has been ingested
+            dataEnabled.set(dpApplication.hasIngestedData());
+            
+            // Enable PV and Provider metadata menus if data has been ingested
+            pvMetadataEnabled.set(dpApplication.hasIngestedData());
+            providerMetadataEnabled.set(dpApplication.hasIngestedData());
+            
+            // Enable export menu if queries have been performed
+            exportEnabled.set(dpApplication.hasPerformedQueries());
+            
+            // Enable annotation menu if data has been ingested
+            annotateEnabled.set(dpApplication.hasIngestedData());
+            annotationsEnabled.set(dpApplication.hasIngestedData());
+            
+            logger.debug("Menu states updated - dataEnabled: {}, pvMetadataEnabled: {}, providerMetadataEnabled: {}, exportEnabled: {}", 
+                dataEnabled.get(), pvMetadataEnabled.get(), providerMetadataEnabled.get(), exportEnabled.get());
+        }
+    }
+    
+    /**
+     * Public method to refresh menu states - can be called when application state changes
+     */
+    public void refreshMenuStates() {
+        updateMenuStatesFromApplicationState();
     }
 
     // Future method stubs for menu actions

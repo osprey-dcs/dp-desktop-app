@@ -150,6 +150,7 @@ public class MainController implements Initializable {
     @FXML
     private void onData() {
         viewModel.handleData();
+        switchToView("/fxml/data-query.fxml");
     }
 
     @FXML
@@ -206,6 +207,11 @@ public class MainController implements Initializable {
                 dgController.setDpApplication(dpApplication);
                 dgController.setPrimaryStage(primaryStage);
                 dgController.setMainController(this);
+            } else if (controller instanceof DataQueryController) {
+                DataQueryController dqController = (DataQueryController) controller;
+                dqController.setDpApplication(dpApplication);
+                dqController.setPrimaryStage(primaryStage);
+                dqController.setMainController(this);
             }
             
             viewModel.updateStatus("View loaded successfully");
@@ -275,12 +281,24 @@ public class MainController implements Initializable {
             homeController.onDataGenerationSuccess(message);
             logger.info("Home view notified of data generation success: {}", message);
         }
+        
+        // Refresh menu states since data has been ingested
+        if (viewModel != null) {
+            viewModel.refreshMenuStates();
+            logger.debug("Menu states refreshed after data generation success");
+        }
     }
     
     public void onQuerySuccess(String message) {
         if (homeController != null) {
             homeController.onQuerySuccess(message);
             logger.info("Home view notified of query success: {}", message);
+        }
+        
+        // Refresh menu states since queries have been performed
+        if (viewModel != null) {
+            viewModel.refreshMenuStates();
+            logger.debug("Menu states refreshed after query success");
         }
     }
 }

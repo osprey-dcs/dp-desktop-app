@@ -162,5 +162,43 @@ Development of the demo GUI application will proceed according to the following 
 
 6.2 When the user successfully generates and ingests data for some PVs, we could return to the "welcome" view and updated the hints area to say something like "Use the Query menu to retrieve PV time-series data, or PV / Provider Metadata."  And the status section would display the number of PVs and buckets ingested (e.g., the same status message displayed at the bottom of the window after generating / ingesting data).
 
-7. Add simple PV time-series data query mechanism with results displayed in tabular format.  Provides GUI elements for specifying query criteria including list of PV names or PV name pattern, begin time, end time, and page size (in nanoseconds) for breaking the overall query time range into pages suitable for calls to queryTable() API method, and paging through the query results.  Query results are displayed in tabular format.
+7. Initial Data Query View - Add view for querying PV time-series data with results displayed in tabular format.  The Data Query View is opened from the Query->Data menu item.  The view contains two sections: 1) a section for specifying the query criteria (described in section 7.1 and its subsections), and 2) a section for displaying the query results in tabular format (described in section 7.2 and its subsections).
+
+7.1 Query Specification section - This section contains elements for capturing the query specification including 1) a list of PV names, and 2) "Begin Time" and "End Time" specifying the query time range.  Both elements are required.  The section should include buttons "Cancel" and "Submit".  The Cancel button should return to the home view.  The Submit button is discussed in 7.1.4.
+
+7.1.1 The Query Specifications section includes a toggle for showing or hiding the section, and it is shown by default.  
+
+7.1.2 By default, the list of PV names should include the PV names that were specified in the data-generation view's list of PvDetails (available via DpApplication.pvDetails.  The mechanism for adding additional PV names to the list is described in sections 7.1.2.1 through 7.1.2.5.
+
+7.1.2.1 Adding additional PV names - The list of PV names should include an associated "Add PV" button.  When the button is clicked, a "PV search panel" is displayed for 1) searching the archive for PV names, 2) displaying names matching the search filter, and 3) allowing the user to select one or more PV names to be added to the Query Specification.
+
+7.1.2.2 The panel includes a text field for entering the search filter, and a radio button or some mechanism for toggling between "PV name list" and "PV name pattern" that specify how the entry in the text field should be treated.  
+
+7.1.2.3 The panel includes a "Search" button.  When the button is clicked, the view calls one of two variants of the method DpApplication.queryPvMetadata().  If the user selected "PV name list", the view calls the method variant accepting the list of PV name strings (obtained by parsing the view's input text field for comma separated list of strings).  If the user selected "PV name pattern", the view calls the variant accepting a single pattern string.  Both method variants return a protobuf QueryPvMetdataResponse.  If the response object is null, or contains an ExceptionalResult, the API method invocation failed and the ExceptionalResult contains the corresponding error message, which should be displayed in the status bar.
+
+7.1.2.4 If the API method succeeds, the QueryPvMetdataResponse contains a list of MetadataResult objects, one for each PV whose name matches the search filter.  The list of PV names should be displayed in the search panel's list of matching PV names.  
+
+7.1.2.5 The PV search panel's list of matching PV names provides a mechanism for selecting multiple PV names from the search result list and adding them to the Query Specification list of PV names.  Duplicate PV names selected in the search panel's list of matching PV names that are already contained in the Query Specification's list of PV names should be ignored.
+
+7.1.2.6 The PV search panel can be used for multiple searches, so it provides a mechanism for closing the panel (instead of closing it when items are added to the Query Specification list of PVs).
+
+7.1.3 The "Begin Time" and "End Time" should use the same form elements as in the data-generation view for picking the date and time. The default values should be the values that were provided in the data-generation view (if non-null etc) that are held in DpApplication member variables dataBeginTime and dataEndTime.
+
+7.1.4 The Submit button - When the Query Specifications section's Submit button is clicked, validation is performed to ensure that required information is provided, including that the list of PV names is not empty and both Begin Time and End Time are specified.  If the input is invalid, an error message is displayed in the status bar.  
+
+7.1.5 There is a concern about the amount of data returned by a PV time-series data query.  In order to avoid response messages that exceed the message size limit of 4 megabytes, the API query method is called in a loop. In the interest of responsiveness, the view breaks the overall query time range into one minute intervals and invokes DpApplication.queryTable() for each interval with the list of PV names contained in the Query Specification.  
+
+7.1.6 The queryTable() method invokes the queryTable() API method with the list of PV names, begin and end time, and specifies TABLE_FORMAT_ROW_MAP for a row-oriented result.  
+
+7.1.7 Each call to the queryTable() method returns a QueryTableResponse object.  If the response object is null, or contains an ExceptionalResult, the API method invocation failed and the ExceptionalResult contains the corresponding error message.
+
+7.2 Query Results section - The results from calling queryTable() are displayed in the Query Results section in tabular format.  Each call to queryTable() returns a QueryTableResponse containing a TableResult object wrapping a RowMapTable object containing the query results in a row-oriented data structure.  The result for each response object is added to the tabular query results view in an incremental fashion so that responsiveness is maintained.  The logic for building the tabular view from the query responses is described in sections 7.2.1 through 7.2.3.
+
+7.2.1 The column names for the result table header are obtained via the RowMapTable columnNames field.  The columns for each reponse object are assumed to be the same, since the query specifies the same list of PV names in each queryTable() invocation.  The result table should show the column names in the table header row, and the header should not scroll when the table is scrolled.  
+
+7.2.2 The data from each QueryTableResponse object should be incrementally added to the query result table in a way that maintains responsiveness.  The TableResult object contained in each QueryTableResponse message includes a RowMapTable with the data values for the range of table rows corresponding to the time range of the associated queryTable() invocation.  The RowMapTable's "rows" field is a list of DataRow map objects containing the data values for a table row, containing a DataRow map object per table data row.  The DataRow map keys are the column names, and the map values are the column data values for that row.  The column names in the map match the column names in the header row, and this is used to determine the column index for each data value.
+
+7.2.3 The first column of the table contains the timestamp for each table row.  The first column in RowMapTable.columnNames is labeled "timestamp".  The data map for each row includes an entry for the "timestamp" column, whose value is a protobuf Timestamp object containing epoch seconds and nanoseconds.  The protobuf Timestamp should be converted to a Java Instant and displayed in the first column using a format like ISO for displaying the date and time in a human-readable format.
+
+7.2.4 The next step in the development plan is to add a plotting mechanism to the tabular data in the Query Results section, so please favor design decisions that facilitate use of a standard Java plotting library in the Query Results section. 
 

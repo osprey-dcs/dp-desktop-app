@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<VBox spacing="20" styleClass="container" xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.ospreydcs.dp.gui.DataQueryController">
+    <padding>
+        <Insets bottom="20.0" left="20.0" right="20.0" top="20.0" />
+    </padding>
+
+    <!-- Header Section -->
+    <VBox alignment="CENTER" spacing="10">
+        <Label styleClass="h2" text="PV Time-Series Data Query" />
+        <Label styleClass="lead" text="Query historical data for Process Variables" />
+    </VBox>
+
+    <!-- Query Specification Section -->
+    <VBox fx:id="querySpecificationSection" spacing="15" styleClass="panel, panel-primary">
+        <padding>
+            <Insets bottom="15.0" left="15.0" right="15.0" top="15.0" />
+        </padding>
+        
+        <!-- Section Header with Toggle -->
+        <HBox alignment="CENTER_LEFT" spacing="10">
+            <Button fx:id="toggleSpecificationButton" onAction="#onToggleQuerySpecification" styleClass="btn, btn-link" text="📋 Query Specification" />
+            <Region HBox.hgrow="ALWAYS" />
+            <Label fx:id="specificationStatusLabel" styleClass="text-muted" text="Required" />
+        </HBox>
+        
+        <!-- Specification Content (collapsible) -->
+        <VBox fx:id="specificationContent" spacing="15">
+            <!-- PV Names Section -->
+            <VBox spacing="10">
+                <Label styleClass="control-label" text="PV Names:" />
+                <HBox spacing="10" alignment="CENTER_LEFT">
+                    <ListView fx:id="pvNamesList" prefHeight="120.0" HBox.hgrow="ALWAYS" />
+                    <VBox spacing="5">
+                        <Button fx:id="addPvButton" onAction="#onAddPv" styleClass="btn, btn-success" text="Add PV" />
+                        <Button fx:id="removePvButton" onAction="#onRemovePv" styleClass="btn, btn-warning" text="Remove" />
+                    </VBox>
+                </HBox>
+            </VBox>
+            
+            <!-- PV Search Panel (initially hidden) -->
+            <VBox fx:id="pvSearchPanel" spacing="10" styleClass="well">
+                <padding>
+                    <Insets bottom="15.0" left="15.0" right="15.0" top="15.0" />
+                </padding>
+                
+                <Label styleClass="h4" text="🔍 PV Search Panel" />
+                
+                <HBox spacing="10" alignment="CENTER_LEFT">
+                    <Label text="Search:" />
+                    <TextField fx:id="pvSearchTextField" HBox.hgrow="ALWAYS" promptText="Enter PV names or pattern" />
+                </HBox>
+                
+                <HBox spacing="15" alignment="CENTER_LEFT">
+                    <RadioButton fx:id="searchByNameListRadio" text="PV name list (comma separated)" />
+                    <RadioButton fx:id="searchByPatternRadio" text="PV name pattern" />
+                </HBox>
+                
+                <HBox spacing="10" alignment="CENTER_LEFT">
+                    <Button fx:id="searchPvButton" onAction="#onSearchPv" styleClass="btn, btn-primary" text="Search" />
+                    <Button fx:id="closePvSearchButton" onAction="#onClosePvSearch" styleClass="btn, btn-default" text="Close" />
+                    <Region HBox.hgrow="ALWAYS" />
+                    <Label fx:id="searchStatusLabel" styleClass="text-muted" />
+                </HBox>
+                
+                <VBox spacing="10">
+                    <Label text="Search Results:" />
+                    <ListView fx:id="searchResultsList" prefHeight="100.0" />
+                    <HBox spacing="10" alignment="CENTER_LEFT">
+                        <Button fx:id="addSelectedPvButton" onAction="#onAddSelectedPv" styleClass="btn, btn-success" text="Add Selected" />
+                        <Label fx:id="searchResultCountLabel" styleClass="text-info" />
+                    </HBox>
+                </VBox>
+            </VBox>
+            
+            <!-- Time Range Section -->
+            <GridPane hgap="10" vgap="10">
+                <columnConstraints>
+                    <ColumnConstraints minWidth="100" prefWidth="100" />
+                    <ColumnConstraints minWidth="120" prefWidth="120" />
+                    <ColumnConstraints minWidth="60" prefWidth="60" />
+                    <ColumnConstraints minWidth="60" prefWidth="60" />
+                    <ColumnConstraints minWidth="60" prefWidth="60" />
+                    <ColumnConstraints minWidth="100" prefWidth="100" />
+                </columnConstraints>
+                
+                <Label styleClass="control-label" text="Begin Time:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                <DatePicker fx:id="queryBeginDatePicker" GridPane.columnIndex="1" GridPane.rowIndex="0" />
+                <Spinner fx:id="beginHourSpinner" prefWidth="60.0" GridPane.columnIndex="2" GridPane.rowIndex="0" />
+                <Spinner fx:id="beginMinuteSpinner" prefWidth="60.0" GridPane.columnIndex="3" GridPane.rowIndex="0" />
+                <Spinner fx:id="beginSecondSpinner" prefWidth="60.0" GridPane.columnIndex="4" GridPane.rowIndex="0" />
+                <Label styleClass="text-muted" text="(H:M:S)" GridPane.columnIndex="5" GridPane.rowIndex="0" />
+                
+                <Label styleClass="control-label" text="End Time:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+                <DatePicker fx:id="queryEndDatePicker" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+                <Spinner fx:id="endHourSpinner" prefWidth="60.0" GridPane.columnIndex="2" GridPane.rowIndex="1" />
+                <Spinner fx:id="endMinuteSpinner" prefWidth="60.0" GridPane.columnIndex="3" GridPane.rowIndex="1" />
+                <Spinner fx:id="endSecondSpinner" prefWidth="60.0" GridPane.columnIndex="4" GridPane.rowIndex="1" />
+                <Label styleClass="text-muted" text="(H:M:S)" GridPane.columnIndex="5" GridPane.rowIndex="1" />
+            </GridPane>
+            
+            <!-- Action Buttons -->
+            <HBox spacing="10" alignment="CENTER_LEFT">
+                <Button fx:id="submitQueryButton" onAction="#onSubmitQuery" styleClass="btn, btn-primary, btn-lg" text="Submit Query" />
+                <Button fx:id="cancelQueryButton" onAction="#onCancelQuery" styleClass="btn, btn-default" text="Cancel" />
+                <Region HBox.hgrow="ALWAYS" />
+                <Label fx:id="queryStatusLabel" styleClass="text-info" />
+            </HBox>
+        </VBox>
+    </VBox>
+    
+    <!-- Query Results Section -->
+    <VBox fx:id="queryResultsSection" spacing="15" styleClass="panel, panel-success" VBox.vgrow="ALWAYS">
+        <padding>
+            <Insets bottom="15.0" left="15.0" right="15.0" top="15.0" />
+        </padding>
+        
+        <!-- Results Header -->
+        <HBox alignment="CENTER_LEFT" spacing="15">
+            <Label styleClass="h4" text="📊 Query Results" />
+            <Region HBox.hgrow="ALWAYS" />
+            <Label fx:id="rowCountLabel" styleClass="text-success" text="0 rows" />
+        </HBox>
+        
+        <!-- Results Table -->
+        <TableView fx:id="resultsTable" VBox.vgrow="ALWAYS">
+            <placeholder>
+                <Label text="No query results to display. Use the Query Specification section above to submit a query." />
+            </placeholder>
+        </TableView>
+        
+        <!-- Results Status -->
+        <HBox alignment="CENTER_LEFT" spacing="10">
+            <Label fx:id="resultsStatusLabel" styleClass="text-muted" text="Ready to display query results" />
+            <Region HBox.hgrow="ALWAYS" />
+            <ProgressIndicator fx:id="queryProgressIndicator" visible="false" prefHeight="20.0" prefWidth="20.0" />
+        </HBox>
+    </VBox>
+    
+    <!-- Spacer -->
+    <Region VBox.vgrow="ALWAYS" />
+</VBox>

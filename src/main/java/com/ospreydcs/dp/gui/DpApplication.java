@@ -2,8 +2,12 @@ package com.ospreydcs.dp.gui;
 
 import com.ospreydcs.dp.client.ApiClient;
 import com.ospreydcs.dp.client.IngestionClient;
+import com.ospreydcs.dp.client.QueryClient;
 import com.ospreydcs.dp.grpc.v1.ingestion.IngestDataResponse;
 import com.ospreydcs.dp.grpc.v1.ingestion.RegisterProviderResponse;
+import com.ospreydcs.dp.grpc.v1.query.QueryPvMetadataResponse;
+import com.ospreydcs.dp.grpc.v1.query.QueryTableRequest;
+import com.ospreydcs.dp.grpc.v1.query.QueryTableResponse;
 import com.ospreydcs.dp.gui.model.PvDetail;
 import com.ospreydcs.dp.service.common.model.ResultStatus;
 import com.ospreydcs.dp.service.inprocess.InprocessServiceEcosystem;
@@ -32,6 +36,29 @@ public class DpApplication {
     private int totalPvsIngested = 0;
     private int totalBucketsCreated = 0;
 
+    // Getters for state variables (for use by other views)
+    public String getProviderId() { return providerId; }
+    public String getProviderName() { return providerName; }
+    public Instant getDataBeginTime() { return dataBeginTime; }
+    public Instant getDataEndTime() { return dataEndTime; }
+    public List<PvDetail> getPvDetails() { return pvDetails; }
+
+    // Getters for application state tracking (for home view)
+    public boolean hasIngestedData() { return hasIngestedData; }
+    public boolean hasPerformedQueries() { return hasPerformedQueries; }
+    public String getLastOperationResult() { return lastOperationResult; }
+    public int getTotalPvsIngested() { return totalPvsIngested; }
+    public int getTotalBucketsCreated() { return totalBucketsCreated; }
+
+    // Methods for updating application state (for use by other operations)
+    public void setHasPerformedQueries(boolean hasPerformed) {
+        this.hasPerformedQueries = hasPerformed;
+    }
+
+    public void setLastOperationResult(String result) {
+        this.lastOperationResult = result;
+    }
+
     public boolean init() {
 
         // create InprocessServiceEcosystem with default local grpc targets
@@ -41,7 +68,9 @@ public class DpApplication {
         }
 
         // initialize ApiClient with grpc targets from default inprocess service ecosystem
-        api = new ApiClient(inprocessServiceEcosystem.ingestionService.getIngestionChannel());
+        api = new ApiClient(
+            inprocessServiceEcosystem.ingestionService.getIngestionChannel(),
+            inprocessServiceEcosystem.queryService.getQueryChannel());
         if (!api.init()) {
             return false;
         }
@@ -290,27 +319,30 @@ public class DpApplication {
         
         return values;
     }
-    
-    // Getters for state variables (for use by other views)
-    public String getProviderId() { return providerId; }
-    public String getProviderName() { return providerName; }
-    public Instant getDataBeginTime() { return dataBeginTime; }
-    public Instant getDataEndTime() { return dataEndTime; }
-    public List<PvDetail> getPvDetails() { return pvDetails; }
-    
-    // Getters for application state tracking (for home view)
-    public boolean hasIngestedData() { return hasIngestedData; }
-    public boolean hasPerformedQueries() { return hasPerformedQueries; }
-    public String getLastOperationResult() { return lastOperationResult; }
-    public int getTotalPvsIngested() { return totalPvsIngested; }
-    public int getTotalBucketsCreated() { return totalBucketsCreated; }
-    
-    // Methods for updating application state (for use by other operations)
-    public void setHasPerformedQueries(boolean hasPerformed) { 
-        this.hasPerformedQueries = hasPerformed; 
+
+    public QueryPvMetadataResponse queryPvMetadata(List<String> pvNameList) {
+        return api.queryClient.queryPvMetadata(pvNameList);
+    }
+
+    public QueryPvMetadataResponse queryPvMetadata(String pvNamePattern) {
+        return api.queryClient.queryPvMetadata(pvNamePattern);
+    }
+
+    public QueryTableResponse queryTable(List<String> pvNameList, Instant beginTime, Instant endTime) {
+
+        // build params for api call
+        final QueryClient.QueryTableRequestParams params =
+                new QueryClient.QueryTableRequestParams(
+                        QueryTableRequest.TableResultFormat.TABLE_FORMAT_ROW_MAP,
+                        pvNameList,
+                        null,
+                        beginTime.getEpochSecond(),
+                        Integer.toUnsignedLong(beginTime.getNano()),
+                        endTime.getEpochSecond(),
+                        Integer.toUnsignedLong(endTime.getNano()));
+
+        // call api method
+        return api.queryClient.queryTable(params);
     }
     
-    public void setLastOperationResult(String result) { 
-        this.lastOperationResult = result; 
-    }
 }

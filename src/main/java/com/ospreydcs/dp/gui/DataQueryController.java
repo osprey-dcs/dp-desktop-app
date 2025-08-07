@@ -129,8 +129,16 @@ public class DataQueryController implements Initializable {
         pvSearchPanel.visibleProperty().bind(viewModel.showPvSearchPanelProperty());
         pvSearchPanel.managedProperty().bind(viewModel.showPvSearchPanelProperty());
         pvSearchTextField.textProperty().bindBidirectional(viewModel.pvSearchTextProperty());
+        // Handle radio button selection properly without binding conflicts
         searchByNameListRadio.selectedProperty().bindBidirectional(viewModel.searchByNameListProperty());
-        searchByPatternRadio.selectedProperty().bind(viewModel.searchByNameListProperty().not());
+        // Don't bind the second radio button - let the ToggleGroup handle mutual exclusion
+        
+        // Update ViewModel when pattern radio button is selected
+        searchByPatternRadio.selectedProperty().addListener((obs, wasSelected, isSelected) -> {
+            if (isSelected) {
+                viewModel.searchByNameListProperty().set(false);
+            }
+        });
         searchResultsList.setItems(viewModel.getSearchResultPvNames());
         
         

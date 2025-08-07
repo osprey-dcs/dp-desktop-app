@@ -149,7 +149,8 @@ public class DataQueryViewModel {
 
     public void showPvSearchPanel() {
         showPvSearchPanel.set(true);
-        logger.debug("Showing PV search panel");
+        logger.debug("Showing PV search panel - NOT clearing search results");
+        // Don't clear search results when opening panel - preserve any existing results
     }
 
     public void hidePvSearchPanel() {
@@ -174,7 +175,7 @@ public class DataQueryViewModel {
 
         isSearching.set(true);
         statusMessage.set("Searching for PV metadata...");
-        searchResultPvNames.clear();
+        logger.info("Starting PV metadata search, keeping existing results until new ones arrive");
 
         // Create background task for search
         Task<QueryPvMetadataResponse> searchTask = new Task<QueryPvMetadataResponse>() {
@@ -210,12 +211,16 @@ public class DataQueryViewModel {
 
     private void handlePvMetadataSearchResult(QueryPvMetadataResponse response) {
         if (response == null) {
-            statusMessage.set("Search failed - null response from service");
+            javafx.application.Platform.runLater(() -> {
+                statusMessage.set("Search failed - null response from service");
+            });
             return;
         }
 
         if (response.hasExceptionalResult()) {
-            statusMessage.set("Search failed: " + response.getExceptionalResult().getMessage());
+            javafx.application.Platform.runLater(() -> {
+                statusMessage.set("Search failed: " + response.getExceptionalResult().getMessage());
+            });
             return;
         }
 
@@ -225,11 +230,16 @@ public class DataQueryViewModel {
                 foundPvNames.add(pvInfo.getPvName());
             });
             
-            searchResultPvNames.setAll(foundPvNames);
-            statusMessage.set("Found " + foundPvNames.size() + " matching PV(s)");
+            // Update UI on JavaFX Application Thread
+            javafx.application.Platform.runLater(() -> {
+                searchResultPvNames.setAll(foundPvNames);
+                statusMessage.set("Found " + foundPvNames.size() + " matching PV(s)");
+            });
             logger.info("PV metadata search returned {} results", foundPvNames.size());
         } else {
-            statusMessage.set("Search completed but no results found");
+            javafx.application.Platform.runLater(() -> {
+                statusMessage.set("Search completed but no results found");
+            });
         }
     }
 

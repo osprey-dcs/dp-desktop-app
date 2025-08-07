@@ -69,7 +69,7 @@
                 
                 <VBox spacing="10">
                     <Label text="Search Results:" />
-                    <ListView fx:id="searchResultsList" prefHeight="100.0" />
+                    <ListView fx:id="searchResultsList" prefHeight="100.0" minHeight="100.0" maxHeight="200.0" VBox.vgrow="SOMETIMES" />
                     <HBox spacing="10" alignment="CENTER_LEFT">
                         <Button fx:id="addSelectedPvButton" onAction="#onAddSelectedPv" styleClass="btn, btn-success" text="Add Selected" />
                         <Label fx:id="searchResultCountLabel" styleClass="text-info" />

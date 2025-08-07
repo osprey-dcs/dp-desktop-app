@@ -133,6 +133,7 @@ public class DataQueryController implements Initializable {
         searchByPatternRadio.selectedProperty().bind(viewModel.searchByNameListProperty().not());
         searchResultsList.setItems(viewModel.getSearchResultPvNames());
         
+        
         // Button state bindings
         submitQueryButton.disableProperty().bind(viewModel.isQueryingProperty());
         searchPvButton.disableProperty().bind(viewModel.isSearchingProperty());

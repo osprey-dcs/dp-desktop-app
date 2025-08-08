@@ -53,7 +53,7 @@ public class DataGenerationController implements Initializable {
     @FXML private VBox pvDetailEntryPanel;
     @FXML private TextField pvNameField;
     @FXML private ComboBox<String> pvDataTypeCombo;
-    @FXML private Spinner<Integer> pvSamplePeriodSpinner;
+    @FXML private ComboBox<Integer> pvValuesPerSecondCombo;
     @FXML private TextField pvInitialValueField;
     @FXML private TextField pvMaxStepField;
     @FXML private Button addPvDetailButton;
@@ -123,7 +123,7 @@ public class DataGenerationController implements Initializable {
         
         pvNameField.textProperty().bindBidirectional(viewModel.currentPvNameProperty());
         pvDataTypeCombo.valueProperty().bindBidirectional(viewModel.currentPvDataTypeProperty());
-        pvSamplePeriodSpinner.getValueFactory().valueProperty().bindBidirectional(viewModel.currentPvSamplePeriodProperty().asObject());
+        pvValuesPerSecondCombo.valueProperty().bindBidirectional(viewModel.currentPvValuesPerSecondProperty().asObject());
         pvInitialValueField.textProperty().bindBidirectional(viewModel.currentPvInitialValueProperty());
         pvMaxStepField.textProperty().bindBidirectional(viewModel.currentPvMaxStepProperty());
 
@@ -271,6 +271,9 @@ public class DataGenerationController implements Initializable {
         
         // PV Data Type ComboBox
         pvDataTypeCombo.getItems().addAll("integer", "float");
+        
+        // PV Values per Second ComboBox
+        pvValuesPerSecondCombo.getItems().addAll(1, 10, 100);
         
         logger.debug("ComboBox items populated");
     }

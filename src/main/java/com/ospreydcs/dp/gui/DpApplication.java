@@ -185,14 +185,13 @@ public class DpApplication {
             int numberOfBuckets = (int) Math.ceil((double) totalDurationSeconds / bucketSizeSeconds);
             
             // Generate all data values for the entire time range first
-            long samplePeriodNanos = pvDetail.getSamplePeriod() * 1_000_000L; // convert ms to ns
-            long totalDurationNanos = java.time.Duration.between(beginTime, endTime).toNanos();
-            int totalSampleCount = (int) (totalDurationNanos / samplePeriodNanos) + 1;
+            int valuesPerSecond = pvDetail.getValuesPerSecond();
+            long samplePeriodNanos = 1_000_000_000L / valuesPerSecond; // nanoseconds per sample
+            int totalSampleCount = (int) (totalDurationSeconds * valuesPerSecond);
             List<Object> allDataValues = generateRandomWalkData(pvDetail, totalSampleCount);
             
             // Calculate how many samples per bucket
-            long bucketDurationNanos = bucketSizeSeconds * 1_000_000_000L; // convert seconds to nanoseconds
-            int samplesPerBucket = (int) (bucketDurationNanos / samplePeriodNanos);
+            int samplesPerBucket = valuesPerSecond * bucketSizeSeconds;
             
             // Prepare common parameters
             List<String> columnNames = java.util.Arrays.asList(pvDetail.getPvName());
@@ -213,9 +212,16 @@ public class DpApplication {
                     bucketEndTime = endTime;
                 }
                 
-                // Calculate sample count for this bucket
-                long bucketDurationActualNanos = java.time.Duration.between(bucketStartTime, bucketEndTime).toNanos();
-                int bucketSampleCount = (int) (bucketDurationActualNanos / samplePeriodNanos) + 1;
+                // Calculate sample count for this bucket - use exact samplesPerBucket for full buckets
+                int bucketSampleCount = samplesPerBucket;
+                
+                // For the last bucket, adjust if it's shorter than a full second
+                if (bucketIndex == numberOfBuckets - 1) {
+                    long remainingDurationSeconds = totalDurationSeconds - (bucketIndex * bucketSizeSeconds);
+                    if (remainingDurationSeconds < bucketSizeSeconds) {
+                        bucketSampleCount = (int) (remainingDurationSeconds * valuesPerSecond);
+                    }
+                }
                 
                 // Extract the data values for this bucket
                 int startIndex = bucketIndex * samplesPerBucket;

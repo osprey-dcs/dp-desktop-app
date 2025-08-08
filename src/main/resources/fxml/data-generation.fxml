@@ -162,12 +162,8 @@
                         <Label text="Data Type: *" GridPane.columnIndex="0" GridPane.rowIndex="1" />
                         <ComboBox fx:id="pvDataTypeCombo" GridPane.columnIndex="1" GridPane.rowIndex="1" />
                         
-                        <Label text="Sample Period (ms): *" GridPane.columnIndex="0" GridPane.rowIndex="2" />
-                        <Spinner fx:id="pvSamplePeriodSpinner" editable="true" GridPane.columnIndex="1" GridPane.rowIndex="2">
-                           <valueFactory>
-                              <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="1000" max="3600000" min="1" />
-                           </valueFactory>
-                        </Spinner>
+                        <Label text="Values per Second: *" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+                        <ComboBox fx:id="pvValuesPerSecondCombo" GridPane.columnIndex="1" GridPane.rowIndex="2" />
                         
                         <Label text="Initial Value: *" GridPane.columnIndex="0" GridPane.rowIndex="3" />
                         <TextField fx:id="pvInitialValueField" promptText="Initial value" GridPane.columnIndex="1" GridPane.rowIndex="3" />

@@ -6,7 +6,7 @@ public class PvDetail {
 
     private final StringProperty pvName = new SimpleStringProperty();
     private final StringProperty dataType = new SimpleStringProperty();
-    private final IntegerProperty samplePeriod = new SimpleIntegerProperty();
+    private final IntegerProperty valuesPerSecond = new SimpleIntegerProperty();
     private final StringProperty initialValue = new SimpleStringProperty();
     private final StringProperty maxStepMagnitude = new SimpleStringProperty();
 
@@ -14,10 +14,10 @@ public class PvDetail {
         // Default constructor
     }
 
-    public PvDetail(String pvName, String dataType, int samplePeriod, String initialValue, String maxStepMagnitude) {
+    public PvDetail(String pvName, String dataType, int valuesPerSecond, String initialValue, String maxStepMagnitude) {
         this.pvName.set(pvName);
         this.dataType.set(dataType);
-        this.samplePeriod.set(samplePeriod);
+        this.valuesPerSecond.set(valuesPerSecond);
         this.initialValue.set(initialValue);
         this.maxStepMagnitude.set(maxStepMagnitude);
     }
@@ -31,8 +31,8 @@ public class PvDetail {
         return dataType;
     }
 
-    public IntegerProperty samplePeriodProperty() {
-        return samplePeriod;
+    public IntegerProperty valuesPerSecondProperty() {
+        return valuesPerSecond;
     }
 
     public StringProperty initialValueProperty() {
@@ -52,8 +52,8 @@ public class PvDetail {
         return dataType.get();
     }
 
-    public int getSamplePeriod() {
-        return samplePeriod.get();
+    public int getValuesPerSecond() {
+        return valuesPerSecond.get();
     }
 
     public String getInitialValue() {
@@ -73,8 +73,8 @@ public class PvDetail {
         this.dataType.set(dataType);
     }
 
-    public void setSamplePeriod(int samplePeriod) {
-        this.samplePeriod.set(samplePeriod);
+    public void setValuesPerSecond(int valuesPerSecond) {
+        this.valuesPerSecond.set(valuesPerSecond);
     }
 
     public void setInitialValue(String initialValue) {
@@ -87,8 +87,8 @@ public class PvDetail {
 
     @Override
     public String toString() {
-        return String.format("%s (%s) - Period: %dms, Initial: %s, Max Step: %s",
-                getPvName(), getDataType(), getSamplePeriod(), getInitialValue(), getMaxStepMagnitude());
+        return String.format("%s (%s) - Values/sec: %d, Initial: %s, Max Step: %s",
+                getPvName(), getDataType(), getValuesPerSecond(), getInitialValue(), getMaxStepMagnitude());
     }
 
     @Override

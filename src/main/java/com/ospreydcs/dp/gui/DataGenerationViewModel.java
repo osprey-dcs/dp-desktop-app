@@ -44,7 +44,7 @@ public class DataGenerationViewModel {
     // Current PV entry properties
     private final StringProperty currentPvName = new SimpleStringProperty();
     private final StringProperty currentPvDataType = new SimpleStringProperty("integer");
-    private final IntegerProperty currentPvSamplePeriod = new SimpleIntegerProperty(1000);
+    private final IntegerProperty currentPvValuesPerSecond = new SimpleIntegerProperty(10);
     private final StringProperty currentPvInitialValue = new SimpleStringProperty();
     private final StringProperty currentPvMaxStep = new SimpleStringProperty();
 
@@ -112,7 +112,7 @@ public class DataGenerationViewModel {
     public ObservableList<PvDetail> getPvDetails() { return pvDetails; }
     public StringProperty currentPvNameProperty() { return currentPvName; }
     public StringProperty currentPvDataTypeProperty() { return currentPvDataType; }
-    public IntegerProperty currentPvSamplePeriodProperty() { return currentPvSamplePeriod; }
+    public IntegerProperty currentPvValuesPerSecondProperty() { return currentPvValuesPerSecond; }
     public StringProperty currentPvInitialValueProperty() { return currentPvInitialValue; }
     public StringProperty currentPvMaxStepProperty() { return currentPvMaxStep; }
 
@@ -203,7 +203,7 @@ public class DataGenerationViewModel {
             PvDetail pvDetail = new PvDetail(
                 currentPvName.get(),
                 currentPvDataType.get(),
-                currentPvSamplePeriod.get(),
+                currentPvValuesPerSecond.get(),
                 currentPvInitialValue.get(),
                 currentPvMaxStep.get()
             );
@@ -237,7 +237,7 @@ public class DataGenerationViewModel {
     private void clearCurrentPvEntry() {
         currentPvName.set("");
         currentPvDataType.set("integer");
-        currentPvSamplePeriod.set(1000);
+        currentPvValuesPerSecond.set(10);
         currentPvInitialValue.set("");
         currentPvMaxStep.set("");
     }
@@ -401,7 +401,7 @@ public class DataGenerationViewModel {
     private boolean isPvDetailValid(PvDetail pvDetail) {
         return pvDetail.getPvName() != null && !pvDetail.getPvName().trim().isEmpty() &&
                pvDetail.getDataType() != null && !pvDetail.getDataType().trim().isEmpty() &&
-               pvDetail.getSamplePeriod() > 0 &&
+               pvDetail.getValuesPerSecond() > 0 &&
                pvDetail.getInitialValue() != null && !pvDetail.getInitialValue().trim().isEmpty() &&
                pvDetail.getMaxStepMagnitude() != null && !pvDetail.getMaxStepMagnitude().trim().isEmpty();
     }

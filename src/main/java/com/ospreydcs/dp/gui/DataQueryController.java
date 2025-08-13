@@ -9,14 +9,18 @@ import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.VBox;
 import javafx.scene.chart.LineChart;
 import javafx.scene.chart.XYChart;
-import javafx.scene.chart.CategoryAxis;
+// CategoryAxis import removed - using NumberAxis for both axes
 import javafx.scene.chart.NumberAxis;
+import javafx.scene.Node;
 import javafx.stage.Stage;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.URL;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.ZoneOffset;
 import java.util.ResourceBundle;
 
 public class DataQueryController implements Initializable {
@@ -64,8 +68,8 @@ public class DataQueryController implements Initializable {
     @FXML private Label rowCountLabel;
     @FXML private TabPane resultsTabPane;
     @FXML private TableView<ObservableList<Object>> resultsTable;
-    @FXML private LineChart<String, Number> resultsChart;
-    @FXML private CategoryAxis chartXAxis;
+    @FXML private LineChart<Number, Number> resultsChart;
+    @FXML private NumberAxis chartXAxis;
     @FXML private NumberAxis chartYAxis;
     @FXML private Label chartPlaceholder;
     @FXML private Label resultsStatusLabel;
@@ -120,11 +124,11 @@ public class DataQueryController implements Initializable {
     private void initializeChart() {
         // Configure chart properties
         resultsChart.setTitle("PV Time-Series Data");
-        resultsChart.setCreateSymbols(false); // Don't create symbols on data points for better performance
+        resultsChart.setCreateSymbols(false); // Disable symbols for better performance
         resultsChart.setLegendSide(javafx.geometry.Side.RIGHT);
         
         // Configure axes
-        chartXAxis.setLabel("Time");
+        chartXAxis.setLabel("Time (seconds from start)");
         chartYAxis.setLabel("Value");
         
         // Note: Initial visibility is set in FXML (chart hidden, placeholder visible)
@@ -279,7 +283,7 @@ public class DataQueryController implements Initializable {
         int seriesCount = 0;
         for (String columnName : columnNames) {
             if (!columnName.equals("timestamp")) {
-                XYChart.Series<String, Number> series = new XYChart.Series<>();
+                XYChart.Series<Number, Number> series = new XYChart.Series<>();
                 series.setName(columnName);
                 resultsChart.getData().add(series);
                 seriesCount++;
@@ -310,9 +314,13 @@ public class DataQueryController implements Initializable {
         }
         
         // Clear existing data points
-        for (XYChart.Series<String, Number> series : resultsChart.getData()) {
+        for (XYChart.Series<Number, Number> series : resultsChart.getData()) {
             series.getData().clear();
         }
+        
+        // Reset the NumberAxis range for proper scaling
+        chartXAxis.setAutoRanging(true);
+        chartYAxis.setAutoRanging(true);
         
         // Find timestamp column index
         int timestampIndex = -1;
@@ -329,11 +337,38 @@ public class DataQueryController implements Initializable {
             return;
         }
         
-        // Sample data for performance (show every Nth point for large datasets)
+        // Calculate dynamic sample interval based on time range and data density
         int totalRows = tableData.size();
-        int sampleInterval = Math.max(1, totalRows / 1000); // Max 1000 points for performance
+        int sampleInterval = calculateDynamicSampleInterval(tableData, timestampIndex, totalRows);
         
-        logger.debug("Processing {} rows with sample interval {}, timestamp column at index {}", totalRows, sampleInterval, timestampIndex);
+        logger.info("Processing {} rows with sample interval {}, timestamp column at index {}", totalRows, sampleInterval, timestampIndex);
+        
+        // Debug first few timestamps to understand data structure
+        if (totalRows > 0) {
+            for (int i = 0; i < Math.min(5, totalRows); i++) {
+                ObservableList<Object> row = tableData.get(i);
+                if (row.size() > timestampIndex) {
+                    Object timestampObj = row.get(timestampIndex);
+                    Double parsedSeconds = parseTimestampToSeconds(timestampObj);
+                    logger.info("Sample row {}: timestamp = {}, parsed as {} seconds", i, timestampObj, parsedSeconds);
+                }
+            }
+        }
+        
+        // Find the start time for relative time calculation
+        Double startTimeSeconds = null;
+        if (totalRows > 0) {
+            ObservableList<Object> firstRow = tableData.get(0);
+            if (firstRow.size() > timestampIndex) {
+                startTimeSeconds = parseTimestampToSeconds(firstRow.get(timestampIndex));
+            }
+        }
+        
+        if (startTimeSeconds == null) {
+            logger.warn("Could not determine start time for chart");
+            showChartPlaceholder(true);
+            return;
+        }
         
         int dataPointsAdded = 0;
         // Populate chart with sampled data
@@ -343,7 +378,19 @@ public class DataQueryController implements Initializable {
                 continue;
             }
             
-            String timestamp = formatTimestampForChart(row.get(timestampIndex));
+            Double timeSeconds = parseTimestampToSeconds(row.get(timestampIndex));
+            if (timeSeconds == null) {
+                continue;
+            }
+            
+            // Calculate relative time from start
+            double relativeTimeSeconds = timeSeconds - startTimeSeconds;
+            
+            // Debug first few data points to see relative times
+            if (dataPointsAdded < 5) {
+                logger.info("Data point {}: absolute time={}, start time={}, relative time={} seconds", 
+                           dataPointsAdded, timeSeconds, startTimeSeconds, relativeTimeSeconds);
+            }
             
             // Add data points for each PV series
             int seriesIndex = 0;
@@ -357,15 +404,29 @@ public class DataQueryController implements Initializable {
                     Number numericValue = parseNumericValue(value);
                     
                     if (numericValue != null) {
-                        XYChart.Series<String, Number> series = resultsChart.getData().get(seriesIndex);
-                        series.getData().add(new XYChart.Data<>(timestamp, numericValue));
+                        XYChart.Series<Number, Number> series = resultsChart.getData().get(seriesIndex);
+                        XYChart.Data<Number, Number> dataPoint = new XYChart.Data<>(relativeTimeSeconds, numericValue);
+                        
+                        // Store original data for tooltip
+                        Object originalTimestamp = row.get(timestampIndex);
+                        dataPoint.setExtraValue(new DataPointInfo(originalTimestamp, value, columnNames.get(colIndex)));
+                        
+                        series.getData().add(dataPoint);
+                        dataPointsAdded++;
                     }
                 }
                 seriesIndex++;
             }
         }
         
+        // Configure tick units for better alignment after data is added
+        configureAxisTicks(startTimeSeconds, totalRows);
+        
         showChartPlaceholder(false);
+        
+        // Tooltips disabled for performance reasons
+        // setupChartTooltipsWithRetry(0);
+        
         logger.debug("Chart updated with {} sampled data points", totalRows / Math.max(1, sampleInterval));
     }
     
@@ -400,6 +461,187 @@ public class DataQueryController implements Initializable {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+    
+    private Double parseTimestampToSeconds(Object timestampValue) {
+        if (timestampValue == null) {
+            return null;
+        }
+        
+        String timestamp = timestampValue.toString();
+        try {
+            // Try to parse ISO format: 2024-01-01T10:30:45.123456
+            if (timestamp.contains("T")) {
+                LocalDateTime dateTime = LocalDateTime.parse(timestamp, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                // Include fractional seconds for sub-second precision
+                long epochSecond = dateTime.toEpochSecond(ZoneOffset.UTC);
+                int nanoOfSecond = dateTime.getNano();
+                return epochSecond + (nanoOfSecond / 1_000_000_000.0);
+            }
+            
+            // Fallback: try to parse as double (epoch seconds)
+            return Double.parseDouble(timestamp);
+        } catch (Exception e) {
+            logger.warn("Could not parse timestamp '{}': {}", timestamp, e.getMessage());
+            return null;
+        }
+    }
+    
+    private void configureAxisTicks(Double startTimeSeconds, int totalRows) {
+        if (startTimeSeconds == null || totalRows == 0) {
+            return;
+        }
+        
+        // Configure X-axis (time) tick units based on time range
+        ObservableList<ObservableList<Object>> tableData = viewModel.getTableData();
+        if (tableData.size() > 1) {
+            // Find the time range in seconds
+            ObservableList<Object> lastRow = tableData.get(tableData.size() - 1);
+            ObservableList<String> columnNames = viewModel.getTableColumnNames();
+            
+            int timestampIndex = -1;
+            for (int i = 0; i < columnNames.size(); i++) {
+                if (columnNames.get(i).equals("timestamp")) {
+                    timestampIndex = i;
+                    break;
+                }
+            }
+            
+            if (timestampIndex != -1 && lastRow.size() > timestampIndex) {
+                Double endTimeSeconds = parseTimestampToSeconds(lastRow.get(timestampIndex));
+                if (endTimeSeconds != null) {
+                    double timeRangeSeconds = endTimeSeconds - startTimeSeconds;
+                    
+                    // Set appropriate tick units based on time range
+                    double xTickUnit = calculateOptimalTickUnit(timeRangeSeconds, 8); // Target ~8 ticks
+                    chartXAxis.setTickUnit(xTickUnit);
+                    chartXAxis.setAutoRanging(false);
+                    chartXAxis.setLowerBound(0);
+                    chartXAxis.setUpperBound(timeRangeSeconds);
+                    
+                    logger.info("Configured X-axis: range={} seconds, tick unit={}, showing {} actual data points", 
+                               timeRangeSeconds, xTickUnit, totalRows);
+                }
+            }
+        }
+        
+        // Configure Y-axis tick units based on data range
+        configureYAxisTicks();
+    }
+    
+    private double calculateOptimalTickUnit(double range, int targetTicks) {
+        if (range <= 0 || targetTicks <= 0) {
+            return 1.0;
+        }
+        
+        double roughTickUnit = range / targetTicks;
+        
+        // For very short ranges (< 10 seconds), use smaller tick units
+        if (range <= 10.0) {
+            // Use fractional seconds for very short time ranges
+            if (roughTickUnit < 0.1) {
+                return 0.1; // 100ms ticks
+            } else if (roughTickUnit < 0.2) {
+                return 0.2; // 200ms ticks
+            } else if (roughTickUnit < 0.5) {
+                return 0.5; // 500ms ticks
+            } else {
+                return 1.0; // 1s ticks
+            }
+        }
+        
+        // Round to nice numbers (1, 2, 5, 10, 20, 50, 100, etc.) for longer ranges
+        double magnitude = Math.pow(10, Math.floor(Math.log10(roughTickUnit)));
+        double normalizedUnit = roughTickUnit / magnitude;
+        
+        double niceUnit;
+        if (normalizedUnit <= 1.0) {
+            niceUnit = 1.0;
+        } else if (normalizedUnit <= 2.0) {
+            niceUnit = 2.0;
+        } else if (normalizedUnit <= 5.0) {
+            niceUnit = 5.0;
+        } else {
+            niceUnit = 10.0;
+        }
+        
+        return niceUnit * magnitude;
+    }
+    
+    private void configureYAxisTicks() {
+        // Find the Y-axis data range
+        double minY = Double.MAX_VALUE;
+        double maxY = Double.MIN_VALUE;
+        
+        for (XYChart.Series<Number, Number> series : resultsChart.getData()) {
+            for (XYChart.Data<Number, Number> dataPoint : series.getData()) {
+                double value = dataPoint.getYValue().doubleValue();
+                minY = Math.min(minY, value);
+                maxY = Math.max(maxY, value);
+            }
+        }
+        
+        if (minY != Double.MAX_VALUE && maxY != Double.MIN_VALUE && maxY > minY) {
+            double range = maxY - minY;
+            double yTickUnit = calculateOptimalTickUnit(range, 6); // Target ~6 ticks
+            
+            // Add some padding to the range
+            double padding = range * 0.1;
+            double lowerBound = minY - padding;
+            double upperBound = maxY + padding;
+            
+            chartYAxis.setTickUnit(yTickUnit);
+            chartYAxis.setAutoRanging(false);
+            chartYAxis.setLowerBound(lowerBound);
+            chartYAxis.setUpperBound(upperBound);
+            
+            logger.debug("Configured Y-axis: range={} to {}, tick unit={}", lowerBound, upperBound, yTickUnit);
+        }
+    }
+    
+    private int calculateDynamicSampleInterval(ObservableList<ObservableList<Object>> tableData, int timestampIndex, int totalRows) {
+        if (totalRows <= 1000) {
+            logger.info("Dynamic sampling: {} total rows <= 1000, showing all data points (interval=1)", totalRows);
+            return 1; // Show all data points for small datasets
+        }
+        
+        // Calculate time range to determine appropriate sampling
+        ObservableList<Object> firstRow = tableData.get(0);
+        ObservableList<Object> lastRow = tableData.get(totalRows - 1);
+        
+        if (firstRow.size() <= timestampIndex || lastRow.size() <= timestampIndex) {
+            return Math.max(1, totalRows / 1000); // Fallback to row-based sampling
+        }
+        
+        Double startTime = parseTimestampToSeconds(firstRow.get(timestampIndex));
+        Double endTime = parseTimestampToSeconds(lastRow.get(timestampIndex));
+        
+        if (startTime == null || endTime == null) {
+            return Math.max(1, totalRows / 1000); // Fallback to row-based sampling
+        }
+        
+        double timeRangeSeconds = endTime - startTime;
+        
+        // Dynamic sampling based on time range:
+        // - For short ranges (< 60s): show more detail
+        // - For medium ranges (1-10 min): moderate sampling
+        // - For long ranges (> 10 min): more aggressive sampling
+        int targetPoints;
+        if (timeRangeSeconds < 60) {
+            targetPoints = 2000; // High detail for sub-minute ranges
+        } else if (timeRangeSeconds < 600) { // < 10 minutes
+            targetPoints = 1500; // Medium detail
+        } else if (timeRangeSeconds < 3600) { // < 1 hour
+            targetPoints = 1000; // Standard detail
+        } else {
+            targetPoints = 500; // Lower detail for long ranges
+        }
+        
+        int sampleInterval = Math.max(1, totalRows / targetPoints);
+        logger.info("Dynamic sampling: {} seconds range, {} total rows, {} target points, interval={} (will show ~{} points)", 
+                    timeRangeSeconds, totalRows, targetPoints, sampleInterval, totalRows / sampleInterval);
+        
+        return sampleInterval;
     }
     
     private void showChartPlaceholder(boolean show) {
@@ -546,6 +788,119 @@ public class DataQueryController implements Initializable {
             mainController.switchToMainView();
         } else {
             logger.warn("MainController reference is null, cannot navigate back");
+        }
+    }
+    
+    private void setupChartTooltipsWithRetry(int attemptCount) {
+        final int MAX_ATTEMPTS = 10;
+        final int DELAY_MS = 100;
+        
+        if (attemptCount >= MAX_ATTEMPTS) {
+            logger.warn("Failed to set up tooltips after {} attempts - nodes still not available", MAX_ATTEMPTS);
+            return;
+        }
+        
+        javafx.application.Platform.runLater(() -> {
+            boolean allNodesReady = true;
+            int availableNodes = 0;
+            int totalDataPoints = 0;
+            
+            // Check if all nodes are available
+            for (XYChart.Series<Number, Number> series : resultsChart.getData()) {
+                for (XYChart.Data<Number, Number> dataPoint : series.getData()) {
+                    totalDataPoints++;
+                    if (dataPoint.getNode() != null) {
+                        availableNodes++;
+                    } else {
+                        allNodesReady = false;
+                    }
+                }
+            }
+            
+            logger.debug("Tooltip setup attempt {}: {}/{} nodes available", attemptCount + 1, availableNodes, totalDataPoints);
+            
+            if (allNodesReady && totalDataPoints > 0) {
+                // All nodes are ready, set up tooltips
+                setupChartTooltips();
+            } else {
+                // Retry after a delay
+                javafx.concurrent.Task<Void> delayTask = new javafx.concurrent.Task<Void>() {
+                    @Override
+                    protected Void call() throws Exception {
+                        Thread.sleep(DELAY_MS);
+                        return null;
+                    }
+                };
+                delayTask.setOnSucceeded(e -> setupChartTooltipsWithRetry(attemptCount + 1));
+                new Thread(delayTask).start();
+            }
+        });
+    }
+    
+    private void setupChartTooltips() {
+        logger.debug("Setting up chart tooltips for {} series", resultsChart.getData().size());
+        
+        int tooltipCount = 0;
+        // Set up tooltips for each series
+        for (XYChart.Series<Number, Number> series : resultsChart.getData()) {
+            for (XYChart.Data<Number, Number> dataPoint : series.getData()) {
+                Node node = dataPoint.getNode();
+                if (node != null && dataPoint.getExtraValue() instanceof DataPointInfo) {
+                    DataPointInfo info = (DataPointInfo) dataPoint.getExtraValue();
+                    String tooltipText = formatTooltip(info);
+                    
+                    Tooltip tooltip = new Tooltip(tooltipText);
+                    tooltip.setStyle("-fx-font-size: 12px; -fx-background-color: rgba(0,0,0,0.8); -fx-text-fill: white;");
+                    Tooltip.install(node, tooltip);
+                    tooltipCount++;
+                } else {
+                    logger.debug("Skipping tooltip - node: {}, extraValue type: {}", 
+                               node != null ? "exists" : "null", 
+                               dataPoint.getExtraValue() != null ? dataPoint.getExtraValue().getClass().getSimpleName() : "null");
+                }
+            }
+        }
+        
+        logger.info("Installed {} tooltips on chart data points", tooltipCount);
+    }
+    
+    private String formatTooltip(DataPointInfo info) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("PV: ").append(info.pvName).append("\n");
+        sb.append("Value: ").append(info.value).append("\n");
+        sb.append("Time: ").append(formatTimestampForTooltip(info.timestamp));
+        return sb.toString();
+    }
+    
+    private String formatTimestampForTooltip(Object timestampValue) {
+        if (timestampValue == null) {
+            return "N/A";
+        }
+        
+        String timestamp = timestampValue.toString();
+        // Format timestamp for tooltip display
+        if (timestamp.contains("T")) {
+            String[] parts = timestamp.split("T");
+            if (parts.length > 1) {
+                String datePart = parts[0];
+                String timePart = parts[1].substring(0, Math.min(8, parts[1].length())); // HH:mm:ss
+                return datePart + " " + timePart;
+            }
+        }
+        
+        return timestamp;
+    }
+    
+    // Helper class to store original data point information for tooltips
+    private static class DataPointInfo {
+        final Object timestamp;
+        final Object value;
+        final String pvName;
+        
+        DataPointInfo(Object timestamp, Object value, String pvName) {
+            this.timestamp = timestamp;
+            this.value = value;
+            this.pvName = pvName;
         }
     }
 }

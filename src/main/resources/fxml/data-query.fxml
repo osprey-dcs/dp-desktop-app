@@ -144,7 +144,7 @@
                     <!-- Chart container -->
                     <LineChart fx:id="resultsChart" visible="false" managed="false">
                         <xAxis>
-                            <CategoryAxis fx:id="chartXAxis" label="Time" />
+                            <NumberAxis fx:id="chartXAxis" label="Time (seconds from start)" />
                         </xAxis>
                         <yAxis>
                             <NumberAxis fx:id="chartYAxis" label="Value" />

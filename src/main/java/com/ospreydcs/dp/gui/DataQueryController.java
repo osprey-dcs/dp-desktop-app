@@ -124,7 +124,7 @@ public class DataQueryController implements Initializable {
     private void initializeChart() {
         // Configure chart properties
         resultsChart.setTitle("PV Time-Series Data");
-        resultsChart.setCreateSymbols(false); // Disable symbols for better performance
+        resultsChart.setCreateSymbols(false); // Disable symbols for performance - even small queries create too many symbols
         resultsChart.setLegendSide(javafx.geometry.Side.RIGHT);
         
         // Configure axes
@@ -424,8 +424,8 @@ public class DataQueryController implements Initializable {
         
         showChartPlaceholder(false);
         
-        // Tooltips disabled for performance reasons
-        // setupChartTooltipsWithRetry(0);
+        // Tooltips disabled - symbols disabled for performance
+        logger.debug("Chart updated - tooltips not available without symbols");
         
         logger.debug("Chart updated with {} sampled data points", totalRows / Math.max(1, sampleInterval));
     }

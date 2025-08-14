@@ -80,6 +80,9 @@ public class DataQueryController implements Initializable {
     private DpApplication dpApplication;
     private Stage primaryStage;
     private MainController mainController;
+    
+    // Flag to prevent listener interference during initialization
+    private boolean isInitializingFromGlobalState = false;
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
@@ -215,12 +218,45 @@ public class DataQueryController implements Initializable {
             deleteItem.setOnAction(e -> {
                 if (cell.getItem() != null) {
                     viewModel.removePvName(cell.getItem());
+                    // Update global state when PV is removed
+                    updateGlobalPvNames();
                 }
             });
             contextMenu.getItems().add(deleteItem);
             
             cell.setContextMenu(contextMenu);
             return cell;
+        });
+        
+        // Listen to PV list changes to update global state
+        viewModel.getPvNameList().addListener((javafx.collections.ListChangeListener<String>) change -> {
+            updateGlobalPvNames();
+        });
+        
+        // Listen to time range changes to update global state  
+        queryBeginDatePicker.valueProperty().addListener((observable, oldValue, newValue) -> {
+            if (!isInitializingFromGlobalState) updateGlobalTimeRange();
+        });
+        queryEndDatePicker.valueProperty().addListener((observable, oldValue, newValue) -> {
+            if (!isInitializingFromGlobalState) updateGlobalTimeRange();
+        });
+        beginHourSpinner.valueProperty().addListener((observable, oldValue, newValue) -> {
+            if (!isInitializingFromGlobalState) updateGlobalTimeRange();
+        });
+        beginMinuteSpinner.valueProperty().addListener((observable, oldValue, newValue) -> {
+            if (!isInitializingFromGlobalState) updateGlobalTimeRange();
+        });
+        beginSecondSpinner.valueProperty().addListener((observable, oldValue, newValue) -> {
+            if (!isInitializingFromGlobalState) updateGlobalTimeRange();
+        });
+        endHourSpinner.valueProperty().addListener((observable, oldValue, newValue) -> {
+            if (!isInitializingFromGlobalState) updateGlobalTimeRange();
+        });
+        endMinuteSpinner.valueProperty().addListener((observable, oldValue, newValue) -> {
+            if (!isInitializingFromGlobalState) updateGlobalTimeRange();
+        });
+        endSecondSpinner.valueProperty().addListener((observable, oldValue, newValue) -> {
+            if (!isInitializingFromGlobalState) updateGlobalTimeRange();
         });
         
         // Set up selection handling for search results
@@ -692,9 +728,17 @@ public class DataQueryController implements Initializable {
     // Dependency injection methods
     public void setDpApplication(DpApplication dpApplication) {
         this.dpApplication = dpApplication;
+        
+        // Initialize UI from existing global state BEFORE injecting into ViewModel
+        // This prevents the listeners from overwriting the global state during initialization
+        logger.debug("CRAIG DEBUG: About to call initializeUIFromGlobalState()");
+        initializeUIFromGlobalState();
+        logger.debug("CRAIG DEBUG: Finished calling initializeUIFromGlobalState()");
+        
         if (viewModel != null) {
             viewModel.setDpApplication(dpApplication);
         }
+        
         logger.debug("DpApplication injected into DataQueryController");
     }
 
@@ -769,18 +813,29 @@ public class DataQueryController implements Initializable {
         viewModel.getSelectedSearchResults().setAll(selectedItems);
         viewModel.addSelectedSearchResultsToPvList();
         
+        // Update global state after adding PVs (the listener will handle this automatically)
         logger.info("Added {} selected PVs to query list", selectedItems.size());
     }
     
     @FXML
     private void onSubmitQuery() {
         logger.info("Query submission requested");
+        
+        // Update global state before executing query
+        updateGlobalQueryState();
+        
         viewModel.submitQuery();
     }
     
     @FXML
     private void onCancelQuery() {
         logger.info("Query cancelled by user");
+        
+        // Commit any pending spinner edits and update global state before cancelling
+        logger.debug("CRAIG DEBUG: About to call updateGlobalQueryState()");
+        updateGlobalQueryState();
+        logger.debug("CRAIG DEBUG: Finished calling updateGlobalQueryState()");
+        
         viewModel.cancel();
         
         // Navigate back to main window
@@ -989,6 +1044,174 @@ public class DataQueryController implements Initializable {
         }
         
         return null;
+    }
+    
+    // Methods for updating global state in DpApplication
+    private void updateGlobalQueryState() {
+        logger.debug("CRAIG DEBUG: updateGlobalQueryState() called");
+        
+        if (dpApplication == null) {
+            logger.warn("DpApplication reference is null, cannot update global query state");
+            return;
+        }
+        
+        // Commit any pending spinner edits before updating global state
+        logger.debug("CRAIG DEBUG: About to call commitSpinnerValues()");
+        commitSpinnerValues();
+        
+        logger.debug("CRAIG DEBUG: About to call updateGlobalPvNames()");
+        updateGlobalPvNames();
+        
+        logger.debug("CRAIG DEBUG: About to call updateGlobalTimeRange()");
+        updateGlobalTimeRange();
+        
+        logger.debug("CRAIG DEBUG: Updated global query state in DpApplication");
+    }
+    
+    private void updateGlobalPvNames() {
+        if (dpApplication == null || viewModel == null) return;
+        
+        ObservableList<String> pvNames = viewModel.getPvNameList();
+        if (pvNames != null && !pvNames.isEmpty()) {
+            java.util.List<String> pvNameList = new java.util.ArrayList<>(pvNames);
+            dpApplication.setQueryPvNames(pvNameList);
+            logger.debug("Updated global PV names: {}", pvNameList);
+        } else {
+            dpApplication.setQueryPvNames(null);
+            logger.debug("Cleared global PV names (empty list)");
+        }
+    }
+    
+    private void updateGlobalTimeRange() {
+        if (dpApplication == null || viewModel == null) return;
+        
+        try {
+            java.time.Instant beginTime = getBeginTimeFromUI();
+            java.time.Instant endTime = getEndTimeFromUI();
+            
+            if (beginTime != null && endTime != null) {
+                dpApplication.setQueryTimeRange(beginTime, endTime);
+                logger.debug("Updated global time range: {} to {}", beginTime, endTime);
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to update global time range: {}", e.getMessage());
+        }
+    }
+    
+    private java.time.Instant getBeginTimeFromUI() {
+        if (queryBeginDatePicker.getValue() == null) {
+            logger.debug("getBeginTimeFromUI: date picker is null");
+            return null;
+        }
+        
+        LocalDate date = queryBeginDatePicker.getValue();
+        int hour = beginHourSpinner.getValue();
+        int minute = beginMinuteSpinner.getValue();
+        int second = beginSecondSpinner.getValue();
+        
+        logger.debug("getBeginTimeFromUI: date={}, time={}:{}:{}", date, hour, minute, second);
+        
+        LocalDateTime dateTime = LocalDateTime.of(date, java.time.LocalTime.of(hour, minute, second));
+        java.time.Instant result = dateTime.atZone(java.time.ZoneId.systemDefault()).toInstant();
+        
+        logger.debug("getBeginTimeFromUI: result={}", result);
+        return result;
+    }
+    
+    private java.time.Instant getEndTimeFromUI() {
+        if (queryEndDatePicker.getValue() == null) {
+            logger.debug("getEndTimeFromUI: date picker is null");
+            return null;
+        }
+        
+        LocalDate date = queryEndDatePicker.getValue();
+        int hour = endHourSpinner.getValue();
+        int minute = endMinuteSpinner.getValue();
+        int second = endSecondSpinner.getValue();
+        
+        logger.debug("getEndTimeFromUI: date={}, time={}:{}:{}", date, hour, minute, second);
+        
+        LocalDateTime dateTime = LocalDateTime.of(date, java.time.LocalTime.of(hour, minute, second));
+        java.time.Instant result = dateTime.atZone(java.time.ZoneId.systemDefault()).toInstant();
+        
+        logger.debug("getEndTimeFromUI: result={}", result);
+        return result;
+    }
+    
+    private void commitSpinnerValues() {
+        // Force commit any pending edits in spinners by calling commitValue()
+        try {
+            beginHourSpinner.commitValue();
+            beginMinuteSpinner.commitValue();
+            beginSecondSpinner.commitValue();
+            endHourSpinner.commitValue();
+            endMinuteSpinner.commitValue();
+            endSecondSpinner.commitValue();
+            
+            logger.debug("Committed all spinner values - Begin: {}:{}:{}, End: {}:{}:{}", 
+                beginHourSpinner.getValue(), beginMinuteSpinner.getValue(), beginSecondSpinner.getValue(),
+                endHourSpinner.getValue(), endMinuteSpinner.getValue(), endSecondSpinner.getValue());
+        } catch (Exception e) {
+            logger.warn("Error committing spinner values: {}", e.getMessage());
+        }
+    }
+    
+    private void initializeUIFromGlobalState() {
+        if (dpApplication == null) return;
+        
+        // Set flag to prevent listeners from interfering during initialization
+        isInitializingFromGlobalState = true;
+        
+        try {
+            // Initialize PV names from global state
+            if (dpApplication.getPvDetails() != null && !dpApplication.getPvDetails().isEmpty()) {
+                java.util.List<String> globalPvNames = new java.util.ArrayList<>();
+                for (com.ospreydcs.dp.gui.model.PvDetail pvDetail : dpApplication.getPvDetails()) {
+                    if (pvDetail.getPvName() != null && !pvDetail.getPvName().trim().isEmpty()) {
+                        globalPvNames.add(pvDetail.getPvName());
+                    }
+                }
+                
+                if (!globalPvNames.isEmpty()) {
+                    viewModel.getPvNameList().setAll(globalPvNames);
+                    logger.debug("Initialized UI with {} PV names from global state", globalPvNames.size());
+                }
+            }
+            
+            // Initialize time range from global state
+            if (dpApplication.getDataBeginTime() != null && dpApplication.getDataEndTime() != null) {
+                java.time.Instant beginTime = dpApplication.getDataBeginTime();
+                java.time.Instant endTime = dpApplication.getDataEndTime();
+                
+                // Convert to LocalDateTime using system default timezone for UI components
+                LocalDateTime beginDateTime = LocalDateTime.ofInstant(beginTime, java.time.ZoneId.systemDefault());
+                LocalDateTime endDateTime = LocalDateTime.ofInstant(endTime, java.time.ZoneId.systemDefault());
+                
+                logger.debug("Setting UI from global state: begin={} ({}), end={} ({})", 
+                    beginTime, beginDateTime, endTime, endDateTime);
+                
+                // Set date pickers
+                queryBeginDatePicker.setValue(beginDateTime.toLocalDate());
+                queryEndDatePicker.setValue(endDateTime.toLocalDate());
+                
+                // Set time spinners
+                beginHourSpinner.getValueFactory().setValue(beginDateTime.getHour());
+                beginMinuteSpinner.getValueFactory().setValue(beginDateTime.getMinute());
+                beginSecondSpinner.getValueFactory().setValue(beginDateTime.getSecond());
+                
+                endHourSpinner.getValueFactory().setValue(endDateTime.getHour());
+                endMinuteSpinner.getValueFactory().setValue(endDateTime.getMinute());
+                endSecondSpinner.getValueFactory().setValue(endDateTime.getSecond());
+                
+                logger.debug("Initialized UI time range - Begin: {}:{}:{}, End: {}:{}:{}", 
+                    beginDateTime.getHour(), beginDateTime.getMinute(), beginDateTime.getSecond(),
+                    endDateTime.getHour(), endDateTime.getMinute(), endDateTime.getSecond());
+            }
+            
+        } finally {
+            // Always clear the flag, even if there's an exception
+            isInitializingFromGlobalState = false;
+        }
     }
     
     // Helper class to store original data point information for tooltips

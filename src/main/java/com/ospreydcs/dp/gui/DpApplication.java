@@ -63,6 +63,28 @@ public class DpApplication {
     public void setLastOperationResult(String result) {
         this.lastOperationResult = result;
     }
+    
+    // Methods for updating query state (for use by query view)
+    public void setQueryPvNames(List<String> pvNames) {
+        // Convert PV names to PvDetail objects for consistency with existing data generation workflow
+        if (pvNames != null && !pvNames.isEmpty()) {
+            List<PvDetail> queryPvDetails = new java.util.ArrayList<>();
+            for (String pvName : pvNames) {
+                // Create minimal PvDetail for query context - only PV name is relevant for annotation/export
+                PvDetail pvDetail = new PvDetail();
+                pvDetail.setPvName(pvName);
+                queryPvDetails.add(pvDetail);
+            }
+            this.pvDetails = queryPvDetails;
+        } else {
+            this.pvDetails = null;
+        }
+    }
+    
+    public void setQueryTimeRange(Instant beginTime, Instant endTime) {
+        this.dataBeginTime = beginTime;
+        this.dataEndTime = endTime;
+    }
 
     public boolean init() {
 

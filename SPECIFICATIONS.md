@@ -202,3 +202,10 @@ Development of the demo GUI application will proceed according to the following 
 
 7.2.4 The next step in the development plan is to add a plotting mechanism to the tabular data in the Query Results section, so please favor design decisions that facilitate use of a standard Java plotting library in the Query Results section. 
 
+8. This section lays out the tasks for adding a new "Dataset Builder" tab in the data-query view.  Tasks are defined below.
+
+8.1 The first task is to make some changes to the existing data-query view so we can add the new "Dataset Builder" tab, including:
+8.1.1 Make the "Query Results" section collapsible like the "Query Specification" section.
+8.1.2 Rename the "Query Specification" section to "Query Editor / Dataset Builder".
+8.1.3 Change the "Query Editor / Dataset Builder" section to contain two tabs labeled "Query Editor" and "Dataset Builder".
+8.1.4 Move the existing content of the "Query Specification" section to the new "Query Editor".

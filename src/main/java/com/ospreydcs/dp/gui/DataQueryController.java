@@ -65,7 +65,10 @@ public class DataQueryController implements Initializable {
     
     // Query Results FXML components
     @FXML private VBox queryResultsSection;
+    @FXML private Button toggleResultsButton;
+    @FXML private VBox resultsContent;
     @FXML private Label rowCountLabel;
+    @FXML private Label resultsStatusLabel2;
     @FXML private TabPane resultsTabPane;
     @FXML private TableView<ObservableList<Object>> resultsTable;
     @FXML private LineChart<Number, Number> resultsChart;
@@ -74,6 +77,9 @@ public class DataQueryController implements Initializable {
     @FXML private Label chartPlaceholder;
     @FXML private Label resultsStatusLabel;
     @FXML private ProgressIndicator queryProgressIndicator;
+    
+    // Editor Tab FXML components
+    @FXML private TabPane editorTabPane;
 
     // Dependencies
     private DataQueryViewModel viewModel;
@@ -144,6 +150,10 @@ public class DataQueryController implements Initializable {
         pvNamesList.setItems(viewModel.getPvNameList());
         specificationContent.visibleProperty().bind(viewModel.showQuerySpecificationPanelProperty());
         specificationContent.managedProperty().bind(viewModel.showQuerySpecificationPanelProperty());
+        
+        // Query Results bindings
+        resultsContent.visibleProperty().bind(viewModel.showQueryResultsPanelProperty());
+        resultsContent.managedProperty().bind(viewModel.showQueryResultsPanelProperty());
         
         // Time range bindings
         queryBeginDatePicker.valueProperty().bindBidirectional(viewModel.queryBeginDateProperty());
@@ -768,9 +778,20 @@ public class DataQueryController implements Initializable {
         
         // Update button text based on panel visibility
         boolean isVisible = viewModel.showQuerySpecificationPanelProperty().get();
-        toggleSpecificationButton.setText(isVisible ? "📋 Query Specification" : "📋 Query Specification (Hidden)");
+        toggleSpecificationButton.setText(isVisible ? "📋 Query Editor / Dataset Builder" : "📋 Query Editor / Dataset Builder (Hidden)");
         
         logger.debug("Query specification panel toggled: {}", isVisible ? "visible" : "hidden");
+    }
+    
+    @FXML
+    private void onToggleQueryResults() {
+        viewModel.toggleQueryResultsPanel();
+        
+        // Update button text based on panel visibility
+        boolean isVisible = viewModel.showQueryResultsPanelProperty().get();
+        toggleResultsButton.setText(isVisible ? "📊 Query Results" : "📊 Query Results (Hidden)");
+        
+        logger.debug("Query results panel toggled: {}", isVisible ? "visible" : "hidden");
     }
     
     @FXML

@@ -38,6 +38,9 @@ public class DataQueryViewModel {
     
     private final BooleanProperty showQuerySpecificationPanel = new SimpleBooleanProperty(true);
     
+    // Query Results Panel properties  
+    private final BooleanProperty showQueryResultsPanel = new SimpleBooleanProperty(true);
+    
     // PV Search Panel properties
     private final StringProperty pvSearchText = new SimpleStringProperty("");
     private final BooleanProperty searchByNameList = new SimpleBooleanProperty(true); // true = name list, false = pattern
@@ -111,6 +114,7 @@ public class DataQueryViewModel {
     public IntegerProperty endMinuteProperty() { return endMinute; }
     public IntegerProperty endSecondProperty() { return endSecond; }
     public BooleanProperty showQuerySpecificationPanelProperty() { return showQuerySpecificationPanel; }
+    public BooleanProperty showQueryResultsPanelProperty() { return showQueryResultsPanel; }
 
     // PV Search Panel property getters
     public StringProperty pvSearchTextProperty() { return pvSearchText; }
@@ -133,6 +137,10 @@ public class DataQueryViewModel {
     // Business logic methods
     public void toggleQuerySpecificationPanel() {
         showQuerySpecificationPanel.set(!showQuerySpecificationPanel.get());
+    }
+    
+    public void toggleQueryResultsPanel() {
+        showQueryResultsPanel.set(!showQueryResultsPanel.get());
     }
     
     public void addPvName(String pvName) {

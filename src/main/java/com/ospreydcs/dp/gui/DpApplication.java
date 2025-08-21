@@ -3,6 +3,10 @@ package com.ospreydcs.dp.gui;
 import com.ospreydcs.dp.client.ApiClient;
 import com.ospreydcs.dp.client.IngestionClient;
 import com.ospreydcs.dp.client.QueryClient;
+import com.ospreydcs.dp.client.result.IngestDataApiResult;
+import com.ospreydcs.dp.client.result.QueryPvMetadataApiResult;
+import com.ospreydcs.dp.client.result.QueryTableApiResult;
+import com.ospreydcs.dp.client.result.RegisterProviderApiResult;
 import com.ospreydcs.dp.grpc.v1.ingestion.IngestDataResponse;
 import com.ospreydcs.dp.grpc.v1.ingestion.RegisterProviderResponse;
 import com.ospreydcs.dp.grpc.v1.query.QueryPvMetadataResponse;
@@ -97,7 +101,8 @@ public class DpApplication {
         // initialize ApiClient with grpc targets from default inprocess service ecosystem
         api = new ApiClient(
             inprocessServiceEcosystem.ingestionService.getIngestionChannel(),
-            inprocessServiceEcosystem.queryService.getQueryChannel());
+            inprocessServiceEcosystem.queryService.getQueryChannel(),
+            inprocessServiceEcosystem.annotationService.getChannel());
         if (!api.init()) {
             return false;
         }
@@ -121,36 +126,36 @@ public class DpApplication {
             new IngestionClient.RegisterProviderRequestParams(name, description, tags, attributes);
 
         // Call registerProvider() API method
-        final RegisterProviderResponse response = api.ingestionClient.sendRegisterProvider(params);
+        final RegisterProviderApiResult apiResult = api.ingestionClient.registerProvider(params);
 
-        // Handle null response (indicates error in IngestionClient)
-        if (response == null) {
-            return new ResultStatus(true, "Failed to register provider - null response from service");
+        if (apiResult.resultStatus.isError) {
+            // there was an error handling the API call
+            return apiResult.resultStatus;
+
+        } else {
+            // API call was successful;
+
+            final RegisterProviderResponse response = apiResult.registerProviderResponse;
+
+            // Handle successful registration
+            if (response.hasRegistrationResult()) {
+                RegisterProviderResponse.RegistrationResult registrationResult = response.getRegistrationResult();
+
+                // Save providerId and name to member variables for use from views
+                this.providerId = registrationResult.getProviderId();
+                this.providerName = registrationResult.getProviderName();
+
+                String successMsg = registrationResult.getIsNewProvider()
+                        ? "New provider registered successfully"
+                        : "Existing provider updated successfully";
+
+                return new ResultStatus(false, successMsg);
+
+            } else {
+                // Shouldn't reach here, but handle unexpected response structure
+                return new ResultStatus(true, "Unexpected response structure from provider registration");
+            }
         }
-
-        // Check if response contains an exceptional result (error)
-        if (response.hasExceptionalResult()) {
-            return new ResultStatus(true, "Provider registration failed: " + 
-                response.getExceptionalResult().getMessage());
-        }
-
-        // Handle successful registration
-        if (response.hasRegistrationResult()) {
-            RegisterProviderResponse.RegistrationResult registrationResult = response.getRegistrationResult();
-            
-            // Save providerId and name to member variables for use from views
-            this.providerId = registrationResult.getProviderId();
-            this.providerName = registrationResult.getProviderName();
-            
-            String successMsg = registrationResult.getIsNewProvider() 
-                ? "New provider registered successfully" 
-                : "Existing provider updated successfully";
-                
-            return new ResultStatus(false, successMsg);
-        }
-
-        // Shouldn't reach here, but handle unexpected response structure
-        return new ResultStatus(true, "Unexpected response structure from provider registration");
     }
 
     public ResultStatus generateAndIngestData(
@@ -297,18 +302,11 @@ public class DpApplication {
                 );
                 
                 // Call ingestData() API method for this bucket
-                final IngestDataResponse response = api.ingestionClient.sendIngestData(params);
+                final IngestDataApiResult apiResult = api.ingestionClient.ingestData(params);
                 requestCount++;
-                
-                // Handle response
-                if (response == null) {
-                    return new ResultStatus(true, "Failed to ingest data for PV " + pvDetail.getPvName() + 
-                        " bucket " + (bucketIndex + 1) + " - null response");
-                }
-                
-                if (response.hasExceptionalResult()) {
-                    return new ResultStatus(true, "Data ingestion failed for PV " + pvDetail.getPvName() + 
-                        " bucket " + (bucketIndex + 1) + ": " + response.getExceptionalResult().getMessage());
+
+                if (apiResult.resultStatus.isError) {
+                    return apiResult.resultStatus;
                 }
             }
             
@@ -354,15 +352,15 @@ public class DpApplication {
         return values;
     }
 
-    public QueryPvMetadataResponse queryPvMetadata(List<String> pvNameList) {
+    public QueryPvMetadataApiResult queryPvMetadata(List<String> pvNameList) {
         return api.queryClient.queryPvMetadata(pvNameList);
     }
 
-    public QueryPvMetadataResponse queryPvMetadata(String pvNamePattern) {
+    public QueryPvMetadataApiResult queryPvMetadata(String pvNamePattern) {
         return api.queryClient.queryPvMetadata(pvNamePattern);
     }
 
-    public QueryTableResponse queryTable(List<String> pvNameList, Instant beginTime, Instant endTime) {
+    public QueryTableApiResult queryTable(List<String> pvNameList, Instant beginTime, Instant endTime) {
 
         // build params for api call
         final QueryClient.QueryTableRequestParams params =

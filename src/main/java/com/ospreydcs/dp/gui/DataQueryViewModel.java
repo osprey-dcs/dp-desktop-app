@@ -1,5 +1,7 @@
 package com.ospreydcs.dp.gui;
 
+import com.ospreydcs.dp.client.result.QueryPvMetadataApiResult;
+import com.ospreydcs.dp.client.result.QueryTableApiResult;
 import com.ospreydcs.dp.grpc.v1.query.QueryPvMetadataResponse;
 import com.ospreydcs.dp.grpc.v1.query.QueryTableResponse;
 import javafx.beans.property.*;
@@ -214,9 +216,9 @@ public class DataQueryViewModel {
         logger.info("Starting PV metadata search, keeping existing results until new ones arrive");
 
         // Create background task for search
-        Task<QueryPvMetadataResponse> searchTask = new Task<QueryPvMetadataResponse>() {
+        Task<QueryPvMetadataApiResult> searchTask = new Task<QueryPvMetadataApiResult>() {
             @Override
-            protected QueryPvMetadataResponse call() throws Exception {
+            protected QueryPvMetadataApiResult call() throws Exception {
                 if (searchByNameList.get()) {
                     // Parse comma-separated list of PV names
                     List<String> pvNames = parseCommaSeparatedList(searchTextValue);
@@ -229,8 +231,8 @@ public class DataQueryViewModel {
         };
 
         searchTask.setOnSucceeded(e -> {
-            QueryPvMetadataResponse response = searchTask.getValue();
-            handlePvMetadataSearchResult(response);
+            QueryPvMetadataApiResult apiResult = searchTask.getValue();
+            handlePvMetadataSearchResult(apiResult);
             isSearching.set(false);
         });
 
@@ -245,7 +247,22 @@ public class DataQueryViewModel {
         searchThread.start();
     }
 
-    private void handlePvMetadataSearchResult(QueryPvMetadataResponse response) {
+    private void handlePvMetadataSearchResult(QueryPvMetadataApiResult apiResult) {
+        if (apiResult == null) {
+            javafx.application.Platform.runLater(() -> {
+                statusMessage.set("Search failed - null response from service");
+            });
+            return;
+        }
+
+        if (apiResult.resultStatus.isError) {
+            javafx.application.Platform.runLater(() -> {
+                statusMessage.set("Search failed: " + apiResult.resultStatus.toString());
+            });
+            return;
+        }
+
+        QueryPvMetadataResponse response = apiResult.queryPvMetadataResponse;
         if (response == null) {
             javafx.application.Platform.runLater(() -> {
                 statusMessage.set("Search failed - null response from service");
@@ -385,9 +402,18 @@ public class DataQueryViewModel {
             logger.debug("Querying interval {} of {}: {} to {}", 
                 intervalIndex + 1, numberOfIntervals, intervalBegin, intervalEnd);
             
-            QueryTableResponse response = dpApplication.queryTable(
+            QueryTableApiResult apiResult = dpApplication.queryTable(
                 new ArrayList<>(pvNameList), intervalBegin, intervalEnd);
             
+            if (apiResult == null) {
+                throw new RuntimeException("Query failed - null response from service");
+            }
+            
+            if (apiResult.resultStatus.isError) {
+                throw new RuntimeException("Query failed: " + apiResult.resultStatus.toString());
+            }
+            
+            QueryTableResponse response = apiResult.queryTableResponse;
             if (response == null) {
                 throw new RuntimeException("Query failed - null response from service");
             }

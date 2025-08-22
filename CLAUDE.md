@@ -126,7 +126,9 @@ Tools → Annotate, Export, Upload, Console
 - ✅ Global state synchronization between views for query parameters
 - ✅ Dataset Builder with data block management and save functionality
 - ✅ Cross-tab data transfer between Query Editor and Dataset Builder
-- 🔄 Annotation Builder UI (in development per SPECIFICATIONS.md section 9)
+- ✅ Annotation Builder UI with dataset targeting, tags, attributes, and save functionality
+- ✅ Cross-tab data transfer between Dataset Builder and Annotation Builder
+- ✅ Reusable TagsListComponent and AttributesListComponent for form inputs
 - 🔄 Data export functionality (planned)
 
 ## GUI Architecture
@@ -176,6 +178,16 @@ The application follows the Model-View-ViewModel pattern:
 6. **Validation & Feedback**: Real-time validation with status messages and button enable/disable logic
 7. **State Management**: Preserve dataset details across save operations and tab switches
 
+### Annotation Builder Workflow (Implemented)
+1. **Annotation Configuration**: Enter annotation name (required), comment, and event name (optional)
+2. **Target Dataset Management**: Add datasets from Dataset Builder using "Add to Annotation" button
+3. **Dataset Operations**: Remove selected target datasets from annotation
+4. **Tags & Attributes**: Use reusable components for free-form tag and key-value attribute entry
+5. **Cross-Tab Navigation**: Automatic tab switching when adding datasets from Dataset Builder
+6. **Annotation Persistence**: Save button validates inputs and calls DpApplication.saveAnnotation() API
+7. **Validation & Feedback**: Real-time validation requiring both name and target datasets
+8. **State Management**: Preserve annotation details and auto-generated ID after successful saves
+
 ### Key UI Components
 - **Spinner Binding**: Custom binding logic for time spinners to avoid JavaFX binding issues
 - **Dynamic ComboBoxes**: Attribute value combos populate based on selected keys
@@ -201,6 +213,14 @@ Represents a data block in the Dataset Builder:
 - Begin and end time (Instant objects)
 - Human-readable toString() format: "pv-1, pv-2, pv-3: 2025-08-15 11:03:00 -> 2025-08-15 11:05:00"
 - Used for dataset composition and cross-tab data transfer
+
+### DataSetDetail (`src/main/java/com/ospreydcs/dp/gui/model/DataSetDetail.java`)
+Represents a dataset in the Annotation Builder:
+- Dataset ID (String, auto-generated on save)
+- Dataset name, description (String)
+- List of data blocks (List<DataBlockDetail>)
+- Human-readable toString() format: "ID: [dataset-id] - Dataset name - Description snippet - First data block"
+- Used for annotation targeting and cross-tab data transfer
 
 ### Global State Management
 `DpApplication` maintains cross-view state with automatic synchronization:
@@ -262,3 +282,27 @@ Represents a data block in the Dataset Builder:
 - Implement populateFromDataBlock() pattern for cross-view data transfer
 - ListView selection binding: `listView.getSelectionModel().selectedItemProperty()` for button states
 - Use shared ViewModel methods for coordinating data between tabs
+
+### Reusable UI Components
+**TagsListComponent** (`src/main/java/com/ospreydcs/dp/gui/component/TagsListComponent.java`)
+- Free-form tag entry with add/remove functionality
+- Stores tags as ObservableList<String>
+- Access data via `getTags()` method, not through parent ViewModel
+
+**AttributesListComponent** (`src/main/java/com/ospreydcs/dp/gui/component/AttributesListComponent.java`)
+- Key-value attribute entry with add/remove functionality
+- Stores attributes as "key=value" strings in ObservableList<String>
+- Access data via `getAttributes()` method, not through parent ViewModel
+- Convert to Map<String,String> using `getKeyFromAttribute()` and `getValueFromAttribute()` static methods
+
+**Critical Integration Pattern:**
+When using reusable components, get data from component instances directly:
+```java
+// Correct - get from component instances
+var tags = tagsComponent.getTags();
+var attributes = attributesComponent.getAttributes();
+
+// Incorrect - parent ViewModels return empty lists
+var tags = viewModel.getTags(); // Empty!
+var attributes = viewModel.getAttributes(); // Empty!
+```

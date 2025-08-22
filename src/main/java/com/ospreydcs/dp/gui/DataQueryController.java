@@ -24,7 +24,13 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.ResourceBundle;
+
+import com.ospreydcs.dp.gui.model.DataSetDetail;
 
 public class DataQueryController implements Initializable {
 
@@ -1201,16 +1207,88 @@ public class DataQueryController implements Initializable {
         String comment = annotationBuilderViewModel.getComment();
         String eventName = annotationBuilderViewModel.getEventName();
         var dataSets = new java.util.ArrayList<>(annotationBuilderViewModel.getDataSets());
-        var tags = new java.util.ArrayList<>(annotationBuilderViewModel.getTags());
-        var attributes = new java.util.ArrayList<>(annotationBuilderViewModel.getAttributes());
+        var tags = new java.util.ArrayList<>(tagsComponent.getTags());
+        var attributes = new java.util.ArrayList<>(attributesComponent.getAttributes());
         
         logger.info("Saving annotation: id={}, name={}, comment={}, eventName={}, dataSets={}, tags={}, attributes={}", 
                    id, name, comment, eventName, dataSets.size(), tags.size(), attributes.size());
         
-        // Step 3: Call DpApplication.saveAnnotation() method (placeholder for now)
-        // TODO: Implement saveAnnotation API call when available
-        annotationBuilderViewModel.statusMessageProperty().set("Save functionality will be implemented when API is available");
-        logger.info("Annotation save completed (placeholder implementation)");
+        // Step 3: Convert attributes list to Map<String, String>
+        Map<String, String> attributeMap = new HashMap<>();
+        for (String attribute : attributes) {
+            if (attribute != null && attribute.contains("=")) {
+                String key = com.ospreydcs.dp.gui.component.AttributesListComponent.getKeyFromAttribute(attribute);
+                String value = com.ospreydcs.dp.gui.component.AttributesListComponent.getValueFromAttribute(attribute);
+                if (key != null && !key.trim().isEmpty()) {
+                    attributeMap.put(key.trim(), value != null ? value.trim() : "");
+                }
+            }
+        }
+        
+        // Step 4: Convert DataSetDetail objects to dataset IDs
+        List<String> dataSetIds = dataSets.stream()
+            .map(DataSetDetail::getId)
+            .filter(Objects::nonNull)
+            .filter(datasetId -> !datasetId.trim().isEmpty())
+            .collect(java.util.stream.Collectors.toList());
+        
+        // Convert empty strings to null for optional fields
+        String commentToSave = (comment != null && !comment.trim().isEmpty()) ? comment.trim() : null;
+        String eventNameToSave = (eventName != null && !eventName.trim().isEmpty()) ? eventName.trim() : null;
+        List<String> tagsToSave = tags.isEmpty() ? null : new ArrayList<>(tags);
+        Map<String, String> attributesToSave = attributeMap.isEmpty() ? null : attributeMap;
+        
+        logger.info("Calling DpApplication.saveAnnotation with: dataSetIds={}, tags={}, attributes={}", 
+                   dataSetIds.size(), tagsToSave != null ? tagsToSave.size() : 0, 
+                   attributesToSave != null ? attributesToSave.size() : 0);
+        
+        // Step 5: Call DpApplication.saveAnnotation() method
+        try {
+            com.ospreydcs.dp.client.result.SaveAnnotationApiResult apiResult = 
+                dpApplication.saveAnnotation(
+                    id, // existing annotation ID (null for new annotations)
+                    name,
+                    dataSetIds,
+                    null, // annotationIds - not used in current implementation
+                    commentToSave,
+                    tagsToSave,
+                    attributesToSave,
+                    eventNameToSave
+                );
+            
+            if (apiResult == null) {
+                annotationBuilderViewModel.statusMessageProperty().set("Save failed - null response from service");
+                logger.error("Annotation save failed: null API result");
+                return;
+            }
+            
+            // Step 6: Handle API result
+            if (apiResult.resultStatus.isError) {
+                // Error case
+                String errorMessage = "Save failed: " + apiResult.resultStatus.msg;
+                annotationBuilderViewModel.statusMessageProperty().set(errorMessage);
+                logger.error("Annotation save failed: {}", apiResult.resultStatus.msg);
+            } else {
+                // Success case - extract the annotation ID and update the field
+                if (apiResult.annotationId != null && !apiResult.annotationId.trim().isEmpty()) {
+                    annotationBuilderViewModel.setAnnotationId(apiResult.annotationId);
+                    
+                    String successMessage = "Annotation saved successfully with ID: " + apiResult.annotationId;
+                    annotationBuilderViewModel.statusMessageProperty().set(successMessage);
+                    logger.info("Annotation save completed successfully: {}", apiResult.annotationId);
+                } else {
+                    // This shouldn't happen for successful saves, but handle gracefully
+                    String successMessage = "Annotation saved successfully";
+                    annotationBuilderViewModel.statusMessageProperty().set(successMessage);
+                    logger.warn("Annotation save completed but no ID returned");
+                }
+            }
+            
+        } catch (Exception e) {
+            String errorMessage = "Save failed with exception: " + e.getMessage();
+            annotationBuilderViewModel.statusMessageProperty().set(errorMessage);
+            logger.error("Annotation save failed with exception", e);
+        }
     }
     
     private void setupChartTooltipsWithRetry(int attemptCount) {

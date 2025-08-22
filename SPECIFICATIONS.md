@@ -253,3 +253,11 @@ Development of the demo GUI application will proceed according to the following 
 9.2.1 The button should be enabled when the Dataset that is the subject of the Dataset Builder has a non-null Dataset ID (e.g., it has been saved to the database).
 9.2.2 When the button is clicked, a DataSetDetail should be created for the contents of the Dataset Builder and added to the "Target Datasets" list in the "Annotation Builder".  The view should change so that the "Annotation Builder" tab is displayed.
 9.2.3 If there is not an id field in DataSetDetail, please add one.
+
+9.3 The next task is to implement handling for the "Annotation Builder" "Save" button.
+9.3.1 When the button is clicked, validation is performed that 1) the Annotation name is a non-blank String and 2) the list of Target Datasets is non-empty.  If the validation fails, an error message is displayed in the status bar.  
+9.3.2 If validation succeeds, the method DpApplication.saveAnnotation() is invoked.  Null values should be passed for any method parameters that don't have a value, instead of empty Strings or lists.  The method returns a SaveAnnotationApiResult object, which contains a ResultStatus object indicating success or failure of the operation.  
+9.3.3 If the isError flag of the ResultStatus object is set, the operation failed and the error message from the ResultStatus object should be displayed in the status bar.  
+9.3.4 If the isError flag is not set, the API method call was successful and the SaveDataSetApiResult contains a String "id", which is the unique identifier for the Dataset saved to the database.  It should be displayed in the Annotation Builder's read-only "id" field.  
+9.3.5 The values in the "Annotation Builder" view components should be preserved in case there are subsequent saves to the Dataset.  
+9.3.6 Logic for enabling / disabling the "Save" button is unchanged, it should be enabled when the view contents are valid.

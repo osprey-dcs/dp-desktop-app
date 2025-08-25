@@ -18,6 +18,8 @@ import javafx.stage.Stage;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.awt.Desktop;
+import java.io.File;
 import java.net.URL;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -155,6 +157,7 @@ public class DataQueryController implements Initializable {
         
         // Set up event handlers
         setupEventHandlers();
+        setupDatasetActionsCombo();
         
         logger.debug("DataQueryController initialized successfully");
     }
@@ -198,7 +201,7 @@ public class DataQueryController implements Initializable {
         dataBlocksList.setItems(datasetBuilderViewModel.getDataBlocks());
         
         // Populate the Dataset Actions ComboBox
-        datasetActionsCombo.getItems().addAll("Load", "Annotate", "Export");
+        datasetActionsCombo.getItems().addAll("Load", "Export CSV", "Export XLSX", "Export HDF5");
         
         logger.debug("Dataset Builder initialized");
     }
@@ -303,7 +306,8 @@ public class DataQueryController implements Initializable {
         resetDatasetButton.disableProperty().bind(datasetBuilderViewModel.resetButtonEnabledProperty().not());
         saveDatasetButton.disableProperty().bind(datasetBuilderViewModel.saveButtonEnabledProperty().not());
         addToAnnotationButton.disableProperty().bind(datasetBuilderViewModel.datasetIdProperty().isEmpty());
-        datasetActionsCombo.disableProperty().bind(datasetBuilderViewModel.datasetActionsEnabledProperty().not());
+        // Enable Dataset Actions ComboBox when dataset has a non-null ID (same logic as Add to Annotation button)
+        datasetActionsCombo.disableProperty().bind(datasetBuilderViewModel.datasetIdProperty().isEmpty());
         
         // Data blocks control buttons - enable when there's a selection
         removeDataBlockButton.disableProperty().bind(dataBlocksList.getSelectionModel().selectedItemProperty().isNull());
@@ -1695,6 +1699,165 @@ public class DataQueryController implements Initializable {
             // Always clear the flag, even if there's an exception
             isInitializingFromGlobalState = false;
         }
+    }
+    
+    private void setupDatasetActionsCombo() {
+        // Set up action handler for Dataset Actions ComboBox
+        datasetActionsCombo.setOnAction(event -> {
+            String selectedAction = datasetActionsCombo.getSelectionModel().getSelectedItem();
+            if (selectedAction != null) {
+                logger.info("Dataset action selected: {}", selectedAction);
+                
+                // Handle export actions
+                switch (selectedAction) {
+                    case "Export CSV":
+                        handleExportAction(DpApplication.ExportOutputFileFormat.CSV);
+                        break;
+                    case "Export XLSX":
+                        handleExportAction(DpApplication.ExportOutputFileFormat.XLSX);
+                        break;
+                    case "Export HDF5":
+                        handleExportAction(DpApplication.ExportOutputFileFormat.HDF5);
+                        break;
+                    case "Load":
+                        logger.info("Load action not yet implemented");
+                        datasetBuilderViewModel.statusMessageProperty().set("Load functionality not yet implemented");
+                        break;
+                    default:
+                        logger.warn("Unknown dataset action: {}", selectedAction);
+                        datasetBuilderViewModel.statusMessageProperty().set("Unknown action: " + selectedAction);
+                        break;
+                }
+                
+                // Reset ComboBox selection after action
+                datasetActionsCombo.getSelectionModel().clearSelection();
+            }
+        });
+        
+        logger.debug("Dataset Actions ComboBox event handler configured");
+    }
+    
+    private void handleExportAction(DpApplication.ExportOutputFileFormat format) {
+        logger.info("Export requested for format: {}", format);
+        
+        // Step 1: Get dataset ID and validate
+        String datasetId = datasetBuilderViewModel.getDatasetId();
+        if (datasetId == null || datasetId.trim().isEmpty()) {
+            String errorMessage = "Export failed: Dataset must be saved first (no ID found)";
+            datasetBuilderViewModel.statusMessageProperty().set(errorMessage);
+            logger.error("Export failed: no dataset ID");
+            return;
+        }
+        
+        // Step 2: Update status to show operation in progress
+        datasetBuilderViewModel.statusMessageProperty().set("Exporting dataset to " + format + "...");
+        logger.info("Starting export: datasetId={}, format={}", datasetId, format);
+        
+        try {
+            // Step 3: Call DpApplication.exportData() method
+            com.ospreydcs.dp.client.result.ExportDataApiResult apiResult = 
+                dpApplication.exportData(datasetId, null, format);
+            
+            if (apiResult == null) {
+                String errorMessage = "Export failed - null response from service";
+                datasetBuilderViewModel.statusMessageProperty().set(errorMessage);
+                logger.error("Export failed: null API result");
+                return;
+            }
+            
+            // Step 4: Handle API result
+            if (apiResult.resultStatus.isError) {
+                // Error case - display error message
+                String errorMessage = "Export failed: " + apiResult.resultStatus.msg;
+                datasetBuilderViewModel.statusMessageProperty().set(errorMessage);
+                logger.error("Export failed: {}", apiResult.resultStatus.msg);
+            } else {
+                // Success case - get file path and display success message
+                if (apiResult.exportDataResult != null && 
+                    apiResult.exportDataResult.getFilePath() != null && 
+                    !apiResult.exportDataResult.getFilePath().trim().isEmpty()) {
+                    
+                    String filePath = apiResult.exportDataResult.getFilePath();
+                    String successMessage = "Export completed successfully: " + filePath;
+                    datasetBuilderViewModel.statusMessageProperty().set(successMessage);
+                    logger.info("Export completed successfully: {}", filePath);
+                    
+                    // Step 5: Try to open the file with native application
+                    openFileWithNativeApplication(filePath);
+                    
+                } else {
+                    // Shouldn't happen for successful exports, but handle gracefully
+                    String successMessage = "Export completed successfully";
+                    datasetBuilderViewModel.statusMessageProperty().set(successMessage);
+                    logger.warn("Export completed but no file path returned");
+                }
+            }
+            
+        } catch (Exception e) {
+            String errorMessage = "Export failed with exception: " + e.getMessage();
+            datasetBuilderViewModel.statusMessageProperty().set(errorMessage);
+            logger.error("Export failed with exception", e);
+        }
+    }
+    
+    private void openFileWithNativeApplication(String filePath) {
+        // Run file opening in background thread to avoid blocking UI
+        javafx.concurrent.Task<Void> fileOpenTask = new javafx.concurrent.Task<Void>() {
+            @Override
+            protected Void call() throws Exception {
+                try {
+                    // Check if Desktop is supported on this platform
+                    if (!Desktop.isDesktopSupported()) {
+                        logger.info("Desktop operations not supported on this platform, cannot open file: {}", filePath);
+                        return null;
+                    }
+                    
+                    // Create File object from the file path
+                    File file = new File(filePath);
+                    if (!file.exists()) {
+                        logger.warn("Export file does not exist, cannot open: {}", filePath);
+                        return null;
+                    }
+                    
+                    // Try to open with native application
+                    Desktop desktop = Desktop.getDesktop();
+                    if (desktop.isSupported(Desktop.Action.OPEN)) {
+                        logger.info("Attempting to open file with native application: {}", filePath);
+                        
+                        // Add a small delay to let the export operation fully complete
+                        Thread.sleep(100);
+                        
+                        desktop.open(file);
+                        logger.info("Successfully initiated file opening with native application: {}", filePath);
+                    } else {
+                        logger.info("OPEN action not supported by Desktop, cannot open file: {}", filePath);
+                    }
+                    
+                } catch (Exception e) {
+                    // Don't let file opening errors interfere with export success
+                    logger.warn("Failed to open exported file with native application: {} - {}", filePath, e.getMessage());
+                }
+                return null;
+            }
+        };
+        
+        // Handle task completion (success or failure) on JavaFX thread
+        fileOpenTask.setOnSucceeded(event -> {
+            logger.debug("File opening task completed successfully");
+        });
+        
+        fileOpenTask.setOnFailed(event -> {
+            Throwable exception = fileOpenTask.getException();
+            logger.warn("File opening task failed: {}", exception != null ? exception.getMessage() : "Unknown error");
+        });
+        
+        // Run the task in a daemon thread so it doesn't prevent app shutdown
+        Thread fileOpenThread = new Thread(fileOpenTask);
+        fileOpenThread.setDaemon(true);
+        fileOpenThread.setName("FileOpenTask-" + System.currentTimeMillis());
+        fileOpenThread.start();
+        
+        logger.debug("Started background thread to open file: {}", filePath);
     }
     
     // Helper class to store original data point information for tooltips

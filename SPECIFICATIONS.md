@@ -261,3 +261,14 @@ Development of the demo GUI application will proceed according to the following 
 9.3.4 If the isError flag is not set, the API method call was successful and the SaveDataSetApiResult contains a String "id", which is the unique identifier for the Dataset saved to the database.  It should be displayed in the Annotation Builder's read-only "id" field.  
 9.3.5 The values in the "Annotation Builder" view components should be preserved in case there are subsequent saves to the Dataset.  
 9.3.6 Logic for enabling / disabling the "Save" button is unchanged, it should be enabled when the view contents are valid.
+
+10.0 The next task is to add support for exporting data to the Dataset Builder, using the client API exportData() method via the wrapper method DpApplication.exportData().  
+10.0.1 The feature will be accessed via the "Export" option in the Dataset Builder's "Other actions..." comboxbox.  The "Export" option should be changed to include 3 sub-menu items labeled "CSV", "XLSX", and "HDF5".  The "Export" option should be enabled in the "Other actions..." combobox when the Dataset Builder contains a non-null value in the "ID" field (this is the same logic as for enabling the Dataset Builder's "Add to Annotation" button).
+10.0.2 Selecting any of the "Export" sub-menu items should invoke the method DpApplication.exportData() with the following parameters: 1) ID for the Dataset Builder's Dataset, 2) null for CalculationsSpec (support will be added later), and 3) the enum value from DpApplication.ExportOutputFileFormat corresponding to the selected sub-menu label.  
+10.0.3 DpApplication.exportData() returns an ExportDataApiResult object, containing a ResultStats indicating success or failure of the operation.  
+10.0.4 If the ResultStatus isError flag is set, the operation failed, and the ResultStatus errorMsg should be displayed in the application status bar.  
+10.0.5 If the isError flag is not set, the operation succeeded and the ExportDataApiResult contains the result from the API method in its exportDataResult member.  The ExportDataResult contains the path to the output file in its filePath member.  
+10.0.6 The file path should be displayed in a message to the application status bar.  
+10.0.7 The application should try to launch the file using the native application using the JavaFX Desktop class methods, using 1) isDesktopSupported() to determine if we should try to open the file, 2) creating a Java File object from the filePath, and 33) using Desktop.getDesktop().open() to open the Java file.
+10.0.8 the working directories are 1) ~/dp.fork/dp-java/dp-grpc for the API definition including things like CalculationsSpec and ExportOutputFormat and 2) ~/dp.fork/dp-java/dp-service for the
+client API definition including things like ExportDataApiResult and AnnotationClient.

@@ -5,11 +5,10 @@ import com.ospreydcs.dp.client.ApiClient;
 import com.ospreydcs.dp.client.IngestionClient;
 import com.ospreydcs.dp.client.QueryClient;
 import com.ospreydcs.dp.client.result.*;
-import com.ospreydcs.dp.grpc.v1.ingestion.IngestDataResponse;
+import com.ospreydcs.dp.grpc.v1.annotation.ExportDataRequest;
+import com.ospreydcs.dp.grpc.v1.common.CalculationsSpec;
 import com.ospreydcs.dp.grpc.v1.ingestion.RegisterProviderResponse;
-import com.ospreydcs.dp.grpc.v1.query.QueryPvMetadataResponse;
 import com.ospreydcs.dp.grpc.v1.query.QueryTableRequest;
-import com.ospreydcs.dp.grpc.v1.query.QueryTableResponse;
 import com.ospreydcs.dp.gui.model.DataBlockDetail;
 import com.ospreydcs.dp.gui.model.PvDetail;
 import com.ospreydcs.dp.service.common.model.ResultStatus;
@@ -22,6 +21,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public class DpApplication {
 
@@ -45,6 +45,12 @@ public class DpApplication {
     private String lastOperationResult = null;
     private int totalPvsIngested = 0;
     private int totalBucketsCreated = 0;
+
+    public enum ExportOutputFileFormat {
+        CSV,
+        XLSX,
+        HDF5
+    }
 
     // Getters for state variables (for use by other views)
     public String getProviderId() { return providerId; }
@@ -453,6 +459,34 @@ public class DpApplication {
 
         // call api method
         return api.annotationClient.saveAnnotation(params);
+    }
+
+    public ExportDataApiResult exportData(
+            String datasetId,
+            CalculationsSpec calculationsSpec,
+            ExportOutputFileFormat outputFileFormat
+    ) {
+        // get API enum value for application enum value for output format
+        ExportDataRequest.ExportOutputFormat apiOutputFormat = null;
+        switch (outputFileFormat) {
+            case CSV:
+                apiOutputFormat = ExportDataRequest.ExportOutputFormat.EXPORT_FORMAT_CSV;
+                break;
+            case XLSX:
+                apiOutputFormat = ExportDataRequest.ExportOutputFormat.EXPORT_FORMAT_XLSX;
+                break;
+            case HDF5:
+                apiOutputFormat = ExportDataRequest.ExportOutputFormat.EXPORT_FORMAT_HDF5;
+                break;
+        }
+        Objects.requireNonNull(apiOutputFormat);
+
+        // create API request params
+        AnnotationClient.ExportDataRequestParams params =
+                new AnnotationClient.ExportDataRequestParams(datasetId, calculationsSpec, apiOutputFormat);
+
+        // call api method
+        return api.annotationClient.exportData(params);
     }
 
 }

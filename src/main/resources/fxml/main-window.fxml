@@ -24,20 +24,13 @@
                   <MenuItem fx:id="subscribeMenuItem" disable="true" onAction="#onSubscribe" text="Subscribe" />
                </items>
             </Menu>
-            <Menu text="Query">
+            <Menu text="Explore">
                <items>
                   <MenuItem fx:id="dataMenuItem" disable="true" onAction="#onData" text="Data" />
                   <MenuItem fx:id="pvMetadataMenuItem" disable="true" onAction="#onPvMetadata" text="PV Metadata" />
                   <MenuItem fx:id="providerMetadataMenuItem" disable="true" onAction="#onProviderMetadata" text="Provider Metadata" />
+                  <MenuItem fx:id="datasetsMenuItem" disable="true" onAction="#onDatasets" text="Datasets" />
                   <MenuItem fx:id="annotationsMenuItem" disable="true" onAction="#onAnnotations" text="Annotations" />
-               </items>
-            </Menu>
-            <Menu text="Tools">
-               <items>
-                  <MenuItem fx:id="annotateMenuItem" disable="true" onAction="#onAnnotate" text="Annotate" />
-                  <MenuItem fx:id="exportMenuItem" disable="true" onAction="#onExport" text="Export" />
-                  <MenuItem fx:id="uploadMenuItem" disable="true" onAction="#onUpload" text="Upload" />
-                  <MenuItem fx:id="consoleMenuItem" disable="true" onAction="#onConsole" text="Console" />
                </items>
             </Menu>
          </menus>

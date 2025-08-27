@@ -129,6 +129,7 @@ Tools → Annotate, Export, Upload, Console
 - ✅ Annotation Builder UI with dataset targeting, tags, attributes, and save functionality
 - ✅ Cross-tab data transfer between Dataset Builder and Annotation Builder
 - ✅ Reusable TagsListComponent and AttributesListComponent for form inputs
+- ✅ Calculations section with multi-sheet Excel import functionality
 - 🔄 Data export functionality (planned)
 
 ## GUI Architecture
@@ -183,10 +184,20 @@ The application follows the Model-View-ViewModel pattern:
 2. **Target Dataset Management**: Add datasets from Dataset Builder using "Add to Annotation" button
 3. **Dataset Operations**: Remove selected target datasets from annotation
 4. **Tags & Attributes**: Use reusable components for free-form tag and key-value attribute entry
-5. **Cross-Tab Navigation**: Automatic tab switching when adding datasets from Dataset Builder
-6. **Annotation Persistence**: Save button validates inputs and calls DpApplication.saveAnnotation() API
-7. **Validation & Feedback**: Real-time validation requiring both name and target datasets
-8. **State Management**: Preserve annotation details and auto-generated ID after successful saves
+5. **Calculations Import**: Import user-defined calculations from Excel files (multi-sheet support)
+6. **Cross-Tab Navigation**: Automatic tab switching when adding datasets from Dataset Builder
+7. **Annotation Persistence**: Save button validates inputs and calls DpApplication.saveAnnotation() API
+8. **Validation & Feedback**: Real-time validation requiring both name and target datasets
+9. **State Management**: Preserve annotation details and auto-generated ID after successful saves
+
+### Calculations Import Workflow (Implemented)
+1. **Excel File Selection**: File chooser dialog supporting .xlsx and .xls formats
+2. **Multi-Sheet Processing**: Automatically imports all sheets as separate DataFrameDetails
+3. **Data Validation**: Validates minimum column requirements (seconds, nanoseconds, data columns)
+4. **Timestamp Format**: Expects first two columns as epoch seconds and nanoseconds
+5. **Data Frame Creation**: Creates DataFrameDetails objects with protobuf DataColumn structures
+6. **Error Handling**: Graceful handling of invalid sheets while processing valid ones
+7. **List Management**: View, remove, and manage imported calculation data frames
 
 ### Key UI Components
 - **Spinner Binding**: Custom binding logic for time spinners to avoid JavaFX binding issues
@@ -222,6 +233,20 @@ Represents a dataset in the Annotation Builder:
 - Human-readable toString() format: "ID: [dataset-id] - Dataset name - Description snippet - First data block"
 - Used for annotation targeting and cross-tab data transfer
 
+### CalculationsDetails (`src/main/java/com/ospreydcs/dp/gui/model/CalculationsDetails.java`)
+Container for calculation data imported from Excel files:
+- ID (String, for calculations identification)
+- List of data frames (List<DataFrameDetails>)
+- Used in Annotation Builder for calculations management
+
+### DataFrameDetails (`src/main/java/com/ospreydcs/dp/gui/model/DataFrameDetails.java`)
+Represents individual calculation frames from Excel import:
+- Name (String, typically sheet name from Excel)
+- Timestamps (List<Timestamp>, protobuf format)
+- Data columns (List<DataColumn>, protobuf format)
+- Human-readable toString() format: "Frame name - Column1, Column2, Column3..."
+- Created from multi-sheet Excel import using shared DataImportUtility
+
 ### Global State Management
 `DpApplication` maintains cross-view state with automatic synchronization:
 - Provider ID and name after registration
@@ -235,6 +260,26 @@ Represents a dataset in the Annotation Builder:
 - Timezone handling uses `java.time.ZoneId.systemDefault()` for consistent UI ↔ global state conversion
 - Spinner value commitment via `commitValue()` before reading values to handle JavaFX uncommitted edits
 - Initialization order: restore UI from global state BEFORE injecting into ViewModels to prevent listener overwrites
+
+## Shared Utilities Integration
+
+### DataImportUtility
+Located in `dp-service` dependency (`~/dp.fork/dp-java/dp-service`):
+- **Multi-Sheet Excel Import**: `DataImportUtility.importXlsxData(String filePath)`
+- **Input Format**: First two columns must be epoch seconds and nanoseconds
+- **Returns**: `DataImportResult` with list of `DataFrameResult` objects (one per sheet)
+- **Error Handling**: Skips invalid sheets/rows, continues processing valid data
+- **Shared Usage**: Used by both Calculations import and future PV ingestion features
+- **Dependencies**: Requires updated `dp-service` to be installed to local Maven repository
+
+### Dependency Updates
+When modifying shared utilities in `dp-service`:
+```bash
+cd ~/dp.fork/dp-java/dp-service
+mvn clean install -DskipTests
+cd ~/dp.fork/dp-java/dp-desktop-app
+mvn clean compile
+```
 
 ## MongoDB Integration
 - Default database: `dp-demo`
@@ -306,3 +351,30 @@ var attributes = attributesComponent.getAttributes();
 var tags = viewModel.getTags(); // Empty!
 var attributes = viewModel.getAttributes(); // Empty!
 ```
+
+### Excel Import Integration
+**Using DataImportUtility for multi-sheet Excel processing:**
+```java
+// Import Excel data with error handling
+DataImportResult importResult = DataImportUtility.importXlsxData(selectedFile.getAbsolutePath());
+if (!importResult.resultStatus.isError) {
+    List<DataFrameDetails> importedFrames = new ArrayList<>();
+    for (DataImportResult.DataFrameResult frameResult : importResult.dataFrames) {
+        DataFrameDetails frame = new DataFrameDetails(
+            frameResult.sheetName, 
+            frameResult.timestamps, 
+            frameResult.columns
+        );
+        importedFrames.add(frame);
+    }
+    // Add to UI model
+    viewModel.getCalculationsDataFrames().addAll(importedFrames);
+}
+```
+
+**Excel File Format Requirements:**
+- Column 0: Epoch seconds (long)
+- Column 1: Nanoseconds (long) 
+- Columns 2+: Data values (numeric, string, or boolean)
+- Headers in row 0 for all columns
+- Minimum 3 columns required per sheet

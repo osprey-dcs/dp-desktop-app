@@ -26,11 +26,8 @@ public class MainViewModel {
     private final BooleanProperty dataEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty pvMetadataEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty providerMetadataEnabled = new SimpleBooleanProperty(false);
+    private final BooleanProperty datasetsEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty annotationsEnabled = new SimpleBooleanProperty(false);
-    private final BooleanProperty annotateEnabled = new SimpleBooleanProperty(false);
-    private final BooleanProperty exportEnabled = new SimpleBooleanProperty(false);
-    private final BooleanProperty uploadEnabled = new SimpleBooleanProperty(false);
-    private final BooleanProperty consoleEnabled = new SimpleBooleanProperty(false);
 
     private DpApplication dpApplication;
 
@@ -94,24 +91,12 @@ public class MainViewModel {
         return providerMetadataEnabled;
     }
 
+    public BooleanProperty datasetsEnabledProperty() {
+        return datasetsEnabled;
+    }
+
     public BooleanProperty annotationsEnabledProperty() {
         return annotationsEnabled;
-    }
-
-    public BooleanProperty annotateEnabledProperty() {
-        return annotateEnabled;
-    }
-
-    public BooleanProperty exportEnabledProperty() {
-        return exportEnabled;
-    }
-
-    public BooleanProperty uploadEnabledProperty() {
-        return uploadEnabled;
-    }
-
-    public BooleanProperty consoleEnabledProperty() {
-        return consoleEnabled;
     }
 
     // Business logic methods
@@ -142,15 +127,14 @@ public class MainViewModel {
             pvMetadataEnabled.set(dpApplication.hasIngestedData());
             providerMetadataEnabled.set(dpApplication.hasIngestedData());
             
-            // Enable export menu if queries have been performed
-            exportEnabled.set(dpApplication.hasPerformedQueries());
+            // Enable datasets menu if data has been ingested
+            datasetsEnabled.set(dpApplication.hasIngestedData());
             
-            // Enable annotation menu if data has been ingested
-            annotateEnabled.set(dpApplication.hasIngestedData());
+            // Enable annotations menu if data has been ingested
             annotationsEnabled.set(dpApplication.hasIngestedData());
             
-            logger.debug("Menu states updated - dataEnabled: {}, pvMetadataEnabled: {}, providerMetadataEnabled: {}, exportEnabled: {}", 
-                dataEnabled.get(), pvMetadataEnabled.get(), providerMetadataEnabled.get(), exportEnabled.get());
+            logger.debug("Menu states updated - dataEnabled: {}, pvMetadataEnabled: {}, providerMetadataEnabled: {}, datasetsEnabled: {}, annotationsEnabled: {}", 
+                dataEnabled.get(), pvMetadataEnabled.get(), providerMetadataEnabled.get(), datasetsEnabled.get(), annotationsEnabled.get());
         }
     }
     
@@ -207,28 +191,13 @@ public class MainViewModel {
         updateStatus("Opening provider metadata browser...");
     }
 
+    public void handleDatasets() {
+        logger.info("Datasets action triggered");
+        updateStatus("Opening datasets browser...");
+    }
+
     public void handleAnnotations() {
         logger.info("Annotations query action triggered");
         updateStatus("Opening annotations query...");
-    }
-
-    public void handleAnnotate() {
-        logger.info("Annotate action triggered");
-        updateStatus("Opening annotation tool...");
-    }
-
-    public void handleExport() {
-        logger.info("Export action triggered");
-        updateStatus("Opening export tool...");
-    }
-
-    public void handleUpload() {
-        logger.info("Upload action triggered");
-        updateStatus("Opening calculation upload...");
-    }
-
-    public void handleConsole() {
-        logger.info("Console action triggered");
-        updateStatus("Opening console...");
     }
 }

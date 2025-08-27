@@ -41,7 +41,7 @@ import com.ospreydcs.dp.client.utility.DataImportUtility;
 import com.ospreydcs.dp.client.result.DataImportResult;
 
 
-public class DataQueryController implements Initializable {
+public class DataExploreController implements Initializable {
 
     private static final Logger logger = LogManager.getLogger();
 
@@ -139,7 +139,7 @@ public class DataQueryController implements Initializable {
     private com.ospreydcs.dp.gui.component.AttributesListComponent attributesComponent;
 
     // Dependencies
-    private DataQueryViewModel viewModel;
+    private DataExploreViewModel viewModel;
     private DatasetBuilderViewModel datasetBuilderViewModel;
     private AnnotationBuilderViewModel annotationBuilderViewModel;
     private DpApplication dpApplication;
@@ -151,10 +151,10 @@ public class DataQueryController implements Initializable {
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
-        logger.debug("DataQueryController initializing...");
+        logger.debug("DataExploreController initializing...");
         
         // Create the view models
-        viewModel = new DataQueryViewModel();
+        viewModel = new DataExploreViewModel();
         datasetBuilderViewModel = new DatasetBuilderViewModel();
         annotationBuilderViewModel = new AnnotationBuilderViewModel();
         
@@ -172,7 +172,7 @@ public class DataQueryController implements Initializable {
         setupEventHandlers();
         setupDatasetActionsCombo();
         
-        logger.debug("DataQueryController initialized successfully");
+        logger.debug("DataExploreController initialized successfully");
     }
     
     private void initializeSpinners() {
@@ -214,7 +214,7 @@ public class DataQueryController implements Initializable {
         dataBlocksList.setItems(datasetBuilderViewModel.getDataBlocks());
         
         // Populate the Dataset Actions ComboBox
-        datasetActionsCombo.getItems().addAll("Load", "Export CSV", "Export XLSX", "Export HDF5");
+        datasetActionsCombo.getItems().addAll("Export CSV", "Export XLSX", "Export HDF5");
         
         logger.debug("Dataset Builder initialized");
     }
@@ -224,7 +224,7 @@ public class DataQueryController implements Initializable {
         targetDatasetsList.setItems(annotationBuilderViewModel.getDataSets());
         
         // Populate the Annotation Actions ComboBox
-        annotationActionsCombo.getItems().addAll("Load", "Delete", "Export");
+        annotationActionsCombo.getItems().addAll("Delete", "Export");
         
         // Create and initialize reusable components programmatically
         tagsComponent = new com.ospreydcs.dp.gui.component.TagsListComponent();
@@ -888,7 +888,7 @@ public class DataQueryController implements Initializable {
                     mainController.getViewModel().updateStatus(newStatus);
                 }
             });
-            logger.debug("Status listener established between DataQueryViewModel and MainController");
+            logger.debug("Status listener established between DataExploreViewModel and MainController");
         }
     }
 
@@ -906,12 +906,12 @@ public class DataQueryController implements Initializable {
             viewModel.setDpApplication(dpApplication);
         }
         
-        logger.debug("DpApplication injected into DataQueryController");
+        logger.debug("DpApplication injected into DataExploreController");
     }
 
     public void setPrimaryStage(Stage primaryStage) {
         this.primaryStage = primaryStage;
-        logger.debug("Primary stage injected into DataQueryController");
+        logger.debug("Primary stage injected into DataExploreController");
     }
 
     public void setMainController(MainController mainController) {
@@ -925,7 +925,7 @@ public class DataQueryController implements Initializable {
         // Set up status message forwarding
         setupStatusListener();
         
-        logger.debug("MainController injected into DataQueryController");
+        logger.debug("MainController injected into DataExploreController");
     }
 
     // Event handler methods
@@ -935,7 +935,7 @@ public class DataQueryController implements Initializable {
         
         // Update button text based on panel visibility
         boolean isVisible = viewModel.showQuerySpecificationPanelProperty().get();
-        toggleSpecificationButton.setText(isVisible ? "📋 Query Editor / Dataset Builder" : "📋 Query Editor / Dataset Builder (Hidden)");
+        toggleSpecificationButton.setText(isVisible ? "📋 Data Explorer Tools" : "📋 Data Explorer Tools (Hidden)");
         
         logger.debug("Query specification panel toggled: {}", isVisible ? "visible" : "hidden");
     }
@@ -946,7 +946,7 @@ public class DataQueryController implements Initializable {
         
         // Update button text based on panel visibility
         boolean isVisible = viewModel.showQueryResultsPanelProperty().get();
-        toggleResultsButton.setText(isVisible ? "📊 Query Results" : "📊 Query Results (Hidden)");
+        toggleResultsButton.setText(isVisible ? "📊 Data Viewer" : "📊 Data Viewer (Hidden)");
         
         logger.debug("Query results panel toggled: {}", isVisible ? "visible" : "hidden");
     }
@@ -1865,10 +1865,6 @@ public class DataQueryController implements Initializable {
                         break;
                     case "Export HDF5":
                         handleExportAction(DpApplication.ExportOutputFileFormat.HDF5);
-                        break;
-                    case "Load":
-                        logger.info("Load action not yet implemented");
-                        datasetBuilderViewModel.statusMessageProperty().set("Load functionality not yet implemented");
                         break;
                     default:
                         logger.warn("Unknown dataset action: {}", selectedAction);

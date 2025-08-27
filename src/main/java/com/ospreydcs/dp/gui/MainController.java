@@ -36,11 +36,8 @@ public class MainController implements Initializable {
     @FXML private MenuItem dataMenuItem;
     @FXML private MenuItem pvMetadataMenuItem;
     @FXML private MenuItem providerMetadataMenuItem;
+    @FXML private MenuItem datasetsMenuItem;
     @FXML private MenuItem annotationsMenuItem;
-    @FXML private MenuItem annotateMenuItem;
-    @FXML private MenuItem exportMenuItem;
-    @FXML private MenuItem uploadMenuItem;
-    @FXML private MenuItem consoleMenuItem;
 
     // Dependencies
     private MainViewModel viewModel;
@@ -78,11 +75,8 @@ public class MainController implements Initializable {
         dataMenuItem.disableProperty().bind(viewModel.dataEnabledProperty().not());
         pvMetadataMenuItem.disableProperty().bind(viewModel.pvMetadataEnabledProperty().not());
         providerMetadataMenuItem.disableProperty().bind(viewModel.providerMetadataEnabledProperty().not());
+        datasetsMenuItem.disableProperty().bind(viewModel.datasetsEnabledProperty().not());
         annotationsMenuItem.disableProperty().bind(viewModel.annotationsEnabledProperty().not());
-        annotateMenuItem.disableProperty().bind(viewModel.annotateEnabledProperty().not());
-        exportMenuItem.disableProperty().bind(viewModel.exportEnabledProperty().not());
-        uploadMenuItem.disableProperty().bind(viewModel.uploadEnabledProperty().not());
-        consoleMenuItem.disableProperty().bind(viewModel.consoleEnabledProperty().not());
     }
 
     // Dependency injection methods
@@ -146,11 +140,11 @@ public class MainController implements Initializable {
         viewModel.handleSubscribe();
     }
 
-    // Menu action handlers - Query menu
+    // Menu action handlers - Explore menu
     @FXML
     private void onData() {
         viewModel.handleData();
-        switchToView("/fxml/data-query.fxml");
+        switchToView("/fxml/data-explore.fxml");
     }
 
     @FXML
@@ -164,29 +158,13 @@ public class MainController implements Initializable {
     }
 
     @FXML
+    private void onDatasets() {
+        viewModel.handleDatasets();
+    }
+
+    @FXML
     private void onAnnotations() {
         viewModel.handleAnnotations();
-    }
-
-    // Menu action handlers - Tools menu
-    @FXML
-    private void onAnnotate() {
-        viewModel.handleAnnotate();
-    }
-
-    @FXML
-    private void onExport() {
-        viewModel.handleExport();
-    }
-
-    @FXML
-    private void onUpload() {
-        viewModel.handleUpload();
-    }
-
-    @FXML
-    private void onConsole() {
-        viewModel.handleConsole();
     }
 
     // Utility methods for view management
@@ -207,8 +185,8 @@ public class MainController implements Initializable {
                 dgController.setDpApplication(dpApplication);
                 dgController.setPrimaryStage(primaryStage);
                 dgController.setMainController(this);
-            } else if (controller instanceof DataQueryController) {
-                DataQueryController dqController = (DataQueryController) controller;
+            } else if (controller instanceof DataExploreController) {
+                DataExploreController dqController = (DataExploreController) controller;
                 dqController.setDpApplication(dpApplication);
                 dqController.setPrimaryStage(primaryStage);
                 dqController.setMainController(this);

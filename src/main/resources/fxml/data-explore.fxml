@@ -5,7 +5,7 @@
 <?import javafx.scene.layout.*?>
 <?import javafx.scene.chart.*?>
 
-<VBox spacing="20" styleClass="container" xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.ospreydcs.dp.gui.DataQueryController">
+<VBox spacing="20" styleClass="container" xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.ospreydcs.dp.gui.DataExploreController">
     <padding>
         <Insets bottom="20.0" left="20.0" right="20.0" top="20.0" />
     </padding>
@@ -18,7 +18,7 @@
         
         <!-- Section Header with Toggle -->
         <HBox alignment="CENTER_LEFT" spacing="10">
-            <Button fx:id="toggleSpecificationButton" onAction="#onToggleQuerySpecification" styleClass="btn, btn-link" text="📋 Query Editor / Dataset Builder / Annotation Builder" />
+            <Button fx:id="toggleSpecificationButton" onAction="#onToggleQuerySpecification" styleClass="btn, btn-link" text="📋 Data Explorer Tools" />
             <Region HBox.hgrow="ALWAYS" />
             <Label fx:id="specificationStatusLabel" styleClass="text-muted" text="Required" />
         </HBox>
@@ -317,7 +317,7 @@
         
         <!-- Results Header with Toggle -->
         <HBox alignment="CENTER_LEFT" spacing="10">
-            <Button fx:id="toggleResultsButton" onAction="#onToggleQueryResults" styleClass="btn, btn-link" text="📊 Query Results" />
+            <Button fx:id="toggleResultsButton" onAction="#onToggleQueryResults" styleClass="btn, btn-link" text="📊 Data Viewer" />
             <Region HBox.hgrow="ALWAYS" />
             <Label fx:id="rowCountLabel" styleClass="text-success" text="0 rows" />
             <Label fx:id="resultsStatusLabel2" styleClass="text-muted" text="Ready" />

@@ -21,7 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public class DataQueryViewModel {
+public class DataExploreViewModel {
 
     private static final Logger logger = LogManager.getLogger();
     private static final DateTimeFormatter TIMESTAMP_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
@@ -66,8 +66,8 @@ public class DataQueryViewModel {
     private DpApplication dpApplication;
     private MainController mainController;
 
-    public DataQueryViewModel() {
-        logger.debug("DataQueryViewModel initialized");
+    public DataExploreViewModel() {
+        logger.debug("DataExploreViewModel initialized");
         
         // Set up listeners to update validation state
         setupValidationListeners();

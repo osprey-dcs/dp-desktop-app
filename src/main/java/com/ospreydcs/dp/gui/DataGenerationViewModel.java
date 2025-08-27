@@ -54,26 +54,11 @@ public class DataGenerationViewModel {
     private final StringProperty statusMessage = new SimpleStringProperty("Ready to generate data");
     private final BooleanProperty isGenerating = new SimpleBooleanProperty(false);
 
-    // Attribute key/value mappings
-    private final Map<String, ObservableList<String>> providerAttributeOptions = new HashMap<>();
-    private final Map<String, ObservableList<String>> requestAttributeOptions = new HashMap<>();
-
     private DpApplication dpApplication;
     private MainController mainController;
 
     public DataGenerationViewModel() {
-        initializeAttributeOptions();
         logger.debug("DataGenerationViewModel initialized");
-    }
-
-    private void initializeAttributeOptions() {
-        // Provider attribute options
-        providerAttributeOptions.put("sector", FXCollections.observableArrayList("1", "2", "3", "4"));
-        providerAttributeOptions.put("subsystem", FXCollections.observableArrayList("vacuum", "power", "RF", "mechanical"));
-        
-        // Request attribute options
-        requestAttributeOptions.put("status", FXCollections.observableArrayList("normal", "abnormal"));
-        requestAttributeOptions.put("mode", FXCollections.observableArrayList("live", "batch"));
     }
 
     public void setDpApplication(DpApplication dpApplication) {
@@ -122,13 +107,7 @@ public class DataGenerationViewModel {
     public BooleanProperty isGeneratingProperty() { return isGenerating; }
 
     // Attribute options getters
-    public ObservableList<String> getProviderAttributeValues(String key) {
-        return providerAttributeOptions.getOrDefault(key, FXCollections.observableArrayList());
-    }
-
-    public ObservableList<String> getRequestAttributeValues(String key) {
-        return requestAttributeOptions.getOrDefault(key, FXCollections.observableArrayList());
-    }
+    // Old combo box value methods removed - reusable components handle their own input
 
     // Business logic methods
     public void addProviderTag(String tag) {
@@ -145,7 +124,7 @@ public class DataGenerationViewModel {
 
     public void addProviderAttribute(String key, String value) {
         if (key != null && value != null && !key.trim().isEmpty() && !value.trim().isEmpty()) {
-            String attribute = key + ": " + value;
+            String attribute = key + "=" + value;
             if (!providerAttributes.contains(attribute)) {
                 providerAttributes.add(attribute);
                 logger.debug("Added provider attribute: {}", attribute);
@@ -172,7 +151,7 @@ public class DataGenerationViewModel {
 
     public void addRequestAttribute(String key, String value) {
         if (key != null && value != null && !key.trim().isEmpty() && !value.trim().isEmpty()) {
-            String attribute = key + ": " + value;
+            String attribute = key + "=" + value;
             if (!requestAttributes.contains(attribute)) {
                 requestAttributes.add(attribute);
                 logger.debug("Added request attribute: {}", attribute);
@@ -340,7 +319,7 @@ public class DataGenerationViewModel {
     private Map<String, String> convertAttributesToMap(ObservableList<String> attributeList) {
         Map<String, String> attributeMap = new java.util.HashMap<>();
         for (String attribute : attributeList) {
-            String[] parts = attribute.split(":", 2); // Split into at most 2 parts
+            String[] parts = attribute.split("=", 2); // Split into at most 2 parts
             if (parts.length == 2) {
                 String key = parts[0].trim();
                 String value = parts[1].trim();

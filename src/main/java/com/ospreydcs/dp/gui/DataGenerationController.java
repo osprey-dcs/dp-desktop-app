@@ -1,5 +1,7 @@
 package com.ospreydcs.dp.gui;
 
+import com.ospreydcs.dp.gui.component.AttributesListComponent;
+import com.ospreydcs.dp.gui.component.TagsListComponent;
 import com.ospreydcs.dp.gui.model.PvDetail;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
@@ -21,13 +23,8 @@ public class DataGenerationController implements Initializable {
     // Provider Details FXML components
     @FXML private TextField providerNameField;
     @FXML private TextArea providerDescriptionArea;
-    @FXML private ComboBox<String> providerTagsCombo;
-    @FXML private Button addProviderTagButton;
-    @FXML private ListView<String> providerTagsList;
-    @FXML private ComboBox<String> providerAttributeKeyCombo;
-    @FXML private ComboBox<String> providerAttributeValueCombo;
-    @FXML private Button addProviderAttributeButton;
-    @FXML private ListView<String> providerAttributesList;
+    @FXML private TagsListComponent providerTagsComponent;
+    @FXML private AttributesListComponent providerAttributesComponent;
 
     // Request Details FXML components
     @FXML private DatePicker dataBeginDatePicker;
@@ -38,14 +35,9 @@ public class DataGenerationController implements Initializable {
     @FXML private Spinner<Integer> endHourSpinner;
     @FXML private Spinner<Integer> endMinuteSpinner;
     @FXML private Spinner<Integer> endSecondSpinner;
-    @FXML private ComboBox<String> requestTagsCombo;
-    @FXML private Button addRequestTagButton;
-    @FXML private ListView<String> requestTagsList;
-    @FXML private ComboBox<String> requestAttributeKeyCombo;
-    @FXML private ComboBox<String> requestAttributeValueCombo;
-    @FXML private Button addRequestAttributeButton;
-    @FXML private ListView<String> requestAttributesList;
-    @FXML private ComboBox<String> eventNameCombo;
+    @FXML private TagsListComponent requestTagsComponent;
+    @FXML private AttributesListComponent requestAttributesComponent;
+    @FXML private TextField eventNameField;
 
     // PV Details FXML components
     @FXML private ListView<PvDetail> pvDetailsList;
@@ -89,8 +81,8 @@ public class DataGenerationController implements Initializable {
         // Provider Details bindings
         providerNameField.textProperty().bindBidirectional(viewModel.providerNameProperty());
         providerDescriptionArea.textProperty().bindBidirectional(viewModel.providerDescriptionProperty());
-        providerTagsList.setItems(viewModel.getProviderTags());
-        providerAttributesList.setItems(viewModel.getProviderAttributes());
+        providerTagsComponent.setTags(viewModel.getProviderTags());
+        providerAttributesComponent.setAttributes(viewModel.getProviderAttributes());
 
         // Request Details bindings
         dataBeginDatePicker.valueProperty().bindBidirectional(viewModel.dataBeginDateProperty());
@@ -109,9 +101,9 @@ public class DataGenerationController implements Initializable {
         
         logger.debug("Time spinner bindings completed");
         
-        requestTagsList.setItems(viewModel.getRequestTags());
-        requestAttributesList.setItems(viewModel.getRequestAttributes());
-        eventNameCombo.valueProperty().bindBidirectional(viewModel.eventNameProperty());
+        requestTagsComponent.setTags(viewModel.getRequestTags());
+        requestAttributesComponent.setAttributes(viewModel.getRequestAttributes());
+        eventNameField.textProperty().bindBidirectional(viewModel.eventNameProperty());
 
         // PV Details bindings
         pvDetailsList.setItems(viewModel.getPvDetails());
@@ -129,110 +121,15 @@ public class DataGenerationController implements Initializable {
     }
 
     private void setupEventHandlers() {
-        // Set up custom cell factory for PV details list to show delete option
-        pvDetailsList.setCellFactory(listView -> new ListCell<PvDetail>() {
-            @Override
-            protected void updateItem(PvDetail item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || item == null) {
-                    setGraphic(null);
-                    setText(null);
-                } else {
-                    setText(item.toString());
-                    setOnMouseClicked(event -> {
-                        if (event.getClickCount() == 2) {
-                            viewModel.removePvDetail(item);
-                        }
-                    });
-                }
-            }
-        });
-
         // Set up automatic PV form submission
         setupPvFormAutoSubmission();
 
-        // Set up context menu for list items
+        // Set up context menu for PV list items only (reusable components handle their own menus)
         setupContextMenus();
     }
 
     private void setupContextMenus() {
-        // Provider tags context menu
-        providerTagsList.setCellFactory(listView -> {
-            ListCell<String> cell = new ListCell<String>() {
-                @Override
-                protected void updateItem(String item, boolean empty) {
-                    super.updateItem(item, empty);
-                    setText(empty ? null : item);
-                }
-            };
-            
-            ContextMenu contextMenu = new ContextMenu();
-            MenuItem deleteItem = new MenuItem("Remove");
-            deleteItem.setOnAction(e -> viewModel.removeProviderTag(cell.getItem()));
-            contextMenu.getItems().add(deleteItem);
-            
-            cell.setContextMenu(contextMenu);
-            return cell;
-        });
-
-        // Provider attributes context menu
-        providerAttributesList.setCellFactory(listView -> {
-            ListCell<String> cell = new ListCell<String>() {
-                @Override
-                protected void updateItem(String item, boolean empty) {
-                    super.updateItem(item, empty);
-                    setText(empty ? null : item);
-                }
-            };
-            
-            ContextMenu contextMenu = new ContextMenu();
-            MenuItem deleteItem = new MenuItem("Remove");
-            deleteItem.setOnAction(e -> viewModel.removeProviderAttribute(cell.getItem()));
-            contextMenu.getItems().add(deleteItem);
-            
-            cell.setContextMenu(contextMenu);
-            return cell;
-        });
-
-        // Request tags context menu
-        requestTagsList.setCellFactory(listView -> {
-            ListCell<String> cell = new ListCell<String>() {
-                @Override
-                protected void updateItem(String item, boolean empty) {
-                    super.updateItem(item, empty);
-                    setText(empty ? null : item);
-                }
-            };
-            
-            ContextMenu contextMenu = new ContextMenu();
-            MenuItem deleteItem = new MenuItem("Remove");
-            deleteItem.setOnAction(e -> viewModel.removeRequestTag(cell.getItem()));
-            contextMenu.getItems().add(deleteItem);
-            
-            cell.setContextMenu(contextMenu);
-            return cell;
-        });
-
-        // Request attributes context menu
-        requestAttributesList.setCellFactory(listView -> {
-            ListCell<String> cell = new ListCell<String>() {
-                @Override
-                protected void updateItem(String item, boolean empty) {
-                    super.updateItem(item, empty);
-                    setText(empty ? null : item);
-                }
-            };
-            
-            ContextMenu contextMenu = new ContextMenu();
-            MenuItem deleteItem = new MenuItem("Remove");
-            deleteItem.setOnAction(e -> viewModel.removeRequestAttribute(cell.getItem()));
-            contextMenu.getItems().add(deleteItem);
-            
-            cell.setContextMenu(contextMenu);
-            return cell;
-        });
-
-        // PV details context menu
+        // PV details context menu (reusable components handle their own context menus)
         pvDetailsList.setCellFactory(listView -> {
             ListCell<PvDetail> cell = new ListCell<PvDetail>() {
                 @Override
@@ -253,21 +150,6 @@ public class DataGenerationController implements Initializable {
     }
 
     private void populateComboBoxes() {
-        // Provider Tags ComboBox
-        providerTagsCombo.getItems().addAll("IOC", "application", "batch");
-        
-        // Provider Attribute Key ComboBox
-        providerAttributeKeyCombo.getItems().addAll("sector", "subsystem");
-        
-        // Request Tags ComboBox
-        requestTagsCombo.getItems().addAll("commissioning", "outage", "experiment");
-        
-        // Request Attribute Key ComboBox
-        requestAttributeKeyCombo.getItems().addAll("status", "mode");
-        
-        // Event Name ComboBox
-        eventNameCombo.getItems().addAll("Commission-1", "Commission-2", "Experiment-1", "Experiment-2");
-        
         // PV Data Type ComboBox
         pvDataTypeCombo.getItems().addAll("integer", "float");
         
@@ -423,65 +305,7 @@ public class DataGenerationController implements Initializable {
         logger.debug("MainController injected into DataGenerationController");
     }
 
-    // Provider Details action handlers
-    @FXML
-    private void onAddProviderTag() {
-        String selectedTag = providerTagsCombo.getValue();
-        if (selectedTag != null) {
-            viewModel.addProviderTag(selectedTag);
-            providerTagsCombo.setValue(null);
-        }
-    }
-
-    @FXML
-    private void onProviderAttributeKeyChanged() {
-        String selectedKey = providerAttributeKeyCombo.getValue();
-        if (selectedKey != null) {
-            providerAttributeValueCombo.setItems(viewModel.getProviderAttributeValues(selectedKey));
-            providerAttributeValueCombo.setValue(null);
-        }
-    }
-
-    @FXML
-    private void onAddProviderAttribute() {
-        String key = providerAttributeKeyCombo.getValue();
-        String value = providerAttributeValueCombo.getValue();
-        if (key != null && value != null) {
-            viewModel.addProviderAttribute(key, value);
-            providerAttributeKeyCombo.setValue(null);
-            providerAttributeValueCombo.setValue(null);
-        }
-    }
-
-    // Request Details action handlers
-    @FXML
-    private void onAddRequestTag() {
-        String selectedTag = requestTagsCombo.getValue();
-        if (selectedTag != null) {
-            viewModel.addRequestTag(selectedTag);
-            requestTagsCombo.setValue(null);
-        }
-    }
-
-    @FXML
-    private void onRequestAttributeKeyChanged() {
-        String selectedKey = requestAttributeKeyCombo.getValue();
-        if (selectedKey != null) {
-            requestAttributeValueCombo.setItems(viewModel.getRequestAttributeValues(selectedKey));
-            requestAttributeValueCombo.setValue(null);
-        }
-    }
-
-    @FXML
-    private void onAddRequestAttribute() {
-        String key = requestAttributeKeyCombo.getValue();
-        String value = requestAttributeValueCombo.getValue();
-        if (key != null && value != null) {
-            viewModel.addRequestAttribute(key, value);
-            requestAttributeKeyCombo.setValue(null);
-            requestAttributeValueCombo.setValue(null);
-        }
-    }
+    // Old Provider/Request Details action handlers removed - now handled by reusable components
 
     // PV Details action handlers - form is always visible now
     // User adds PV by pressing Enter or clicking away from fields when valid

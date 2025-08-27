@@ -280,3 +280,14 @@ A new section will be added to the Annotation Builder for importing and viewing 
 The model for the Calculations section will be the new class CalculationsDetails, which should have fields for 1) a String id and 2) a list of DataFrameDetails objects. The new class DataFrameDetails should include fields for 1) a String name, 2) a list of protobuf Timestamp objects (working directory for API objects is ~/dp.fork/dp-java/dp-grpc), and 3) a list of protobuf DataColumn objects.
 The new section will include a list box labeled "Calculations Data Frames" and marked as required.  The field will display the list of DataFrameDetails from the Builder's CalculationsDetails using the display string for each item in the list.  The display string for each DataFrameDetails should include frame name plus an abbreviated or truncated list of the frame's DataColumn names.
 To the right of the list box should be a panel of vertically arranged buttons labeled "Import", "View", and "Remove".  The "Remove" button should remove DataFrameDetails from the list and should only be enabled when the list selection is non-null.  Handling for the other buttons will be defined in the subsequent task.
+
+12. We are going to do a bit of refactoring to the data-generation view so that common elements can be shared with a new data-import view.
+
+12.1 Change the "Tags" and "Attributes" components in the "Provider Details" and "Request Details" sections to use the re-usable Tabs and Attributes components that we created.  Change the labels in the "Provider Details" section to "Provider Tags" and "Provider Attributes".  In the "Request Details" section, change the labels to "Data Tags" and "Data Arributes" to avoid confusion between the Provider and Request elements.
+
+12.2 Change the "Event Name" field in the request details section to be an input field instead of a menu of pre-defined choices.
+
+12.3 To the data-generation view, add a new section "Generation Details" below the "Request Details" section, and move the "Data Begin Time", "Begin Time", "Data End Time", and "End Time" to the new section.
+12.3.1 Add the existing content for the list of "Process Variables (PVs)" and the corresponding data entry form to the "Generation details" section.  Make the labels for process variable elements smaller to be consistent with the labels within other sections.
+
+12.4 In the interest of sharing them with the new "data-import" view, make the sections for "Provider Details" and "Request Details" re-usable components that can used in the new view in addition to the data-generation view.

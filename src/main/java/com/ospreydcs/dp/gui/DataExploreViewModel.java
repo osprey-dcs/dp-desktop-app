@@ -99,12 +99,10 @@ public class DataExploreViewModel {
     public void setDpApplication(DpApplication dpApplication) {
         this.dpApplication = dpApplication;
         
-        // Initialize PV names from previously generated data
-        if (dpApplication.getPvDetails() != null) {
-            List<String> pvNames = new ArrayList<>();
-            dpApplication.getPvDetails().forEach(pvDetail -> pvNames.add(pvDetail.getPvName()));
-            pvNameList.setAll(pvNames);
-            logger.debug("Initialized PV name list with {} PVs from data generation", pvNames.size());
+        // Initialize PV names from previously ingested data (generated or imported)
+        if (dpApplication.getPvNames() != null && !dpApplication.getPvNames().isEmpty()) {
+            pvNameList.setAll(dpApplication.getPvNames());
+            logger.debug("Initialized PV name list with {} PVs from global state", dpApplication.getPvNames().size());
         }
         
         // Initialize time range from previously used values

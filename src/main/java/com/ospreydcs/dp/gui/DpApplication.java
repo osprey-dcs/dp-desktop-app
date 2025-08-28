@@ -37,7 +37,7 @@ public class DpApplication {
     private String providerName = null;
     private Instant dataBeginTime = null;
     private Instant dataEndTime = null;
-    private List<PvDetail> pvDetails = null;
+    private List<String> pvNames = null;
     
     // application state tracking for home view
     private boolean hasIngestedData = false;
@@ -57,7 +57,7 @@ public class DpApplication {
     public String getProviderName() { return providerName; }
     public Instant getDataBeginTime() { return dataBeginTime; }
     public Instant getDataEndTime() { return dataEndTime; }
-    public List<PvDetail> getPvDetails() { return pvDetails; }
+    public List<String> getPvNames() { return pvNames; }
 
     // Getters for application state tracking (for home view)
     public boolean hasIngestedData() { return hasIngestedData; }
@@ -77,18 +77,20 @@ public class DpApplication {
     
     // Methods for updating query state (for use by query view)
     public void setQueryPvNames(List<String> pvNames) {
-        // Convert PV names to PvDetail objects for consistency with existing data generation workflow
+        // Store PV names directly for cross-view usage
         if (pvNames != null && !pvNames.isEmpty()) {
-            List<PvDetail> queryPvDetails = new java.util.ArrayList<>();
-            for (String pvName : pvNames) {
-                // Create minimal PvDetail for query context - only PV name is relevant for annotation/export
-                PvDetail pvDetail = new PvDetail();
-                pvDetail.setPvName(pvName);
-                queryPvDetails.add(pvDetail);
-            }
-            this.pvDetails = queryPvDetails;
+            this.pvNames = new java.util.ArrayList<>(pvNames);
         } else {
-            this.pvDetails = null;
+            this.pvNames = null;
+        }
+    }
+    
+    // General method for setting PV names (for use by data import and other workflows)
+    public void setPvNames(List<String> pvNames) {
+        if (pvNames != null && !pvNames.isEmpty()) {
+            this.pvNames = new java.util.ArrayList<>(pvNames);
+        } else {
+            this.pvNames = null;
         }
     }
     
@@ -181,7 +183,11 @@ public class DpApplication {
         // Save state variables for use from other views
         this.dataBeginTime = beginTime;
         this.dataEndTime = endTime;
-        this.pvDetails = pvDetails;
+        // Extract PV names from PvDetail objects for cross-view sharing
+        this.pvNames = new java.util.ArrayList<>();
+        for (PvDetail pvDetail : pvDetails) {
+            this.pvNames.add(pvDetail.getPvName());
+        }
         
         try {
             int totalBuckets = 0;
@@ -310,7 +316,7 @@ public class DpApplication {
                 );
                 
                 // Call ingestData() API method for this bucket
-                final IngestDataApiResult apiResult = api.ingestionClient.ingestData(params);
+                final IngestDataApiResult apiResult = api.ingestionClient.ingestData(params, null, null);
                 requestCount++;
 
                 if (apiResult.resultStatus.isError) {

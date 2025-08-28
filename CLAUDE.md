@@ -281,10 +281,10 @@ Represents individual calculation frames from Excel import:
 `DpApplication` maintains cross-view state with automatic synchronization:
 - Provider ID and name after registration
 - Data time ranges (begin/end instants) - synced from query UI changes
-- List of configured PV details - synced from query PV selections
+- List of PV names (List<String>) - unified storage for generated and imported PV names
 - Real-time listeners in DataExploreController update global state when UI changes
 - Global state is restored when navigating between views
-- Used for data generation, query operations, and future annotation/export features
+- Used for data generation, data import, query operations, and future annotation/export features
 
 **Critical Implementation Details:**
 - Timezone handling uses `java.time.ZoneId.systemDefault()` for consistent UI ↔ global state conversion
@@ -344,6 +344,17 @@ mvn clean compile
 6. **Component APIs**: Always access data through component methods, not parent ViewModel
 7. **Lifecycle Methods**: Provide clear() methods to reset component state
 8. **Controller Integration**: Update parent controllers to bind to component properties instead of direct FXML fields
+
+### Cross-View State Management Pattern
+**DpApplication State Architecture:**
+1. **Unified PV Names**: Store `List<String> pvNames` instead of view-specific objects
+2. **Data Generation Flow**: Extract PV names from PvDetail objects after successful ingestion
+3. **Data Import Flow**: Call `dpApplication.setPvNames()` after successful import ingestion
+4. **Query View Integration**: Use `dpApplication.getPvNames()` for initialization regardless of data source
+5. **Separation of Concerns**: Keep generation-specific PvDetail objects in DataGenerationViewModel
+6. **Consistent Timing**: Only update global state after successful operations (generation/ingestion)
+
+**Benefits**: Unified cross-view sharing, clean separation of UI-specific vs. shared state, support for multiple data sources
 
 ### Chart Integration
 - Use NumberAxis instead of CategoryAxis for time-series data

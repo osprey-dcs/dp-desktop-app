@@ -1798,13 +1798,8 @@ public class DataExploreController implements Initializable {
         
         try {
             // Initialize PV names from global state
-            if (dpApplication.getPvDetails() != null && !dpApplication.getPvDetails().isEmpty()) {
-                java.util.List<String> globalPvNames = new java.util.ArrayList<>();
-                for (com.ospreydcs.dp.gui.model.PvDetail pvDetail : dpApplication.getPvDetails()) {
-                    if (pvDetail.getPvName() != null && !pvDetail.getPvName().trim().isEmpty()) {
-                        globalPvNames.add(pvDetail.getPvName());
-                    }
-                }
+            if (dpApplication.getPvNames() != null && !dpApplication.getPvNames().isEmpty()) {
+                java.util.List<String> globalPvNames = new java.util.ArrayList<>(dpApplication.getPvNames());
                 
                 if (!globalPvNames.isEmpty()) {
                     viewModel.getPvNameList().setAll(globalPvNames);

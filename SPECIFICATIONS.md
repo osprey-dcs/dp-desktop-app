@@ -307,3 +307,12 @@ To the right of the list box should be a panel of vertically arranged buttons la
 13.1.8 I will specify handling for the "Ingest" button as a follow on task, please just show a "action not implemented" message for now when the "Ingest" button is clicked.
 13.1.9 If the "Import" button is clicked after the initial import and a new file selected to import, the contents of the "Import Details" section including the list of data frames should be reset.
 13.1.10 Navigation to the data-import view is via the Ingest->Import menu item, which should now be always enabled.  From the Ingest menu, please remove the items "Fixed" and "Subscribe".
+
+13.2 Add handling for the data-import view's "Ingest" button.  The implementation should follow the pattern of DataGenerationViewModel.generateData().
+13.2.1 When the "Ingest" button is clicked, call DpApplication.registerProvider().
+13.2.2 If the call to registerProvider() fails as indicated by the isError flag in the ResultStatus object returned by that method, display the error message from the ResultStatus in the status bar.
+13.2.3 If the call to registerProvider() succeeds, invoke the new method DpApplication.ingestImportedData() with the appropriate values from the view.
+13.2.4 If the call to ingestImportedData() fails as indicated by the isError flag in the ResultStatus object returned by that method, display the error message from the ResultStatus in the status bar.  Continue to display the data-import view.
+13.2.5 If the call to ingestImportedData() succeeds, return to the home view and display confirmation that ingestion of the imported data succeeded, and suggesting navigation to the "Data Explorer" tool.
+
+13.3 Add a "Reset" button in the data-import view's "Import Details" section, so that if there is an error ingesting the imported data, the user can reset the Import Details.  When the button is clicked, clear the "File" field and list of Import Data Frames in the Import Details section.

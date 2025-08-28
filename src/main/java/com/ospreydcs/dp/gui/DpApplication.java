@@ -226,10 +226,18 @@ public class DpApplication {
             setPvNames(sortedPvNames);
             this.dataBeginTime = minBeginInstant;
             this.dataEndTime = maxEndInstant;
+            
+            // Update application state tracking (enables Explore menu items)
+            this.hasIngestedData = true;
+            this.totalPvsIngested = sortedPvNames.size();
+            this.totalBucketsCreated = requestCount; // Each imported frame becomes a "bucket"
 
-            return new ResultStatus(false, "Successfully ingested imported data for PVs: " + sortedPvNames
+            String successMessage = "Successfully ingested imported data for PVs: " + sortedPvNames
                     + " in " + requestCount + " ingestData() requests begin time: "
-                    + minBeginInstant + " and end time: " + maxEndInstant);
+                    + minBeginInstant + " and end time: " + maxEndInstant;
+            this.lastOperationResult = successMessage;
+
+            return new ResultStatus(false, successMessage);
 
         } catch (Exception e) {
             return new ResultStatus(true, "Error during data generation: " + e.getMessage());

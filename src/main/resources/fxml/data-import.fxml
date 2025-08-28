@@ -34,7 +34,10 @@
                   
                   <Label text="File: *" GridPane.columnIndex="0" GridPane.rowIndex="0" />
                   <TextField fx:id="filePathField" editable="false" promptText="No file selected" GridPane.columnIndex="1" GridPane.rowIndex="0" />
-                  <Button fx:id="importButton" onAction="#onImport" styleClass="btn-secondary" text="Import" GridPane.columnIndex="2" GridPane.rowIndex="0" />
+                  <HBox spacing="5" GridPane.columnIndex="2" GridPane.rowIndex="0">
+                     <Button fx:id="importButton" onAction="#onImport" styleClass="btn-secondary" text="Import" />
+                     <Button fx:id="resetButton" onAction="#onReset" styleClass="btn-secondary" text="Reset" />
+                  </HBox>
                </GridPane>
                
                <!-- Ingestion Data Frames List -->

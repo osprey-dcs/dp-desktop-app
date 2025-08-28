@@ -2,13 +2,18 @@ package com.ospreydcs.dp.gui;
 
 import com.ospreydcs.dp.client.result.DataImportResult;
 import com.ospreydcs.dp.client.utility.DataImportUtility;
+import com.ospreydcs.dp.service.common.model.ResultStatus;
 import javafx.beans.property.*;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
+import javafx.concurrent.Task;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class DataImportViewModel {
 
@@ -136,17 +141,6 @@ public class DataImportViewModel {
         }
     }
 
-    private void resetImportDetails() {
-        logger.debug("Resetting import details");
-        
-        // Clear file path
-        filePath.set("");
-        
-        // Clear data frames list
-        ingestionDataFrames.clear();
-        
-        logger.debug("Import details reset completed");
-    }
 
     public void clearAllFields() {
         logger.debug("Clearing all fields");
@@ -170,6 +164,149 @@ public class DataImportViewModel {
         isIngesting.set(false);
         
         logger.debug("All fields cleared");
+    }
+
+    public void ingestImportedData() {
+        if (dpApplication == null) {
+            updateStatus("DpApplication not initialized");
+            return;
+        }
+
+        // Validation
+        if (!isIngestValid()) {
+            return;
+        }
+
+        // Set ingesting state
+        isIngesting.set(true);
+        updateStatus("Registering provider...");
+
+        // Create background task for ingestion
+        Task<Void> ingestTask = new Task<Void>() {
+            @Override
+            protected Void call() throws Exception {
+                // Step 1: Register provider (section 13.2.1)
+                ResultStatus registerResult = registerProvider();
+                if (registerResult.isError) {
+                    javafx.application.Platform.runLater(() -> {
+                        updateStatus("Provider registration failed: " + registerResult.msg);
+                        isIngesting.set(false);
+                    });
+                    return null;
+                }
+
+                // Step 2: Ingest imported data (section 13.2.3)
+                javafx.application.Platform.runLater(() -> {
+                    updateStatus("Ingesting imported data...");
+                });
+
+                ResultStatus ingestResult = performDataIngestion();
+                if (ingestResult.isError) {
+                    javafx.application.Platform.runLater(() -> {
+                        updateStatus("Data ingestion failed: " + ingestResult.msg);
+                        isIngesting.set(false);
+                    });
+                    return null;
+                }
+
+                // Success - update UI and return to home view (section 13.2.5)
+                javafx.application.Platform.runLater(() -> {
+                    updateStatus("Data ingestion completed successfully");
+                    isIngesting.set(false);
+                    
+                    // Note: Application state (hasIngestedData, etc.) is updated in DpApplication.ingestImportedData()
+                    
+                    // Notify main controller and return to home view
+                    if (mainController != null) {
+                        mainController.onDataGenerationSuccess(ingestResult.msg + ". Navigate to Data Explorer to query the imported data.");
+                        mainController.switchToMainView();
+                    }
+                    
+                    logger.info("Data import and ingestion completed successfully");
+                });
+                
+                return null;
+            }
+        };
+
+        ingestTask.setOnFailed(e -> {
+            logger.error("Data ingestion task failed", ingestTask.getException());
+            updateStatus("Data ingestion failed: " + ingestTask.getException().getMessage());
+            isIngesting.set(false);
+        });
+
+        Thread ingestThread = new Thread(ingestTask);
+        ingestThread.setDaemon(true);
+        ingestThread.start();
+    }
+
+    private boolean isIngestValid() {
+        // Validate provider name is not empty (section 13.2.1 requirement)
+        String providerNameValue = providerName.get();
+        if (providerNameValue == null || providerNameValue.trim().isEmpty()) {
+            updateStatus("Provider name is required for ingestion");
+            return false;
+        }
+
+        // Validate that we have imported data frames to ingest
+        if (ingestionDataFrames.isEmpty()) {
+            updateStatus("No imported data available for ingestion. Please import an Excel file first.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private ResultStatus registerProvider() {
+        // Convert provider attributes list to map
+        Map<String, String> attributesMap = convertAttributesToMap(providerAttributes);
+        
+        return dpApplication.registerProvider(
+            providerName.get(),
+            providerDescription.get(),
+            List.copyOf(providerTags),
+            attributesMap
+        );
+    }
+
+    private ResultStatus performDataIngestion() {
+        // Convert request attributes list to map
+        Map<String, String> requestAttributesMap = convertAttributesToMap(requestAttributes);
+        
+        return dpApplication.ingestImportedData(
+            List.copyOf(requestTags),
+            requestAttributesMap,
+            eventName.get().trim().isEmpty() ? null : eventName.get(),
+            List.copyOf(ingestionDataFrames)
+        );
+    }
+
+    private Map<String, String> convertAttributesToMap(ObservableList<String> attributesList) {
+        Map<String, String> attributesMap = new HashMap<>();
+        for (String attribute : attributesList) {
+            if (attribute != null && attribute.contains("=")) {
+                String[] parts = attribute.split("=", 2);
+                if (parts.length == 2) {
+                    attributesMap.put(parts[0].trim(), parts[1].trim());
+                }
+            }
+        }
+        return attributesMap;
+    }
+
+    public void resetImportDetails() {
+        logger.debug("Resetting import details (section 13.3)");
+        
+        // Clear file path
+        filePath.set("");
+        
+        // Clear data frames list
+        ingestionDataFrames.clear();
+        
+        // Update status
+        updateStatus("Import details reset");
+        
+        logger.debug("Import details reset completed");
     }
 
     private void updateStatus(String message) {

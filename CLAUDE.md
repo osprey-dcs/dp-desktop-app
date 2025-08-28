@@ -95,7 +95,7 @@ Explore → Data, PV Metadata, Provider Metadata, Datasets, Annotations
 **Menu Item Logic:**
 - **Generate**: Conditionally enabled (disabled for remote production connections to prevent fake data contamination)
 - **Import**: Always enabled (real data import is safe for all environments)
-- **Data/Metadata menus**: Enabled after data ingestion
+- **Data/Metadata menus**: Enabled after data ingestion (in-process mode) or immediately (remote production mode)
 
 ## Development Guidelines
 
@@ -175,9 +175,11 @@ The application follows the Model-View-ViewModel pattern:
 3. **File Selection**: Excel file chooser dialog (.xlsx/.xls formats) with validation
 4. **Data Processing**: Integration with DataImportUtility.importXlsxData() from dp-service
 5. **Frame Display**: Shows imported DataFrameResult objects with human-readable format
-6. **Reset Logic**: Clears import details when selecting new files (section 13.1.9)
-7. **Error Handling**: Comprehensive error handling with status bar feedback
-8. **Navigation**: Always-enabled Import menu item (unlike conditional Generate menu)
+6. **Data Ingestion**: "Ingest" button calls DpApplication.registerProvider() then DpApplication.ingestImportedData()
+7. **Reset Logic**: "Reset" button clears import details; auto-reset on new file selection
+8. **Error Handling**: Comprehensive error handling with status bar feedback and recovery options
+9. **Success Flow**: Returns to home view with confirmation, enables Explore menu items
+10. **Navigation**: Always-enabled Import menu item (unlike conditional Generate menu)
 
 ### Data Explore Workflow (Implemented)
 1. **Data Explorer Tools**: Collapsible panel with Query Editor, Dataset Builder, and Annotation Builder tabs
@@ -312,6 +314,16 @@ cd ~/dp.fork/dp-java/dp-desktop-app
 mvn clean compile
 ```
 
+### Testing
+```bash
+# Build and run application for testing
+mvn clean compile javafx:run
+
+# Package application for deployment testing
+mvn clean package
+java -jar target/dp-desktop-app-1.11.0-shaded.jar
+```
+
 ## MongoDB Integration
 - Default database: `dp-demo`
 - Managed through `InprocessServiceEcosystem`
@@ -324,6 +336,43 @@ mvn clean compile
 - Key logger names: `com.ospreydcs.dp.gui.*` for UI components
 - JavaFX UI thread operations logged with method entry/exit points
 - Global state synchronization extensively logged for troubleshooting
+
+## Critical Architecture Concepts
+
+### Application State Flow
+The application maintains state through multiple layers that must be understood for effective development:
+
+1. **DpApplication Layer**: Central state management for cross-view data sharing
+   - Manages provider registration state (`providerId`, `providerName`)
+   - Tracks ingested data state (`hasIngestedData`, `totalPvsIngested`, `pvNames`)
+   - Handles time ranges and operation results for UI synchronization
+   - Controls menu enablement through state flags
+
+2. **ViewModel Layer**: View-specific business logic and UI state
+   - Contains JavaFX properties for data binding
+   - Handles form validation and user interactions
+   - Communicates with DpApplication for backend operations
+   - Manages background tasks for non-blocking operations
+
+3. **Component Layer**: Reusable UI components with encapsulated state
+   - Must be accessed through component methods, not parent ViewModels
+   - Handle their own data validation and user interactions
+   - Provide property binding for external integration
+
+### Data Ingestion Architecture
+Two parallel workflows exist for data ingestion:
+
+**Data Generation Path**: UI Form → PvDetail objects → Random walk generation → IngestionClient.ingestData()
+**Data Import Path**: Excel file → DataImportUtility → DataFrameResult objects → IngestionClient.ingestData()
+
+Both paths converge at the same gRPC ingestion API but handle different data sources and processing requirements.
+
+### Cross-View Navigation Patterns
+The application uses a hub-and-spoke navigation model:
+- **Home View**: Central hub with application state display and navigation hints
+- **Feature Views**: Data generation, import, exploration - all return to home on completion
+- **State Synchronization**: Global state updates trigger menu enablement and home view updates
+- **Background Operations**: Long-running operations use JavaFX Task with UI thread synchronization
 
 ## Common Development Patterns
 

@@ -27,6 +27,7 @@ public class DataImportController implements Initializable {
     // Import Details FXML components
     @FXML private TextField filePathField;
     @FXML private Button importButton;
+    @FXML private Button resetButton;
     @FXML private ListView<DataImportResult.DataFrameResult> ingestionDataFramesList;
 
     // Action buttons
@@ -102,6 +103,13 @@ public class DataImportController implements Initializable {
         
         // Button state bindings
         ingestButton.disableProperty().bind(viewModel.isIngestingProperty());
+        // Reset button enabled when there are data frames or a file path to reset
+        resetButton.disableProperty().bind(
+            javafx.beans.binding.Bindings.and(
+                viewModel.filePathProperty().isEmpty(),
+                javafx.beans.binding.Bindings.isEmpty(viewModel.getIngestionDataFrames())
+            )
+        );
     }
 
     private void setupEventHandlers() {
@@ -171,10 +179,25 @@ public class DataImportController implements Initializable {
 
     @FXML
     private void onIngest() {
-        logger.info("Ingest button clicked");
-        // TODO: Implement data ingestion - placeholder for now
-        if (mainController != null) {
-            mainController.getViewModel().updateStatus("Ingest action not implemented yet");
+        logger.info("Ingest button clicked - starting provider registration and data ingestion");
+        // Call ViewModel to handle the ingestion workflow (sections 13.2.1-13.2.5)
+        if (viewModel != null) {
+            viewModel.ingestImportedData();
+        } else {
+            logger.error("ViewModel is null, cannot perform ingestion");
+            if (mainController != null) {
+                mainController.getViewModel().updateStatus("Error: ViewModel not initialized");
+            }
+        }
+    }
+
+    @FXML
+    private void onReset() {
+        logger.info("Reset button clicked - resetting Import Details section (section 13.3)");
+        if (viewModel != null) {
+            viewModel.resetImportDetails();
+        } else {
+            logger.error("ViewModel is null, cannot reset import details");
         }
     }
 

@@ -19,9 +19,7 @@
             <Menu text="Ingest">
                <items>
                   <MenuItem fx:id="generateMenuItem" disable="true" onAction="#onGenerate" text="Generate" />
-                  <MenuItem fx:id="fixedMenuItem" disable="true" onAction="#onFixed" text="Fixed" />
-                  <MenuItem fx:id="importMenuItem" disable="true" onAction="#onImport" text="Import" />
-                  <MenuItem fx:id="subscribeMenuItem" disable="true" onAction="#onSubscribe" text="Subscribe" />
+                  <MenuItem fx:id="importMenuItem" onAction="#onImport" text="Import" />
                </items>
             </Menu>
             <Menu text="Explore">

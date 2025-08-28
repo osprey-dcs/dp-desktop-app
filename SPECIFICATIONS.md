@@ -291,3 +291,19 @@ To the right of the list box should be a panel of vertically arranged buttons la
 12.3.1 Add the existing content for the list of "Process Variables (PVs)" and the corresponding data entry form to the "Generation details" section.  Make the labels for process variable elements smaller to be consistent with the labels within other sections.
 
 12.4 In the interest of sharing them with the new "data-import" view, make the sections for "Provider Details" and "Request Details" re-usable elements that can used in the new view in addition to the data-generation view.
+
+13. The next task is to implement a new "data-import" view for reading data from an Excel xlsx file and sending it to the Data Platform ingestion API.  We will re-use some existing components for this task.  For the view, we will re-use the provider-details-component and request-details-component that were refactored from the data-generation view.  For the model, we will use the import utility in the dp-service project, src/main/java/com/ospreydcs/dp/client/utility/DataImportUtility.java importXlsxData().  Please use ~/dp.fork/dp-java/dp-service as the working directory for that project.
+
+13.1 First, build the new "data-import" view.  
+13.1.1 Follow the pattern of the "data-generation" view for including the two re-useable components provider-details-component and  request-details-component, showing the Provider Details section with the Request Details section below it.  
+13.1.2 Below the Provider Details section, create a new section labeled "Import Details".  In that section, add a read-only String field labeled "File:" (and marked as required) for displaying the file path for the selected xlsx file, with a button labeled "Import" positioned to the right of it.  
+13.1.3 Below the "File" field and "Import" button, add a list labeled "Ingestion Data Frames" that shows the list of DataFrameResult object returned in the DataImportResult object by DataImportUtility.importXlsxData().  The list should use display strings like the "Calculations Data Frames" list in the "Annotation Builder" tab.  
+13.1.4 When the view is opened, the "File" field is empty and the "Import" button is enabled.  The "Ingestion Data Frames" list is empty and shows the message "Use the Import button to import PV time-series data from an Excel file.".
+13.1.5 When the button is clicked, 1) a dialog is presented for selecting the xlsx file, and 2) the DataImportUtility.importXlsxData() method is invoked to read the file.  The "isError" flag of the ResultStatus object contained in the DataImportResult object returned by the method indicates success or failure of the operation.  
+13.1.5.1 If the flag is true, the operation failed and the ResultStatus error message should be displayed in the status bar.  
+13.1.5.2 If the flag is false, the operation succeeded and the path for the selected file should be displayed in the "File" field, with the DataFrameResult objects returned in the DataImportResult returned by the method.  
+13.1.6 At the bottom of the view, add horizontally arranged buttons labeled "Ingest" and "Cancel" (again, follow the pattern of the data-ingestion view for the look and style).  
+13.1.7 When the "Cancel" button is clicked, the "home" view is displayed.  
+13.1.8 I will specify handling for the "Ingest" button as a follow on task, please just show a "action not implemented" message for now when the "Ingest" button is clicked.
+13.1.9 If the "Import" button is clicked after the initial import and a new file selected to import, the contents of the "Import Details" section including the list of data frames should be reset.
+13.1.10 Navigation to the data-import view is via the Ingest->Import menu item, which should now be always enabled.  From the Ingest menu, please remove the items "Fixed" and "Subscribe".

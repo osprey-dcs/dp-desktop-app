@@ -30,9 +30,7 @@ public class MainController implements Initializable {
     @FXML private MenuItem preferencesMenuItem;
     @FXML private MenuItem exitMenuItem;
     @FXML private MenuItem generateMenuItem;
-    @FXML private MenuItem fixedMenuItem;
     @FXML private MenuItem importMenuItem;
-    @FXML private MenuItem subscribeMenuItem;
     @FXML private MenuItem dataMenuItem;
     @FXML private MenuItem pvMetadataMenuItem;
     @FXML private MenuItem providerMetadataMenuItem;
@@ -69,9 +67,7 @@ public class MainController implements Initializable {
         connectionMenuItem.disableProperty().bind(viewModel.connectionEnabledProperty().not());
         preferencesMenuItem.disableProperty().bind(viewModel.preferencesEnabledProperty().not());
         generateMenuItem.disableProperty().bind(viewModel.generateEnabledProperty().not());
-        fixedMenuItem.disableProperty().bind(viewModel.fixedEnabledProperty().not());
-        importMenuItem.disableProperty().bind(viewModel.importEnabledProperty().not());
-        subscribeMenuItem.disableProperty().bind(viewModel.subscribeEnabledProperty().not());
+        // importMenuItem is now always enabled (no binding needed)
         dataMenuItem.disableProperty().bind(viewModel.dataEnabledProperty().not());
         pvMetadataMenuItem.disableProperty().bind(viewModel.pvMetadataEnabledProperty().not());
         providerMetadataMenuItem.disableProperty().bind(viewModel.providerMetadataEnabledProperty().not());
@@ -126,18 +122,9 @@ public class MainController implements Initializable {
     }
 
     @FXML
-    private void onFixed() {
-        viewModel.handleFixed();
-    }
-
-    @FXML
     private void onImport() {
         viewModel.handleImport();
-    }
-
-    @FXML
-    private void onSubscribe() {
-        viewModel.handleSubscribe();
+        switchToView("/fxml/data-import.fxml");
     }
 
     // Menu action handlers - Explore menu
@@ -190,6 +177,11 @@ public class MainController implements Initializable {
                 dqController.setDpApplication(dpApplication);
                 dqController.setPrimaryStage(primaryStage);
                 dqController.setMainController(this);
+            } else if (controller instanceof DataImportController) {
+                DataImportController diController = (DataImportController) controller;
+                diController.setDpApplication(dpApplication);
+                diController.setPrimaryStage(primaryStage);
+                diController.setMainController(this);
             }
             
             viewModel.updateStatus("View loaded successfully");

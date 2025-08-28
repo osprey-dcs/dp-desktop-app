@@ -88,9 +88,14 @@ The application integrates with external repositories:
 ### GUI Navigation Structure
 ```
 File → Connection, Preferences, Exit
-Ingest → Generate, Fixed, Import, Subscribe  
+Ingest → Generate, Import (Fixed and Subscribe removed)
 Explore → Data, PV Metadata, Provider Metadata, Datasets, Annotations
 ```
+
+**Menu Item Logic:**
+- **Generate**: Conditionally enabled (disabled for remote production connections to prevent fake data contamination)
+- **Import**: Always enabled (real data import is safe for all environments)
+- **Data/Metadata menus**: Enabled after data ingestion
 
 ## Development Guidelines
 
@@ -128,6 +133,9 @@ Explore → Data, PV Metadata, Provider Metadata, Datasets, Annotations
 - ✅ Annotation Builder UI with dataset targeting, tags, attributes, and save functionality
 - ✅ Cross-tab data transfer between Dataset Builder and Annotation Builder
 - ✅ Reusable TagsListComponent and AttributesListComponent for form inputs
+- ✅ Reusable ProviderDetailsComponent and RequestDetailsComponent for section modularity
+- ✅ Component-based architecture for data-generation view enabling code reuse
+- ✅ Data import view with Excel file processing and DataImportUtility integration
 - ✅ Calculations section with multi-sheet Excel import functionality
 - ✅ Data export functionality (CSV, XLSX, HDF5 formats) with automatic file opening
 
@@ -139,17 +147,17 @@ The application follows the Model-View-ViewModel pattern:
 **Controllers** (`src/main/java/com/ospreydcs/dp/gui/*Controller.java`)
 - Handle FXML UI binding and user interactions
 - Delegate business logic to ViewModels
-- Example: `DataGenerationController`, `DataExploreController`, `MainController`
+- Example: `DataGenerationController`, `DataExploreController`, `DataImportController`, `MainController`
 
 **ViewModels** (`src/main/java/com/ospreydcs/dp/gui/*ViewModel.java`)
 - Contain UI state and business logic
 - Use JavaFX properties for data binding
-- Example: `DataGenerationViewModel`, `DataExploreViewModel`, `MainViewModel`
+- Example: `DataGenerationViewModel`, `DataExploreViewModel`, `DataImportViewModel`, `MainViewModel`
 
 **Views** (`src/main/resources/fxml/*.fxml`)
 - FXML layout definitions
 - Styled with BootstrapFX and custom CSS
-- Example: `data-generation.fxml`, `data-explore.fxml`, `main-window.fxml`
+- Example: `data-generation.fxml`, `data-explore.fxml`, `data-import.fxml`, `main-window.fxml`
 
 ### Data Generation Workflow (Implemented)
 1. **Provider Registration**: Users fill provider details (name, description, tags, attributes)
@@ -160,6 +168,16 @@ The application follows the Model-View-ViewModel pattern:
 6. **Form Validation**: Ensures all required fields are filled and time ranges are valid
 7. **Data Generation**: Uses random walk algorithm to generate time-series data
 8. **Ingestion**: Calls gRPC API to ingest generated data into MongoDB
+
+### Data Import Workflow (Implemented)
+1. **Provider Configuration**: Uses reusable ProviderDetailsComponent for name, description, tags, attributes
+2. **Request Configuration**: Uses reusable RequestDetailsComponent for tags, attributes, event name
+3. **File Selection**: Excel file chooser dialog (.xlsx/.xls formats) with validation
+4. **Data Processing**: Integration with DataImportUtility.importXlsxData() from dp-service
+5. **Frame Display**: Shows imported DataFrameResult objects with human-readable format
+6. **Reset Logic**: Clears import details when selecting new files (section 13.1.9)
+7. **Error Handling**: Comprehensive error handling with status bar feedback
+8. **Navigation**: Always-enabled Import menu item (unlike conditional Generate menu)
 
 ### Data Explore Workflow (Implemented)
 1. **Data Explorer Tools**: Collapsible panel with Query Editor, Dataset Builder, and Annotation Builder tabs
@@ -281,8 +299,9 @@ Located in `dp-service` dependency (`~/dp.fork/dp-java/dp-service`):
 - **Input Format**: First two columns must be epoch seconds and nanoseconds
 - **Returns**: `DataImportResult` with list of `DataFrameResult` objects (one per sheet)
 - **Error Handling**: Skips invalid sheets/rows, continues processing valid data
-- **Shared Usage**: Used by both Calculations import and future PV ingestion features
+- **Shared Usage**: Used by Calculations import, Data Import view, and future PV ingestion features
 - **Dependencies**: Requires updated `dp-service` to be installed to local Maven repository
+- **Integration Pattern**: Import `com.ospreydcs.dp.client.result.DataImportResult` for result handling
 
 ### Dependency Updates
 When modifying shared utilities in `dp-service`:
@@ -315,6 +334,16 @@ mvn clean compile
 4. Add navigation integration in MainController
 5. Inject DpApplication dependency for service access
 6. Follow initialization order: UI restoration before ViewModel injection
+
+### Creating Reusable Components
+1. **Component Structure**: Create both Java class and FXML file in `src/main/resources/fxml/components/`
+2. **Extend VBox**: Component class extends VBox and implements Initializable
+3. **FXML Loading**: Use FXMLLoader in constructor to load component's FXML and copy properties
+4. **Property Binding**: Create StringProperty fields for external binding (e.g., `eventNameProperty()`)
+5. **Data Access Methods**: Provide getter/setter methods for embedded components (e.g., `getProviderTags()`)
+6. **Component APIs**: Always access data through component methods, not parent ViewModel
+7. **Lifecycle Methods**: Provide clear() methods to reset component state
+8. **Controller Integration**: Update parent controllers to bind to component properties instead of direct FXML fields
 
 ### Chart Integration
 - Use NumberAxis instead of CategoryAxis for time-series data
@@ -352,12 +381,30 @@ mvn clean compile
 - Access data via `getAttributes()` method, not through parent ViewModel
 - Convert to Map<String,String> using `getKeyFromAttribute()` and `getValueFromAttribute()` static methods
 
+**ProviderDetailsComponent** (`src/main/java/com/ospreydcs/dp/gui/component/ProviderDetailsComponent.java`)
+- Reusable component for Provider Details section
+- Contains provider name, description, tags, and attributes
+- Uses embedded TagsListComponent and AttributesListComponent
+- Property binding: `providerNameProperty()`, `providerDescriptionProperty()`
+- Data access: `getProviderTags()`, `getProviderAttributes()`
+- Lifecycle method: `clearProviderDetails()`
+
+**RequestDetailsComponent** (`src/main/java/com/ospreydcs/dp/gui/component/RequestDetailsComponent.java`)
+- Reusable component for Request Details section
+- Contains request tags, attributes, and event name field
+- Uses embedded TagsListComponent and AttributesListComponent
+- Property binding: `eventNameProperty()`
+- Data access: `getRequestTags()`, `getRequestAttributes()`
+- Lifecycle method: `clearRequestDetails()`
+
 **Critical Integration Pattern:**
 When using reusable components, get data from component instances directly:
 ```java
 // Correct - get from component instances
 var tags = tagsComponent.getTags();
 var attributes = attributesComponent.getAttributes();
+var providerTags = providerDetailsComponent.getProviderTags();
+var eventName = requestDetailsComponent.getEventName();
 
 // Incorrect - parent ViewModels return empty lists
 var tags = viewModel.getTags(); // Empty!

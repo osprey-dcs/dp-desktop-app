@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<BorderPane xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.ospreydcs.dp.gui.DataImportController" styleClass="content-pane">
+   <top>
+      <VBox styleClass="view-container">
+         <Label styleClass="section-header" text="Import Time-Series Data" />
+         <Label styleClass="app-description" text="Configure provider details, request parameters, and import PV data from Excel files for ingestion." />
+      </VBox>
+   </top>
+   
+   <center>
+      <ScrollPane fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED">
+         <VBox spacing="20" styleClass="view-container">
+            
+            <!-- Provider Details Section -->
+            <com.ospreydcs.dp.gui.component.ProviderDetailsComponent fx:id="providerDetailsComponent" />
+            
+            <!-- Request Details Section -->
+            <com.ospreydcs.dp.gui.component.RequestDetailsComponent fx:id="requestDetailsComponent" />
+            
+            <!-- Import Details Section -->
+            <VBox styleClass="form-container">
+               <Label styleClass="section-header" text="Import Details" />
+               <GridPane hgap="10" vgap="10">
+                  <columnConstraints>
+                     <ColumnConstraints minWidth="160" prefWidth="160" />
+                     <ColumnConstraints hgrow="ALWAYS" />
+                     <ColumnConstraints />
+                  </columnConstraints>
+                  
+                  <Label text="File: *" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                  <TextField fx:id="filePathField" editable="false" promptText="No file selected" GridPane.columnIndex="1" GridPane.rowIndex="0" />
+                  <Button fx:id="importButton" onAction="#onImport" styleClass="btn-secondary" text="Import" GridPane.columnIndex="2" GridPane.rowIndex="0" />
+               </GridPane>
+               
+               <!-- Ingestion Data Frames List -->
+               <VBox spacing="10" styleClass="form-container">
+                  <Label text="Ingestion Data Frames: *" />
+                  <ListView fx:id="ingestionDataFramesList" minHeight="200" prefHeight="250" />
+               </VBox>
+            </VBox>
+         </VBox>
+      </ScrollPane>
+   </center>
+   
+   <bottom>
+      <HBox alignment="CENTER_RIGHT" spacing="10" styleClass="status-bar">
+         <Button fx:id="ingestButton" onAction="#onIngest" styleClass="btn-primary" text="Ingest" />
+         <Button fx:id="cancelButton" onAction="#onCancel" styleClass="btn-secondary" text="Cancel" />
+      </HBox>
+   </bottom>
+</BorderPane>

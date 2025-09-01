@@ -341,3 +341,9 @@ To the right of the list box should be a panel of vertically arranged buttons la
 14.4 When the user clicks the "Search" button in the "PV Query Editor", call one of  the DpApplication.queryPvMetadata() variants, following the pattern of DataExploreViewModel.searchPvMetadata().  The return value from queryPvMetadata() contains a ResultStatus indicating success or failure of the operation.  
 14.4.1 If ResultStatus.isError flag is set, the operation failed, and the ResultStatus.errorMsg should be displayed in the status bar.  
 14.4.2 If the method succeeds (isError flag is false), display the results in the "PV Query Results" section.
+
+14.5 Navigation to the pv-explore view from the data-explore view's Query Editor.  We are going to remove the embedded "PV Search Panel" in the Query Editor tab since that functionality is now provided in the pv-explore view, change the handling for the "Add PV" button in the Query Editor, remove the "Remove" button from the Query Editor, and add a button to each PV name in the list of PVs for removing that PV.  Details for each are below.
+14.5.1 Remove the "PV Search Panel" from the data-query view's "Query Editor" tab that appears when the "Add PV" button is selected.  The functionality of the search panel is now provided by the pv-explore view.
+14.5.2 Change the label for the Query Editor's "Add PV" button to "Explore PVs".  Change the handling for that button to navigate to the pv-explore view when the button is clicked.  The button should always be enabled.
+14.5.3 Remove the "Remove" button from the Query Editor.
+14.5.4 Add a remove button next to each name in the Query Editor's PV Names list using a trash can icon label.  The button look and feel should match the remove button used for PV names contained in the re-usable "Query PVs" component list.

@@ -37,49 +37,13 @@
                         
                         <!-- PV Names Section -->
                         <VBox spacing="10">
-                            <Label styleClass="control-label" text="PV Names:" />
                             <HBox spacing="10" alignment="CENTER_LEFT">
-                                <ListView fx:id="pvNamesList" prefHeight="120.0" HBox.hgrow="ALWAYS" />
-                                <VBox spacing="5">
-                                    <Button fx:id="addPvButton" onAction="#onAddPv" styleClass="btn, btn-success" text="Add PV" />
-                                    <Button fx:id="removePvButton" onAction="#onRemovePv" styleClass="btn, btn-warning" text="Remove" />
-                                </VBox>
-                            </HBox>
-                        </VBox>
-                        
-                        <!-- PV Search Panel (initially hidden) -->
-                        <VBox fx:id="pvSearchPanel" spacing="10" styleClass="well">
-                            <padding>
-                                <Insets bottom="15.0" left="15.0" right="15.0" top="15.0" />
-                            </padding>
-                            
-                            <Label styleClass="h4" text="🔍 PV Search Panel" />
-                            
-                            <HBox spacing="10" alignment="CENTER_LEFT">
-                                <Label text="Search:" />
-                                <TextField fx:id="pvSearchTextField" HBox.hgrow="ALWAYS" promptText="Enter PV names or pattern" />
-                            </HBox>
-                            
-                            <HBox spacing="15" alignment="CENTER_LEFT">
-                                <RadioButton fx:id="searchByNameListRadio" text="PV name list (comma separated)" />
-                                <RadioButton fx:id="searchByPatternRadio" text="PV name pattern" />
-                            </HBox>
-                            
-                            <HBox spacing="10" alignment="CENTER_LEFT">
-                                <Button fx:id="searchPvButton" onAction="#onSearchPv" styleClass="btn, btn-primary" text="Search" />
-                                <Button fx:id="closePvSearchButton" onAction="#onClosePvSearch" styleClass="btn, btn-default" text="Close" />
+                                <Label styleClass="control-label" text="PV Names:" />
                                 <Region HBox.hgrow="ALWAYS" />
-                                <Label fx:id="searchStatusLabel" styleClass="text-muted" />
+                                <Button fx:id="explorePvsButton" onAction="#onExplorePvs" 
+                                        styleClass="btn, btn-primary" text="Explore PVs" />
                             </HBox>
-                            
-                            <VBox spacing="10">
-                                <Label text="Search Results:" />
-                                <ListView fx:id="searchResultsList" prefHeight="100.0" minHeight="100.0" maxHeight="200.0" VBox.vgrow="SOMETIMES" />
-                                <HBox spacing="10" alignment="CENTER_LEFT">
-                                    <Button fx:id="addSelectedPvButton" onAction="#onAddSelectedPv" styleClass="btn, btn-success" text="Add Selected" />
-                                    <Label fx:id="searchResultCountLabel" styleClass="text-info" />
-                                </HBox>
-                            </VBox>
+                            <ListView fx:id="pvNamesList" prefHeight="120.0" />
                         </VBox>
                         
                         <!-- Time Range Section -->

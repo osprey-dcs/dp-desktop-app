@@ -9,6 +9,7 @@ import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.VBox;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.geometry.Insets;
 import javafx.scene.chart.LineChart;
 import javafx.scene.chart.XYChart;
 // CategoryAxis import removed - using NumberAxis for both axes
@@ -51,20 +52,7 @@ public class DataExploreController implements Initializable {
     @FXML private Label specificationStatusLabel;
     @FXML private VBox specificationContent;
     @FXML private ListView<String> pvNamesList;
-    @FXML private Button addPvButton;
-    @FXML private Button removePvButton;
-    
-    // PV Search Panel FXML components
-    @FXML private VBox pvSearchPanel;
-    @FXML private TextField pvSearchTextField;
-    @FXML private RadioButton searchByNameListRadio;
-    @FXML private RadioButton searchByPatternRadio;
-    @FXML private Button searchPvButton;
-    @FXML private Button closePvSearchButton;
-    @FXML private Label searchStatusLabel;
-    @FXML private ListView<String> searchResultsList;
-    @FXML private Button addSelectedPvButton;
-    @FXML private Label searchResultCountLabel;
+    @FXML private Button explorePvsButton;
     
     // Time Range FXML components
     @FXML private DatePicker queryBeginDatePicker;
@@ -160,7 +148,6 @@ public class DataExploreController implements Initializable {
         
         // Initialize UI components
         initializeSpinners();
-        initializeRadioButtons();
         initializeChart();
         initializeDatasetBuilder();
         initializeAnnotationBuilder();
@@ -186,13 +173,6 @@ public class DataExploreController implements Initializable {
         endSecondSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(0, 59, 0));
     }
     
-    private void initializeRadioButtons() {
-        // Create toggle group for search type radio buttons
-        ToggleGroup searchTypeToggleGroup = new ToggleGroup();
-        searchByNameListRadio.setToggleGroup(searchTypeToggleGroup);
-        searchByPatternRadio.setToggleGroup(searchTypeToggleGroup);
-        searchByNameListRadio.setSelected(true); // Default selection
-    }
     
     private void initializeChart() {
         // Configure chart properties
@@ -243,6 +223,16 @@ public class DataExploreController implements Initializable {
     private void bindUIToViewModel() {
         // Query Specification bindings
         pvNamesList.setItems(viewModel.getPvNameList());
+        
+        // Set up custom cell factory AFTER setting items to ensure it's not overridden
+        pvNamesList.setCellFactory(listView -> new PvNameListCell());
+        logger.debug("PV Names ListView cell factory set after binding items");
+        
+        // Force ListView to refresh and use the new cell factory
+        javafx.application.Platform.runLater(() -> {
+            pvNamesList.refresh();
+            logger.debug("PV Names ListView refreshed to apply custom cell factory");
+        });
         specificationContent.visibleProperty().bind(viewModel.showQuerySpecificationPanelProperty());
         specificationContent.managedProperty().bind(viewModel.showQuerySpecificationPanelProperty());
         
@@ -284,34 +274,14 @@ public class DataExploreController implements Initializable {
         setupSpinnerBinding(endMinuteSpinner, viewModel.endMinuteProperty(), "endMinute");
         setupSpinnerBinding(endSecondSpinner, viewModel.endSecondProperty(), "endSecond");
         
-        // PV Search Panel bindings
-        pvSearchPanel.visibleProperty().bind(viewModel.showPvSearchPanelProperty());
-        pvSearchPanel.managedProperty().bind(viewModel.showPvSearchPanelProperty());
-        pvSearchTextField.textProperty().bindBidirectional(viewModel.pvSearchTextProperty());
-        // Handle radio button selection properly without binding conflicts
-        searchByNameListRadio.selectedProperty().bindBidirectional(viewModel.searchByNameListProperty());
-        // Don't bind the second radio button - let the ToggleGroup handle mutual exclusion
-        
-        // Update ViewModel when pattern radio button is selected
-        searchByPatternRadio.selectedProperty().addListener((obs, wasSelected, isSelected) -> {
-            if (isSelected) {
-                viewModel.searchByNameListProperty().set(false);
-            }
-        });
-        searchResultsList.setItems(viewModel.getSearchResultPvNames());
         
         
         // Button state bindings
         submitQueryButton.disableProperty().bind(viewModel.isQueryingProperty().or(viewModel.isQueryValidProperty().not()));
         addToDatasetButton.disableProperty().bind(viewModel.isQueryingProperty().or(viewModel.isQueryValidProperty().not()));
-        searchPvButton.disableProperty().bind(viewModel.isSearchingProperty());
-        addPvButton.disableProperty().bind(viewModel.isQueryingProperty());
-        removePvButton.disableProperty().bind(viewModel.isQueryingProperty());
-        addSelectedPvButton.disableProperty().bind(viewModel.isSearchingProperty());
         
         // Status and progress bindings
         queryStatusLabel.textProperty().bind(viewModel.statusMessageProperty());
-        searchStatusLabel.textProperty().bind(viewModel.statusMessageProperty());
         resultsStatusLabel.textProperty().bind(viewModel.statusMessageProperty());
         queryProgressIndicator.visibleProperty().bind(viewModel.isQueryingProperty());
         
@@ -323,11 +293,6 @@ public class DataExploreController implements Initializable {
             rowCountLabel.setText(newVal.intValue() + " rows");
         });
         
-        // Search result count binding
-        viewModel.getSearchResultPvNames().addListener((javafx.collections.ListChangeListener<String>) change -> {
-            int size = viewModel.getSearchResultPvNames().size();
-            searchResultCountLabel.setText(size + " result(s) found");
-        });
         
         // Dataset Builder bindings
         datasetIdField.textProperty().bindBidirectional(datasetBuilderViewModel.datasetIdProperty());
@@ -424,13 +389,6 @@ public class DataExploreController implements Initializable {
             if (!isInitializingFromGlobalState) updateGlobalTimeRange();
         });
         
-        // Set up selection handling for search results
-        searchResultsList.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
-        searchResultsList.getSelectionModel().getSelectedItems().addListener(
-            (javafx.collections.ListChangeListener<String>) change -> {
-                viewModel.getSelectedSearchResults().setAll(
-                    searchResultsList.getSelectionModel().getSelectedItems());
-            });
         
         // Set up table columns when column names are available
         viewModel.getTableColumnNames().addListener((javafx.collections.ListChangeListener<String>) change -> {
@@ -950,47 +908,11 @@ public class DataExploreController implements Initializable {
     }
     
     @FXML
-    private void onAddPv() {
-        viewModel.showPvSearchPanel();
-        logger.debug("PV search panel opened");
-    }
-    
-    @FXML
-    private void onRemovePv() {
-        String selectedPv = pvNamesList.getSelectionModel().getSelectedItem();
-        if (selectedPv != null) {
-            viewModel.removePvName(selectedPv);
-            logger.debug("Removed PV from query list: {}", selectedPv);
-        } else {
-            viewModel.updateStatus("Please select a PV to remove");
+    private void onExplorePvs() {
+        if (mainController != null) {
+            logger.debug("Navigating to PV Explore view");
+            mainController.switchToView("/fxml/pv-explore.fxml");
         }
-    }
-    
-    @FXML
-    private void onSearchPv() {
-        logger.info("PV metadata search requested");
-        viewModel.searchPvMetadata();
-    }
-    
-    @FXML
-    private void onClosePvSearch() {
-        viewModel.hidePvSearchPanel();
-        logger.debug("PV search panel closed");
-    }
-    
-    @FXML
-    private void onAddSelectedPv() {
-        ObservableList<String> selectedItems = searchResultsList.getSelectionModel().getSelectedItems();
-        if (selectedItems.isEmpty()) {
-            viewModel.updateStatus("Please select PV names from the search results");
-            return;
-        }
-        
-        viewModel.getSelectedSearchResults().setAll(selectedItems);
-        viewModel.addSelectedSearchResultsToPvList();
-        
-        // Update global state after adding PVs (the listener will handle this automatically)
-        logger.info("Added {} selected PVs to query list", selectedItems.size());
     }
     
     @FXML
@@ -1802,6 +1724,13 @@ public class DataExploreController implements Initializable {
                 if (!globalPvNames.isEmpty()) {
                     viewModel.getPvNameList().setAll(globalPvNames);
                     logger.debug("Initialized UI with {} PV names from global state", globalPvNames.size());
+                    
+                    // Apply custom cell factory when PV names are populated
+                    javafx.application.Platform.runLater(() -> {
+                        pvNamesList.setCellFactory(listView -> new PvNameListCell());
+                        pvNamesList.refresh();
+                        logger.debug("Custom cell factory applied during global state initialization");
+                    });
                 }
             }
             
@@ -2155,6 +2084,52 @@ public class DataExploreController implements Initializable {
             this.timestamp = timestamp;
             this.value = value;
             this.pvName = pvName;
+        }
+    }
+    
+    // Custom ListCell for PV names with remove buttons
+    private class PvNameListCell extends ListCell<String> {
+        private HBox content;
+        private Label pvNameLabel;
+        private Button removeButton;
+
+        public PvNameListCell() {
+            super();
+            logger.debug("Creating PvNameListCell");
+            content = new HBox();
+            content.setSpacing(5);
+            content.setPadding(new Insets(2, 5, 2, 5));
+            
+            pvNameLabel = new Label();
+            pvNameLabel.setMaxWidth(Double.MAX_VALUE);
+            HBox.setHgrow(pvNameLabel, Priority.ALWAYS);
+            
+            removeButton = new Button("🗑️");
+            removeButton.getStyleClass().addAll("btn", "btn-danger", "btn-xs");
+            removeButton.setOnAction(e -> {
+                String pvName = getItem();
+                if (pvName != null) {
+                    viewModel.removePvName(pvName);
+                    logger.debug("Removed PV from query list: {}", pvName);
+                }
+            });
+            
+            content.getChildren().addAll(pvNameLabel, removeButton);
+        }
+
+        @Override
+        protected void updateItem(String item, boolean empty) {
+            super.updateItem(item, empty);
+            logger.debug("PvNameListCell updateItem: item={}, empty={}", item, empty);
+            
+            if (empty || item == null) {
+                setGraphic(null);
+                setText(null);
+            } else {
+                pvNameLabel.setText(item);
+                setGraphic(content);
+                setText(null); // Important: clear default text since we're using graphic
+            }
         }
     }
 }

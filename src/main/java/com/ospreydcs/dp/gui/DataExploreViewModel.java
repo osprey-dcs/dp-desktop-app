@@ -43,13 +43,6 @@ public class DataExploreViewModel {
     // Query Results Panel properties  
     private final BooleanProperty showQueryResultsPanel = new SimpleBooleanProperty(true);
     
-    // PV Search Panel properties
-    private final StringProperty pvSearchText = new SimpleStringProperty("");
-    private final BooleanProperty searchByNameList = new SimpleBooleanProperty(true); // true = name list, false = pattern
-    private final ObservableList<String> searchResultPvNames = FXCollections.observableArrayList();
-    private final ObservableList<String> selectedSearchResults = FXCollections.observableArrayList();
-    private final BooleanProperty showPvSearchPanel = new SimpleBooleanProperty(false);
-    private final BooleanProperty isSearching = new SimpleBooleanProperty(false);
     
     // Query Results properties
     private final ObservableList<String> tableColumnNames = FXCollections.observableArrayList();
@@ -144,12 +137,6 @@ public class DataExploreViewModel {
     public BooleanProperty showQueryResultsPanelProperty() { return showQueryResultsPanel; }
 
     // PV Search Panel property getters
-    public StringProperty pvSearchTextProperty() { return pvSearchText; }
-    public BooleanProperty searchByNameListProperty() { return searchByNameList; }
-    public ObservableList<String> getSearchResultPvNames() { return searchResultPvNames; }
-    public ObservableList<String> getSelectedSearchResults() { return selectedSearchResults; }
-    public BooleanProperty showPvSearchPanelProperty() { return showPvSearchPanel; }
-    public BooleanProperty isSearchingProperty() { return isSearching; }
 
     // Query Results property getters
     public ObservableList<String> getTableColumnNames() { return tableColumnNames; }
@@ -183,130 +170,8 @@ public class DataExploreViewModel {
         logger.debug("Removed PV name: {}", pvName);
     }
 
-    public void showPvSearchPanel() {
-        showPvSearchPanel.set(true);
-        logger.debug("Showing PV search panel - NOT clearing search results");
-        // Don't clear search results when opening panel - preserve any existing results
-    }
 
-    public void hidePvSearchPanel() {
-        showPvSearchPanel.set(false);
-        searchResultPvNames.clear();
-        selectedSearchResults.clear();
-        pvSearchText.set("");
-        logger.debug("Hiding PV search panel");
-    }
 
-    public void searchPvMetadata() {
-        if (dpApplication == null) {
-            statusMessage.set("DpApplication not initialized");
-            return;
-        }
-
-        String searchTextValue = pvSearchText.get();
-        if (searchTextValue == null || searchTextValue.trim().isEmpty()) {
-            statusMessage.set("Please enter search text");
-            return;
-        }
-
-        isSearching.set(true);
-        statusMessage.set("Searching for PV metadata...");
-        logger.info("Starting PV metadata search, keeping existing results until new ones arrive");
-
-        // Create background task for search
-        Task<QueryPvMetadataApiResult> searchTask = new Task<QueryPvMetadataApiResult>() {
-            @Override
-            protected QueryPvMetadataApiResult call() throws Exception {
-                if (searchByNameList.get()) {
-                    // Parse comma-separated list of PV names
-                    List<String> pvNames = parseCommaSeparatedList(searchTextValue);
-                    return dpApplication.queryPvMetadata(pvNames);
-                } else {
-                    // Use search text as pattern
-                    return dpApplication.queryPvMetadata(searchTextValue);
-                }
-            }
-        };
-
-        searchTask.setOnSucceeded(e -> {
-            QueryPvMetadataApiResult apiResult = searchTask.getValue();
-            handlePvMetadataSearchResult(apiResult);
-            isSearching.set(false);
-        });
-
-        searchTask.setOnFailed(e -> {
-            logger.error("PV metadata search failed", searchTask.getException());
-            statusMessage.set("PV search failed: " + searchTask.getException().getMessage());
-            isSearching.set(false);
-        });
-
-        Thread searchThread = new Thread(searchTask);
-        searchThread.setDaemon(true);
-        searchThread.start();
-    }
-
-    private void handlePvMetadataSearchResult(QueryPvMetadataApiResult apiResult) {
-        if (apiResult == null) {
-            javafx.application.Platform.runLater(() -> {
-                statusMessage.set("Search failed - null response from service");
-            });
-            return;
-        }
-
-        if (apiResult.resultStatus.isError) {
-            javafx.application.Platform.runLater(() -> {
-                statusMessage.set("Search failed: " + apiResult.resultStatus.toString());
-            });
-            return;
-        }
-
-        QueryPvMetadataResponse response = apiResult.queryPvMetadataResponse;
-        if (response == null) {
-            javafx.application.Platform.runLater(() -> {
-                statusMessage.set("Search failed - null response from service");
-            });
-            return;
-        }
-
-        if (response.hasExceptionalResult()) {
-            javafx.application.Platform.runLater(() -> {
-                statusMessage.set("Search failed: " + response.getExceptionalResult().getMessage());
-            });
-            return;
-        }
-
-        if (response.hasMetadataResult()) {
-            List<String> foundPvNames = new ArrayList<>();
-            response.getMetadataResult().getPvInfosList().forEach(pvInfo -> {
-                foundPvNames.add(pvInfo.getPvName());
-            });
-            
-            // Update UI on JavaFX Application Thread
-            javafx.application.Platform.runLater(() -> {
-                searchResultPvNames.setAll(foundPvNames);
-                statusMessage.set("Found " + foundPvNames.size() + " matching PV(s)");
-            });
-            logger.info("PV metadata search returned {} results", foundPvNames.size());
-        } else {
-            javafx.application.Platform.runLater(() -> {
-                statusMessage.set("Search completed but no results found");
-            });
-        }
-    }
-
-    public void addSelectedSearchResultsToPvList() {
-        int addedCount = 0;
-        for (String pvName : selectedSearchResults) {
-            if (!pvNameList.contains(pvName)) {
-                pvNameList.add(pvName);
-                addedCount++;
-            }
-        }
-        
-        selectedSearchResults.clear();
-        logger.info("Added {} PV names from search results", addedCount);
-        statusMessage.set("Added " + addedCount + " PV name(s) to query list");
-    }
 
     public LocalDateTime getQueryBeginDateTime() {
         LocalTime beginTime = LocalTime.of(beginHour.get(), beginMinute.get(), beginSecond.get());
@@ -544,19 +409,6 @@ public class DataExploreViewModel {
         return true;
     }
 
-    private List<String> parseCommaSeparatedList(String input) {
-        List<String> result = new ArrayList<>();
-        if (input != null && !input.trim().isEmpty()) {
-            String[] parts = input.split(",");
-            for (String part : parts) {
-                String trimmed = part.trim();
-                if (!trimmed.isEmpty()) {
-                    result.add(trimmed);
-                }
-            }
-        }
-        return result;
-    }
 
     public void cancel() {
         logger.info("Data query cancelled by user");

@@ -89,13 +89,15 @@ The application integrates with external repositories:
 ```
 File → Connection, Preferences, Exit
 Ingest → Generate, Import (Fixed and Subscribe removed)
-Explore → Data, PV Metadata, Provider Metadata, Datasets, Annotations
+Explore → Data, PVs, Providers, Datasets, Annotations
 ```
 
 **Menu Item Logic:**
 - **Generate**: Conditionally enabled (disabled for remote production connections to prevent fake data contamination)
 - **Import**: Always enabled (real data import is safe for all environments)
 - **Data/Metadata menus**: Enabled after data ingestion (in-process mode) or immediately (remote production mode)
+- **PVs**: Navigate to pv-explore view for PV discovery and management
+- **Providers**: Navigate to provider metadata exploration (planned)
 
 ## Development Guidelines
 
@@ -149,6 +151,10 @@ Explore → Data, PV Metadata, Provider Metadata, Datasets, Annotations
 - ✅ Ingest and Reset button functionality in data-import view with proper error handling
 - ✅ Critical Integration Pattern implemented across all views using reusable components
 - ✅ Event name handling in Request Details sections for both generation and import workflows
+- ✅ PV Explore view with dedicated PV discovery, search, and management functionality
+- ✅ QueryPvsComponent reusable component for PV list management with individual remove buttons
+- ✅ Integrated navigation between data-explore and pv-explore views
+- ✅ Custom ListCell implementations for individual item actions (remove buttons)
 
 ## GUI Architecture
 
@@ -158,17 +164,17 @@ The application follows the Model-View-ViewModel pattern:
 **Controllers** (`src/main/java/com/ospreydcs/dp/gui/*Controller.java`)
 - Handle FXML UI binding and user interactions
 - Delegate business logic to ViewModels
-- Example: `DataGenerationController`, `DataExploreController`, `DataImportController`, `MainController`
+- Example: `DataGenerationController`, `DataExploreController`, `DataImportController`, `PvExploreController`, `MainController`
 
 **ViewModels** (`src/main/java/com/ospreydcs/dp/gui/*ViewModel.java`)
 - Contain UI state and business logic
 - Use JavaFX properties for data binding
-- Example: `DataGenerationViewModel`, `DataExploreViewModel`, `DataImportViewModel`, `MainViewModel`
+- Example: `DataGenerationViewModel`, `DataExploreViewModel`, `DataImportViewModel`, `PvExploreViewModel`, `MainViewModel`
 
 **Views** (`src/main/resources/fxml/*.fxml`)
 - FXML layout definitions
 - Styled with BootstrapFX and custom CSS
-- Example: `data-generation.fxml`, `data-explore.fxml`, `data-import.fxml`, `main-window.fxml`
+- Example: `data-generation.fxml`, `data-explore.fxml`, `data-import.fxml`, `pv-explore.fxml`, `main-window.fxml`
 
 ### Data Generation Workflow (Implemented)
 1. **Provider Registration**: Users fill provider details (name, description, tags, attributes)
@@ -194,14 +200,25 @@ The application follows the Model-View-ViewModel pattern:
 
 ### Data Explore Workflow (Implemented)
 1. **Data Explorer Tools**: Collapsible panel with Query Editor, Dataset Builder, and Annotation Builder tabs
-2. **PV Selection**: Add PV names manually or via search panel with pattern matching
+2. **PV Selection**: Navigate to pv-explore view via "Explore PVs" button for PV discovery
 3. **Time Range Selection**: Set query begin/end times with date pickers and time spinners
-4. **PV Search Panel**: Search existing PVs by name list or pattern matching
+4. **PV Management**: Individual remove buttons (🗑️) next to each PV name in Query Editor
 5. **Query Execution**: Execute query and display results in Data Viewer section
 6. **Data Viewer**: Collapsible section with dynamic table and interactive chart
 7. **Results Display**: Dynamic table with columns for timestamp and selected PVs  
 8. **Chart Visualization**: TabPane with Table and Chart views, LineChart with NumberAxis scaling
 9. **Interactive Features**: Mouse tracking tooltips, dynamic data sampling for performance
+
+### PV Explore Workflow (Implemented)
+1. **Query PVs Component**: Reusable component displaying current PV selection with individual remove buttons
+2. **PV Query Editor**: Search form with pattern matching and name list options
+3. **Search Execution**: Background task queries PV metadata with loading indicators
+4. **Results Display**: TableView with PV details (name, data type, timestamps, sample period)
+5. **PV Selection**: Checkbox-based selection with "Select All" header functionality
+6. **Bulk Operations**: "Add Selected" button (enabled when checkboxes selected)
+7. **Individual Operations**: Hyperlink PV names for direct addition to Query PVs list
+8. **Cross-View Navigation**: "Edit Query" button returns to data-explore view with updated PV list
+9. **State Synchronization**: PV additions/removals automatically sync with global application state
 
 ### Dataset Builder Workflow (Implemented)
 1. **Dataset Configuration**: Enter dataset name (required), description (optional), and auto-generated ID field
@@ -289,6 +306,13 @@ Represents individual calculation frames from Excel import:
 - Data columns (List<DataColumn>, protobuf format)
 - Human-readable toString() format: "Frame name - Column1, Column2, Column3..."
 - Created from multi-sheet Excel import using shared DataImportUtility
+
+### PvInfoTableRow (`src/main/java/com/ospreydcs/dp/gui/model/PvInfoTableRow.java`)
+Wrapper for protobuf PvInfo in TableView displays:
+- PV name, data type, formatted timestamps and sample periods
+- Selection state management for bulk operations
+- Property binding support for JavaFX TableView integration
+- Used in pv-explore view for PV discovery and selection
 
 ### Global State Management
 `DpApplication` maintains cross-view state with automatic synchronization:
@@ -501,6 +525,13 @@ When tags/attributes don't appear in the database:
 - Data access: `getRequestTags()`, `getRequestAttributes()`
 - Lifecycle method: `clearRequestDetails()`
 
+**QueryPvsComponent** (`src/main/java/com/ospreydcs/dp/gui/component/QueryPvsComponent.java`)
+- Reusable component for PV list management with individual remove buttons
+- Displays current PV selection with custom ListCell containing trash can buttons (🗑️)
+- Auto-syncs with DpApplication global PV state
+- Navigation integration: "Edit Query" button to return to data-explore view
+- Used in pv-explore view for displaying and managing selected PVs
+
 **Critical Integration Pattern Implementation:**
 When using reusable components, you MUST inject component references into ViewModels:
 
@@ -598,3 +629,70 @@ private void attemptPvFormSubmission() {
 - Auto-submission on Enter/focus-loss reduces user actions
 - Focus management enables rapid sequential entry
 - Validation prevents invalid submissions
+
+### Custom ListCell Implementation Pattern
+**For ListViews with individual item actions (like remove buttons):**
+```java
+// Custom ListCell class
+private class PvNameListCell extends ListCell<String> {
+    private HBox content;
+    private Label itemLabel;
+    private Button actionButton;
+
+    public PvNameListCell() {
+        super();
+        content = new HBox();
+        content.setSpacing(5);
+        content.setPadding(new Insets(2, 5, 2, 5));
+        
+        itemLabel = new Label();
+        itemLabel.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(itemLabel, Priority.ALWAYS);
+        
+        actionButton = new Button("🗑️");
+        actionButton.getStyleClass().addAll("btn", "btn-danger", "btn-xs");
+        actionButton.setOnAction(e -> {
+            String item = getItem();
+            if (item != null) {
+                // Handle action
+            }
+        });
+        
+        content.getChildren().addAll(itemLabel, actionButton);
+    }
+
+    @Override
+    protected void updateItem(String item, boolean empty) {
+        super.updateItem(item, empty);
+        
+        if (empty || item == null) {
+            setGraphic(null);
+            setText(null);
+        } else {
+            itemLabel.setText(item);
+            setGraphic(content);
+            setText(null); // Important: clear default text
+        }
+    }
+}
+
+// Critical timing for cell factory setup
+private void setupCustomListCell() {
+    // Set items first
+    listView.setItems(viewModel.getItemList());
+    
+    // Then set cell factory - timing is critical!
+    javafx.application.Platform.runLater(() -> {
+        listView.setCellFactory(listView -> new PvNameListCell());
+        listView.refresh();
+        logger.debug("Custom cell factory applied");
+    });
+}
+```
+
+**Critical implementation notes:**
+- Set cell factory AFTER setting ListView items to prevent override
+- Use `Platform.runLater()` to ensure proper JavaFX thread timing
+- Call `refresh()` to force ListView to recreate cells with new factory
+- Always call `setText(null)` when using custom graphics to avoid double display
+- Apply during global state initialization when items are actually populated

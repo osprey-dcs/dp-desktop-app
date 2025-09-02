@@ -496,6 +496,31 @@ public class DpApplication {
         return api.queryClient.queryTable(params);
     }
 
+    public QueryProvidersApiResult queryProviders(
+            String providerId,
+            String providerText, // search name and description fields
+            String tagValue,
+            String attributeKey,
+            String attributeValue
+    ) {
+        // create params
+        QueryClient.QueryProvidersRequestParams params = new QueryClient.QueryProvidersRequestParams();
+        if (providerId != null && !providerId.isEmpty()) {
+            params.setIdCriterion(providerId);
+        }
+        if (providerText != null && !providerText.isEmpty()) {
+            params.setTextCriterion(providerText);
+        }
+        if (tagValue != null && !tagValue.isEmpty()) {
+            params.setTextCriterion(tagValue);
+        }
+        if (attributeKey != null && !attributeKey.isEmpty() && attributeValue != null && !attributeValue.isEmpty()) {
+            params.setAttributesCriterion(attributeKey, attributeValue);
+        }
+
+        return api.queryClient.queryProviders(params);
+    }
+
     public SaveDataSetApiResult saveDataSet(
             String id, String name, String description, List<DataBlockDetail> dataBlockDetails) {
 

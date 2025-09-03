@@ -143,6 +143,7 @@ public class MainController implements Initializable {
     @FXML
     private void onProviderMetadata() {
         viewModel.handleProviderMetadata();
+        switchToView("/fxml/provider-explore.fxml");
     }
 
     @FXML
@@ -188,6 +189,12 @@ public class MainController implements Initializable {
                 peController.setDpApplication(dpApplication);
                 peController.setPrimaryStage(primaryStage);
                 peController.setMainController(this);
+            } else if (controller instanceof ProviderExploreController) {
+                ProviderExploreController prController = (ProviderExploreController) controller;
+                prController.setDpApplication(dpApplication);
+                prController.setPrimaryStage(primaryStage);
+                prController.setMainController(this);
+                prController.initializeView();
             }
             
             viewModel.updateStatus("View loaded successfully");

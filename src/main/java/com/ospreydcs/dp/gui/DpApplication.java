@@ -512,7 +512,7 @@ public class DpApplication {
             params.setTextCriterion(providerText);
         }
         if (tagValue != null && !tagValue.isEmpty()) {
-            params.setTextCriterion(tagValue);
+            params.setTagsCriterion(tagValue);
         }
         if (attributeKey != null && !attributeKey.isEmpty() && attributeValue != null && !attributeValue.isEmpty()) {
             params.setAttributesCriterion(attributeKey, attributeValue);

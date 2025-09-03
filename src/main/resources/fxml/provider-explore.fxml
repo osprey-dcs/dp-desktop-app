@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<HBox spacing="20" styleClass="container" xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.ospreydcs.dp.gui.ProviderExploreController">
+    <padding>
+        <Insets bottom="20.0" left="20.0" right="20.0" top="20.0" />
+    </padding>
+
+    <!-- Query PVs Component (Left Side) -->
+    <VBox fx:id="queryPvsContainer" minWidth="300" maxWidth="300" HBox.hgrow="NEVER">
+        <!-- QueryPvsComponent will be injected here programmatically -->
+    </VBox>
+
+    <!-- Provider Query Sections (Right Side) -->
+    <VBox spacing="20" HBox.hgrow="ALWAYS">
+        
+        <!-- Provider Query Editor Section -->
+        <VBox spacing="15" styleClass="panel, panel-primary">
+            <padding>
+                <Insets bottom="15.0" left="15.0" right="15.0" top="15.0" />
+            </padding>
+            
+            <!-- Section Header -->
+            <Label styleClass="h4" text="🔍 Provider Query Editor" />
+            
+            <!-- Query Form -->
+            <GridPane hgap="15" vgap="10">
+                <columnConstraints>
+                    <ColumnConstraints minWidth="120" prefWidth="120" />
+                    <ColumnConstraints minWidth="200" prefWidth="300" hgrow="ALWAYS" />
+                </columnConstraints>
+                
+                <!-- Provider ID Field -->
+                <Label styleClass="control-label" text="Provider ID:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                <TextField fx:id="providerIdField" promptText="Enter provider ID (optional)" GridPane.columnIndex="1" GridPane.rowIndex="0" />
+                
+                <!-- Name/Description Field -->
+                <Label styleClass="control-label" text="Name / Description:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+                <TextField fx:id="nameDescriptionField" promptText="Enter name or description text (optional)" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+                
+                <!-- Tag Value Field -->
+                <Label styleClass="control-label" text="Tag Value:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+                <TextField fx:id="tagValueField" promptText="Enter tag value (optional)" GridPane.columnIndex="1" GridPane.rowIndex="2" />
+                
+                <!-- Attribute Fields -->
+                <Label styleClass="control-label" text="Attribute Key:" GridPane.columnIndex="0" GridPane.rowIndex="3" />
+                <TextField fx:id="attributeKeyField" promptText="Enter attribute key (optional)" GridPane.columnIndex="1" GridPane.rowIndex="3" />
+                
+                <Label styleClass="control-label" text="Attribute Value:" GridPane.columnIndex="0" GridPane.rowIndex="4" />
+                <TextField fx:id="attributeValueField" promptText="Enter attribute value (optional)" GridPane.columnIndex="1" GridPane.rowIndex="4" />
+            </GridPane>
+            
+            <!-- Action Buttons -->
+            <HBox spacing="10" alignment="CENTER_LEFT">
+                <Button fx:id="searchButton" onAction="#onSearch" styleClass="btn, btn-primary" text="Search" />
+                <Region HBox.hgrow="ALWAYS" />
+                <Label fx:id="searchStatusLabel" styleClass="text-info" />
+            </HBox>
+        </VBox>
+        
+        <!-- Provider Query Results Section -->
+        <VBox spacing="15" styleClass="panel, panel-success" VBox.vgrow="ALWAYS">
+            <padding>
+                <Insets bottom="15.0" left="15.0" right="15.0" top="15.0" />
+            </padding>
+            
+            <!-- Results Header -->
+            <HBox alignment="CENTER_LEFT" spacing="10">
+                <Label styleClass="h4" text="📊 Provider Query Results" />
+                <Region HBox.hgrow="ALWAYS" />
+                <Label fx:id="resultCountLabel" styleClass="text-success" text="0 providers" />
+            </HBox>
+            
+            <!-- Results Table -->
+            <TableView fx:id="resultsTable" VBox.vgrow="ALWAYS">
+                <placeholder>
+                    <Label text="No provider results to display. Use the Provider Query Editor above to search for providers." />
+                </placeholder>
+                <columns>
+                    <TableColumn fx:id="idColumn" text="ID" prefWidth="120" />
+                    <TableColumn fx:id="nameColumn" text="Name" prefWidth="150" />
+                    <TableColumn fx:id="descriptionColumn" text="Description" prefWidth="200" />
+                    <TableColumn fx:id="pvNamesColumn" text="PV Names" prefWidth="250" />
+                    <TableColumn fx:id="tagsColumn" text="Tags" prefWidth="150" />
+                    <TableColumn fx:id="attributesColumn" text="Attributes" prefWidth="200" />
+                    <TableColumn fx:id="numBucketsColumn" text="Buckets" prefWidth="80" />
+                </columns>
+            </TableView>
+            
+            <!-- Results Status -->
+            <HBox alignment="CENTER_LEFT" spacing="10">
+                <Label fx:id="resultsStatusLabel" styleClass="text-muted" text="Ready to search for providers" />
+                <Region HBox.hgrow="ALWAYS" />
+                <ProgressIndicator fx:id="searchProgressIndicator" visible="false" prefHeight="20.0" prefWidth="20.0" />
+            </HBox>
+        </VBox>
+    </VBox>
+</HBox>

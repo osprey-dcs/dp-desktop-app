@@ -347,3 +347,41 @@ To the right of the list box should be a panel of vertically arranged buttons la
 14.5.2 Change the label for the Query Editor's "Add PV" button to "Explore PVs".  Change the handling for that button to navigate to the pv-explore view when the button is clicked.  The button should always be enabled.
 14.5.3 Remove the "Remove" button from the Query Editor.
 14.5.4 Add a remove button next to each name in the Query Editor's PV Names list using a trash can icon label.  The button look and feel should match the remove button used for PV names contained in the re-usable "Query PVs" component list.
+
+15. Create the "provider-explore" view which contains 3 sections, each described in more detail below.  The view will closely follow the patterns used to build the "pv-explore" view, with the primary difference being that we replace the "PV Query Editor" and "PV Query Results" with "Provider Query Editor" and "Provider Query Results".
+
+15.1 "provider-explore" view menu navigation
+15.1.2 Navigation to the "provider-explore" view is via the Explore->"Providers" menu.
+
+15.2 "Query PVs" component: The re-usable "Query PVs" component should be positioned to the left side of the provider-explore view, running the length of the window vertically.  The same behavior is desired for the provider-explore view as the pv-explore view in this regard (section 14.2.5 should already be reflected in the implementation of the re-usable component).
+
+15.3 To the right of the "Query PVs" component are two sections arranged vertically.  The top section is labeled "Provider Query Editor" and contains a form for entering a Provider query.  The bottom section is labeled "Provider Query Results" and contains a tabular view of the query results.
+
+15.3.1 The "Provider Query Editor" section should contain a form for entering a Provider query including the following fields (all brief String input fields): 
+15.3.1.1 "Provider ID", 
+15.3.1.2 "Name / Description"
+15.3.1.3 "Tag Value"
+15.3.1.4 two fields for specifying "Attribute Key" and "Attribute Value".
+
+15.3.2 The "Provider Query Results" section should display a table of the ProviderInfo items returned in the QueryProvidersResponse (whose providersResult member contains a list of ProviderInfo objects) returned in the QueryProvidersApiResult object returned by DpApplication.queryProviders().  The table should include the following columns (including the mapping between the column and field in the ProviderInfo object and other details):
+15.3.2.1 "id" - displays ProviderInfo.id.
+15.3.2.2 "name" - displays ProviderInfo.name.
+15.3.2.3 "description" - displays ProviderInfo.description.
+15.3.2.4 "PV names" - displays ProviderInfo.providerMetadata.pvNames.  Display a comma-separated list of the PV names, including a hyperlink for each name as described in section 15.3.2.9.
+15.3.2.5 "tags" - displays ProviderInfo.tags.  Display a comma-separated list of the tag values.
+15.3.2.6 "attributes" - displays ProviderInfo.attributes. Display each attribute key/value pair in a comma-separated list like "key1=value1, key2=value2" etc.
+15.3.2.7 "numBuckets" - displays ProviderInfo.providerMetadata.numBuckets.
+
+15.3.2.8 The table in the "Provider Query Results" section should be scrollable.
+15.3.2.9 Each PV name in the table's "PV names" column should include a hyperlink.  When the PV name's hyperlink is clicked, the PV name corresponding to the link should be added to the "Query PVs" component's list of PV names AND the DpApplication.pvNames list.
+
+15.4 When the user clicks the "Search" button in the "Provider Query Editor", call the DpApplication.queryProviders() method, passing the value for each of the Provider Query Editor's input fields to the corresponding method parameter.  When the view element is empty, pass null value to the queryProviders method for the corresponding parameter.  Mapping of view elements to method parameters is below:
+
+15.4.0.1 pass value in "Provider ID" field to method's providerId parameter
+15.4.0.2 pass value in "Name / Description" field to method's providerText parameter
+15.4.0.3 pass value in "Tag Value" field to method's tagValue parameter
+15.4.0.4 pass value in "Attribute Key" field to method's "attributeKey" parameter; pass value in "Attribute Value" field to method's "attributeValue parameter".
+
+15.4.1 The return value from queryProviders() contains a ResultStatus indicating success or failure of the operation.  
+15.4.1.1 If ResultStatus.isError flag is set, the operation failed, and the ResultStatus.errorMsg should be displayed in the status bar.  
+15.4.1.2 If the method succeeds (isError flag is false), display the results in the "Provider Query Results" section's table.

@@ -97,7 +97,7 @@ Explore → Data, PVs, Providers, Datasets, Annotations
 - **Import**: Always enabled (real data import is safe for all environments)
 - **Data/Metadata menus**: Enabled after data ingestion (in-process mode) or immediately (remote production mode)
 - **PVs**: Navigate to pv-explore view for PV discovery and management
-- **Providers**: Navigate to provider metadata exploration (planned)
+- **Providers**: Navigate to provider-explore view for provider discovery and management
 
 ## Development Guidelines
 
@@ -155,6 +155,9 @@ Explore → Data, PVs, Providers, Datasets, Annotations
 - ✅ QueryPvsComponent reusable component for PV list management with individual remove buttons
 - ✅ Integrated navigation between data-explore and pv-explore views
 - ✅ Custom ListCell implementations for individual item actions (remove buttons)
+- ✅ Provider Explore view with dedicated provider discovery, search, and management functionality
+- ✅ Provider search functionality with hyperlink PV names for easy addition to query list
+- ✅ Integrated QueryPvsComponent in provider-explore for consistent PV management across views
 
 ## GUI Architecture
 
@@ -164,17 +167,17 @@ The application follows the Model-View-ViewModel pattern:
 **Controllers** (`src/main/java/com/ospreydcs/dp/gui/*Controller.java`)
 - Handle FXML UI binding and user interactions
 - Delegate business logic to ViewModels
-- Example: `DataGenerationController`, `DataExploreController`, `DataImportController`, `PvExploreController`, `MainController`
+- Example: `DataGenerationController`, `DataExploreController`, `DataImportController`, `PvExploreController`, `ProviderExploreController`, `MainController`
 
 **ViewModels** (`src/main/java/com/ospreydcs/dp/gui/*ViewModel.java`)
 - Contain UI state and business logic
 - Use JavaFX properties for data binding
-- Example: `DataGenerationViewModel`, `DataExploreViewModel`, `DataImportViewModel`, `PvExploreViewModel`, `MainViewModel`
+- Example: `DataGenerationViewModel`, `DataExploreViewModel`, `DataImportViewModel`, `PvExploreViewModel`, `ProviderExploreViewModel`, `MainViewModel`
 
 **Views** (`src/main/resources/fxml/*.fxml`)
 - FXML layout definitions
 - Styled with BootstrapFX and custom CSS
-- Example: `data-generation.fxml`, `data-explore.fxml`, `data-import.fxml`, `pv-explore.fxml`, `main-window.fxml`
+- Example: `data-generation.fxml`, `data-explore.fxml`, `data-import.fxml`, `pv-explore.fxml`, `provider-explore.fxml`, `main-window.fxml`
 
 ### Data Generation Workflow (Implemented)
 1. **Provider Registration**: Users fill provider details (name, description, tags, attributes)
@@ -219,6 +222,17 @@ The application follows the Model-View-ViewModel pattern:
 7. **Individual Operations**: Hyperlink PV names for direct addition to Query PVs list
 8. **Cross-View Navigation**: "Edit Query" button returns to data-explore view with updated PV list
 9. **State Synchronization**: PV additions/removals automatically sync with global application state
+
+### Provider Explore Workflow (Implemented)
+1. **Query PVs Component**: Reusable component on left side for PV selection management (same as pv-explore)
+2. **Provider Query Editor**: Search form with 5 optional fields (Provider ID, Name/Description, Tag Value, Attribute Key, Attribute Value)
+3. **Search Execution**: Background task queries provider metadata with loading indicators and status feedback
+4. **Results Display**: TableView with provider details - optimized column order for visibility when truncated:
+   - ID, Name, Description, **PV Names** (positioned early), Tags, Attributes, Buckets
+5. **Interactive PV Names**: Each PV name in results is a hyperlink for direct addition to Query PVs list
+6. **Cross-View Navigation**: "Edit Query" button in QueryPvsComponent returns to data-explore view
+7. **State Synchronization**: PV additions automatically sync with global application state
+8. **API Integration**: Uses `DpApplication.queryProviders()` with null-safe parameter handling
 
 ### Dataset Builder Workflow (Implemented)
 1. **Dataset Configuration**: Enter dataset name (required), description (optional), and auto-generated ID field
@@ -313,6 +327,14 @@ Wrapper for protobuf PvInfo in TableView displays:
 - Selection state management for bulk operations
 - Property binding support for JavaFX TableView integration
 - Used in pv-explore view for PV discovery and selection
+
+### ProviderInfoTableRow (`src/main/java/com/ospreydcs/dp/gui/model/ProviderInfoTableRow.java`)
+Wrapper for protobuf ProviderInfo in TableView displays:
+- Provider ID, name, description, formatted tags and attributes
+- PV names list extraction for hyperlink functionality
+- Property binding support for JavaFX TableView integration
+- Used in provider-explore view for provider discovery and PV selection
+- Formats attributes as "key1=value1, key2=value2" strings from protobuf Attribute list
 
 ### Global State Management
 `DpApplication` maintains cross-view state with automatic synchronization:
@@ -696,3 +718,66 @@ private void setupCustomListCell() {
 - Call `refresh()` to force ListView to recreate cells with new factory
 - Always call `setText(null)` when using custom graphics to avoid double display
 - Apply during global state initialization when items are actually populated
+
+### Custom TableCell with Hyperlinks Pattern
+**For TableView columns with interactive hyperlinks (like PV names):**
+```java
+// Custom TableCell for hyperlink columns
+private class PvNamesTableCell extends TableCell<ProviderInfoTableRow, String> {
+    private HBox content;
+
+    public PvNamesTableCell() {
+        super();
+        content = new HBox();
+        content.setSpacing(5);
+        content.setPadding(new Insets(2, 5, 2, 5));
+    }
+
+    @Override
+    protected void updateItem(String item, boolean empty) {
+        super.updateItem(item, empty);
+        
+        if (empty || item == null || item.trim().isEmpty()) {
+            setGraphic(null);
+            setText(null);
+        } else {
+            content.getChildren().clear();
+            
+            // Get table row for individual data access
+            ProviderInfoTableRow tableRow = getTableRow().getItem();
+            if (tableRow != null) {
+                boolean first = true;
+                for (String pvName : tableRow.getPvNamesList()) {
+                    if (!first) {
+                        Label separator = new Label(", ");
+                        separator.getStyleClass().add("text-muted");
+                        content.getChildren().add(separator);
+                    }
+                    
+                    Hyperlink pvLink = new Hyperlink(pvName);
+                    pvLink.getStyleClass().addAll("hyperlink-small");
+                    pvLink.setOnAction(e -> {
+                        // Action for clicking hyperlink
+                        viewModel.addPvNameToQuery(pvName);
+                    });
+                    
+                    content.getChildren().add(pvLink);
+                    first = false;
+                }
+            }
+            
+            setGraphic(content);
+            setText(null); // Important: clear default text
+        }
+    }
+}
+
+// Apply to TableColumn
+pvNamesColumn.setCellFactory(column -> new PvNamesTableCell());
+```
+
+**Key patterns:**
+- Use `getTableRow().getItem()` to access the full row data from within TableCell
+- Handle comma separation manually for multiple hyperlinks
+- Clear default text with `setText(null)` when using custom graphics
+- Apply appropriate CSS classes for styling consistency

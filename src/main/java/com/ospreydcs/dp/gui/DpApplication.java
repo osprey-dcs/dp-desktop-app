@@ -497,25 +497,25 @@ public class DpApplication {
     }
 
     public QueryProvidersApiResult queryProviders(
-            String providerId,
-            String providerText, // search name and description fields
-            String tagValue,
-            String attributeKey,
-            String attributeValue
+            String idCriterion,
+            String textCriterion, // search name and description fields
+            String tagsCriterion,
+            String attributeKeyCriterion,
+            String attributeValueCriterion
     ) {
         // create params
         QueryClient.QueryProvidersRequestParams params = new QueryClient.QueryProvidersRequestParams();
-        if (providerId != null && !providerId.isEmpty()) {
-            params.setIdCriterion(providerId);
+        if (idCriterion != null && !idCriterion.isEmpty()) {
+            params.setIdCriterion(idCriterion);
         }
-        if (providerText != null && !providerText.isEmpty()) {
-            params.setTextCriterion(providerText);
+        if (textCriterion != null && !textCriterion.isEmpty()) {
+            params.setTextCriterion(textCriterion);
         }
-        if (tagValue != null && !tagValue.isEmpty()) {
-            params.setTagsCriterion(tagValue);
+        if (tagsCriterion != null && !tagsCriterion.isEmpty()) {
+            params.setTagsCriterion(tagsCriterion);
         }
-        if (attributeKey != null && !attributeKey.isEmpty() && attributeValue != null && !attributeValue.isEmpty()) {
-            params.setAttributesCriterion(attributeKey, attributeValue);
+        if (attributeKeyCriterion != null && !attributeKeyCriterion.isEmpty() && attributeValueCriterion != null && !attributeValueCriterion.isEmpty()) {
+            params.setAttributesCriterion(attributeKeyCriterion, attributeValueCriterion);
         }
 
         return api.queryClient.queryProviders(params);
@@ -561,6 +561,30 @@ public class DpApplication {
         return api.annotationClient.saveDataSet(saveDataSetParams);
     }
 
+    public QueryDataSetsApiResult queryDataSets(
+            String idCriterion,
+            String ownerCriterion,
+            String textCriterion, // search name and description fields
+            String pvNameCriterion
+    ) {
+        // create params
+        AnnotationClient.QueryDataSetsParams params = new AnnotationClient.QueryDataSetsParams();
+        if (idCriterion != null && !idCriterion.isEmpty()) {
+            params.setIdCriterion(idCriterion);
+        }
+        if (ownerCriterion != null && !ownerCriterion.isEmpty()) {
+            params.setOwnerCriterion(ownerCriterion);
+        }
+        if (textCriterion != null && !textCriterion.isEmpty()) {
+            params.setTextCriterion(textCriterion);
+        }
+        if (pvNameCriterion != null && !pvNameCriterion.isEmpty()) {
+            params.setPvNameCriterion(pvNameCriterion);
+        }
+
+        return api.annotationClient.queryDataSets(params);
+    }
+
     public SaveAnnotationApiResult saveAnnotation(
             String id,
             String name,
@@ -595,6 +619,44 @@ public class DpApplication {
 
         // call api method
         return api.annotationClient.saveAnnotation(params);
+    }
+
+    public QueryAnnotationsApiResult queryAnnotations(
+            String idCriterion,
+            String ownerCriterion,
+            String dataSetsCriterion,
+            String annotationsCriterion,
+            String textCriterion, // search name, comment, event description fields
+            String tagsCriterion,
+            String attributeKeyCriterion,
+            String attributeValueCriterion
+
+    ) {
+        // create params
+        AnnotationClient.QueryAnnotationsParams params = new AnnotationClient.QueryAnnotationsParams();
+        if (idCriterion != null && !idCriterion.isEmpty()) {
+            params.setIdCriterion(idCriterion);
+        }
+        if (ownerCriterion != null && !ownerCriterion.isEmpty()) {
+            params.setOwnerCriterion(ownerCriterion);
+        }
+        if (dataSetsCriterion != null && !dataSetsCriterion.isEmpty()) {
+            params.setDatasetsCriterion(dataSetsCriterion);
+        }
+        if (annotationsCriterion != null && !annotationsCriterion.isEmpty()) {
+            params.setAnnotationsCriterion(annotationsCriterion);
+        }
+        if (textCriterion != null && !textCriterion.isEmpty()) {
+            params.setTextCriterion(textCriterion);
+        }
+        if (tagsCriterion != null && !tagsCriterion.isEmpty()) {
+            params.setTagsCriterion(tagsCriterion);
+        }
+        if (attributeKeyCriterion != null && !attributeKeyCriterion.isEmpty() && attributeValueCriterion != null && !attributeValueCriterion.isEmpty()) {
+            params.setAttributesCriterion(attributeKeyCriterion, attributeValueCriterion);
+        }
+
+        return api.annotationClient.queryAnnotations(params);
     }
 
     public ExportDataApiResult exportData(

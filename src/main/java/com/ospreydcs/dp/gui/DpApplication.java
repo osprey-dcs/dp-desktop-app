@@ -8,10 +8,7 @@ import com.ospreydcs.dp.grpc.v1.common.*;
 import com.ospreydcs.dp.grpc.v1.ingestion.RegisterProviderResponse;
 import com.ospreydcs.dp.grpc.v1.ingestionstream.PvConditionTrigger;
 import com.ospreydcs.dp.grpc.v1.query.QueryTableRequest;
-import com.ospreydcs.dp.gui.model.DataBlockDetail;
-import com.ospreydcs.dp.gui.model.DataEventSubscription;
-import com.ospreydcs.dp.gui.model.DataFrameDetails;
-import com.ospreydcs.dp.gui.model.PvDetail;
+import com.ospreydcs.dp.gui.model.*;
 import com.ospreydcs.dp.service.common.model.ResultStatus;
 import com.ospreydcs.dp.service.common.protobuf.EventMetadataUtility;
 import com.ospreydcs.dp.service.common.protobuf.TimestampUtility;
@@ -51,6 +48,14 @@ public class DpApplication {
         CSV,
         XLSX,
         HDF5
+    }
+
+    public enum TriggerCondition {
+        EQUAL_TO,
+        GREATER,
+        GREATER_OR_EQUAL,
+        LESS,
+        LESS_OR_EQUAL,
     }
 
     // Getters for state variables (for use by other views)
@@ -202,10 +207,87 @@ public class DpApplication {
             List<String> tags,
             Map<String, String> attributes,
             String eventName,
-            List<DataImportResult.DataFrameResult> dataFrames
+            List<DataImportResult.DataFrameResult> dataFrames,
+            List<SubscribeDataEventDetail> subscriptionDetails
     ) {
         if (providerId == null) {
             return new ResultStatus(true, "Provider must be registered before ingesting data");
+        }
+
+        // create map of PV data type by PV name for convenience
+        final Map<String, IngestionClient.IngestionDataType> pvDataTypeMap = new HashMap<>();
+        for (var dataFrame : dataFrames) {
+            for (var dataColumn : dataFrame.columns) {
+                IngestionClient.IngestionDataType pvDataType = null;
+                switch (dataColumn.getDataValues(0).getValueCase()) {
+                    case STRINGVALUE -> {
+                        pvDataType = IngestionClient.IngestionDataType.STRING;
+                    }
+                    case BOOLEANVALUE -> {
+                        pvDataType = IngestionClient.IngestionDataType.BOOLEAN;
+                    }
+                    case UINTVALUE -> {
+                        pvDataType = IngestionClient.IngestionDataType.UINT;
+                    }
+                    case ULONGVALUE -> {
+                        pvDataType = IngestionClient.IngestionDataType.ULONG;
+                    }
+                    case INTVALUE -> {
+                        pvDataType = IngestionClient.IngestionDataType.INT;
+                    }
+                    case LONGVALUE -> {
+                        pvDataType = IngestionClient.IngestionDataType.LONG;
+                    }
+                    case FLOATVALUE -> {
+                        pvDataType = IngestionClient.IngestionDataType.FLOAT;
+                    }
+                    case DOUBLEVALUE -> {
+                        pvDataType = IngestionClient.IngestionDataType.DOUBLE;
+                    }
+                    case BYTEARRAYVALUE -> {
+                        pvDataType = IngestionClient.IngestionDataType.BYTE_ARRAY;
+                    }
+                    case ARRAYVALUE -> {
+                        pvDataType = IngestionClient.IngestionDataType.ARRAY;
+                    }
+                    case STRUCTUREVALUE -> {
+                        pvDataType = IngestionClient.IngestionDataType.STRUCTURE;
+                    }
+                    case IMAGEVALUE -> {
+                        pvDataType = IngestionClient.IngestionDataType.IMAGE;
+                    }
+                    case TIMESTAMPVALUE -> {
+                        pvDataType = IngestionClient.IngestionDataType.TIMESTAMP;
+                    }
+                    case VALUE_NOT_SET -> {
+                        return new ResultStatus(
+                                true,
+                                "DataValue type not set for column: " + dataColumn.getName());
+                    }
+                }
+                pvDataTypeMap.put(dataColumn.getName(), pvDataType);
+            }
+        }
+
+        // process data event subscriptions
+        for (SubscribeDataEventDetail subscriptionDetail : subscriptionDetails) {
+
+            // get PV data type
+            final IngestionClient.IngestionDataType pvDataType = pvDataTypeMap.get(subscriptionDetail.pvName);
+            if (pvDataType == null) {
+                return new ResultStatus(
+                        true,
+                        "unknown PV name in subscription: " + subscriptionDetail.pvName);
+            }
+
+            // call subscribeDataEvent for each subscription
+            final ResultStatus subscriptionStatus =
+                    subscribeDataEvent(subscriptionDetail, pvDataType);
+            if (subscriptionStatus.isError) {
+                return new ResultStatus(
+                        true,
+                        "error handling subscription: " + subscriptionStatus.msg);
+            }
         }
 
         try {
@@ -216,7 +298,7 @@ public class DpApplication {
             int requestCount = 0;
             for (DataImportResult.DataFrameResult frame : dataFrames) {
 
-                final String requestId = java.util.UUID.randomUUID().toString();
+                final String requestId = UUID.randomUUID().toString();
 
                 final IngestionClient.IngestionRequestParams params = new IngestionClient.IngestionRequestParams(
                         this.providerId,                   // providerId
@@ -281,7 +363,8 @@ public class DpApplication {
             Map<String, String> attributes,
             String eventName,
             List<PvDetail> pvDetails,
-            int bucketSizeSeconds
+            int bucketSizeSeconds,
+            List<SubscribeDataEventDetail> subscriptionDetails
     ) {
         if (providerId == null) {
             return new ResultStatus(true, "Provider must be registered before ingesting data");
@@ -295,7 +378,43 @@ public class DpApplication {
         for (PvDetail pvDetail : pvDetails) {
             this.pvNames.add(pvDetail.getPvName());
         }
-        
+
+        // create map of PvDetail by PV name for convenience
+        final Map<String, PvDetail> pvDetailMap = pvDetails.stream()
+                .collect(Collectors.toMap(PvDetail::getPvName, pvDetail -> pvDetail));
+
+        // process data event subscriptions
+        for (SubscribeDataEventDetail subscriptionDetail : subscriptionDetails) {
+
+            // determine PV data type for subscription
+            final PvDetail pvDetail = pvDetailMap.get(subscriptionDetail.pvName);
+            if (pvDetail == null) {
+                return new ResultStatus(
+                        true,
+                        "unknown subscription PV name: " + subscriptionDetail.pvName);
+            }
+
+            // get PV data type
+            final String pvDataTypeName = pvDetail.getDataType();
+
+            // get data type enum value for PV
+            IngestionClient.IngestionDataType pvDataType;
+            if (pvDataTypeName.equals("integer")) {
+                pvDataType = IngestionClient.IngestionDataType.INT;
+            } else {
+                pvDataType = IngestionClient.IngestionDataType.DOUBLE;
+            }
+
+            // call subscribeDataEvent for each subscription
+            final ResultStatus subscriptionStatus =
+                    subscribeDataEvent(subscriptionDetail, pvDataType);
+            if (subscriptionStatus.isError) {
+                return new ResultStatus(
+                        true,
+                        "error handling subscription: " + subscriptionStatus.msg);
+            }
+        }
+
         try {
             int totalBuckets = 0;
             
@@ -708,25 +827,75 @@ public class DpApplication {
     }
 
     public ResultStatus subscribeDataEvent(
-            PvDetail pvDetail,
-            PvConditionTrigger.PvCondition condition,
-            String dataValue
+            SubscribeDataEventDetail subscriptionDetail,
+            IngestionClient.IngestionDataType dataType
     ) {
-        // get PV data type
-        final String pvDataTypeName = pvDetail.getDataType();
-
-        // create protobuf DataValue
-        DataValue triggerValue;
-        if (pvDetail.getDataType().equals("integer")) {
-            triggerValue = DataValue.newBuilder().setIntValue(Integer.valueOf(dataValue)).build();
-        } else {
-            triggerValue = DataValue.newBuilder().setDoubleValue(Double.valueOf(dataValue)).build();
+        // create protobuf DataValue for specified dataType and triggerValue
+        DataValue triggerValue = null;
+        switch (dataType) {
+            case UINT -> {
+                triggerValue = DataValue.newBuilder()
+                        .setIntValue(Integer.valueOf(subscriptionDetail.triggerValue))
+                        .build();
+            }
+            case ULONG -> {
+                triggerValue = DataValue.newBuilder()
+                        .setLongValue(Long.valueOf(subscriptionDetail.triggerValue))
+                        .build();
+            }
+            case INT -> {
+                triggerValue = DataValue.newBuilder()
+                        .setIntValue(Integer.valueOf(subscriptionDetail.triggerValue))
+                        .build();
+            }
+            case LONG -> {
+                triggerValue = DataValue.newBuilder()
+                        .setLongValue(Long.valueOf(subscriptionDetail.triggerValue))
+                        .build();
+            }
+            case FLOAT -> {
+                triggerValue = DataValue.newBuilder()
+                        .setFloatValue(Float.valueOf(subscriptionDetail.triggerValue))
+                        .build();
+            }
+            case DOUBLE -> {
+                triggerValue = DataValue.newBuilder()
+                        .setDoubleValue(Double.valueOf(subscriptionDetail.triggerValue))
+                        .build();
+            }
+            default -> {
+                return new ResultStatus(
+                        true,
+                        "unsupported data event subscription type: " + dataType.name());
+            }
         }
+        Objects.requireNonNull(triggerValue);
+
+        // create protobuf trigger condition from specified TriggerCondition enum
+        PvConditionTrigger.PvCondition pvCondition = null;
+        switch (subscriptionDetail.triggerCondition) {
+            case EQUAL_TO -> {
+                pvCondition = PvConditionTrigger.PvCondition.PV_CONDITION_EQUAL_TO;
+            }
+            case GREATER -> {
+                pvCondition = PvConditionTrigger.PvCondition.PV_CONDITION_GREATER;
+            }
+            case GREATER_OR_EQUAL -> {
+                pvCondition = PvConditionTrigger.PvCondition.PV_CONDITION_GREATER_EQ;
+            }
+            case LESS -> {
+                pvCondition = PvConditionTrigger.PvCondition.PV_CONDITION_LESS;
+            }
+            case LESS_OR_EQUAL -> {
+                pvCondition = PvConditionTrigger.PvCondition.PV_CONDITION_LESS_EQ;
+            }
+        }
+        Objects.requireNonNull(pvCondition);
 
         // create protobuf PvConditionTrigger
         final PvConditionTrigger trigger = PvConditionTrigger.newBuilder()
-                .setPvName(pvDetail.getPvName())
-                .setCondition(condition)
+                .setPvName(subscriptionDetail.pvName)
+                .setCondition(pvCondition)
                 .setValue(triggerValue)
                 .build();
 
@@ -736,11 +905,12 @@ public class DpApplication {
                         List.of(trigger), null, null, null);
 
         // call API method
-        SubscribeDataEventApiResult result = api.ingestionStreamClient.subscribeDataEvent(params, 25);
+        SubscribeDataEventApiResult result =
+                api.ingestionStreamClient.subscribeDataEvent(params, 25);
 
         // if successful, manage new subscription
         if ( ! result.resultStatus.isError) {
-            dataEventSubscriptions.add(new DataEventSubscription(trigger, result.subscribeDataEventCall));
+            dataEventSubscriptions.add(new DataEventSubscription(subscriptionDetail, result.subscribeDataEventCall));
         }
 
         return result.resultStatus;

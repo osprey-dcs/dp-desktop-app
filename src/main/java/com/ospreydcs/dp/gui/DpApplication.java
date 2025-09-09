@@ -941,8 +941,7 @@ public class DpApplication {
 
         // return error status
         final IngestionStreamClient.SubscribeDataEventResponseObserver responseObserver =
-                (IngestionStreamClient.SubscribeDataEventResponseObserver)
-                        subscription.subscribeDataEventCall.responseObserver();
+                subscription.subscribeDataEventCall.responseObserver();
         Objects.requireNonNull(responseObserver);
         if (responseObserver.isError()) {
             return new ResultStatus(true, responseObserver.getErrorMessage());
@@ -954,8 +953,7 @@ public class DpApplication {
     public List<SubscribeDataEventResponse.Event> dataEventsForSubscription(DataEventSubscription subscription) {
         // return list of events contained in responseObserver
         final IngestionStreamClient.SubscribeDataEventResponseObserver responseObserver =
-                (IngestionStreamClient.SubscribeDataEventResponseObserver)
-                        subscription.subscribeDataEventCall.responseObserver();
+                subscription.subscribeDataEventCall.responseObserver();
         Objects.requireNonNull(responseObserver);
         return(responseObserver.getEventList());
     }

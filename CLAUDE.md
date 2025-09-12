@@ -522,7 +522,9 @@ Both paths converge at the same gRPC ingestion API but handle different data sou
 
 ### Cross-View Navigation Patterns
 The application uses a hub-and-spoke navigation model with cross-exploration capabilities:
-- **Home View**: Central hub with application state display and navigation hints
+- **Home View**: Central hub with application state display and interactive navigation hints
+- **Interactive Hints**: Home view contains clickable hyperlinks for key navigation paths (Ingest→Generate, Ingest→Import, Explore→Data, etc.)
+- **State-Dependent Guidance**: Different hint sets based on application state (pre-ingestion vs post-ingestion)
 - **Feature Views**: Data generation, import, exploration - all return to home on completion
 - **Cross-Exploration**: Direct navigation between pv-explore and provider-explore views via hyperlinks
 - **Automatic Search**: Navigation includes automatic search execution with pre-populated parameters

@@ -64,7 +64,7 @@ public class HomeController implements Initializable {
         if (hintsText.contains("Ingest→Generate") || hintsText.contains("Ingest->Generate") || 
             hintsText.contains("Ingest→Import") || hintsText.contains("Ingest->Import")) {
             
-            // Create the text with hyperlinks
+            // Create the text with hyperlinks for initial state
             Text startText = new Text("Start by using the ");
             startText.getStyleClass().add("text-info");
             
@@ -85,6 +85,37 @@ public class HomeController implements Initializable {
             endText.getStyleClass().add("text-info");
             
             hintsContainer.getChildren().addAll(startText, generateLink, middleText, importLink, endText);
+        } else if (hintsText.contains("Explore→Data") || hintsText.contains("Explore→PVs") || hintsText.contains("Explore→Annotations")) {
+            
+            // Create the text with hyperlinks for post-ingestion state
+            Text startText = new Text("Data ingested successfully! Use ");
+            startText.getStyleClass().add("text-info");
+            
+            Hyperlink dataLink = new Hyperlink("Explore→Data");
+            dataLink.getStyleClass().addAll("text-info");
+            dataLink.setStyle("-fx-underline: true; -fx-focus-color: transparent; -fx-faint-focus-color: transparent;");
+            dataLink.setOnAction(e -> navigateToDataExplore());
+            
+            Text middleText1 = new Text(" to query time-series data, ");
+            middleText1.getStyleClass().add("text-info");
+            
+            Hyperlink pvsLink = new Hyperlink("Explore→PVs");
+            pvsLink.getStyleClass().addAll("text-info");
+            pvsLink.setStyle("-fx-underline: true; -fx-focus-color: transparent; -fx-faint-focus-color: transparent;");
+            pvsLink.setOnAction(e -> navigateToPvExplore());
+            
+            Text middleText2 = new Text(" to browse metadata, or ");
+            middleText2.getStyleClass().add("text-info");
+            
+            Hyperlink annotationsLink = new Hyperlink("Explore→Annotations");
+            annotationsLink.getStyleClass().addAll("text-info");
+            annotationsLink.setStyle("-fx-underline: true; -fx-focus-color: transparent; -fx-faint-focus-color: transparent;");
+            annotationsLink.setOnAction(e -> navigateToAnnotationExplore());
+            
+            Text endText = new Text(" to search annotations.");
+            endText.getStyleClass().add("text-info");
+            
+            hintsContainer.getChildren().addAll(startText, dataLink, middleText1, pvsLink, middleText2, annotationsLink, endText);
         } else {
             // For other states, use regular text
             Text regularText = new Text(hintsText);
@@ -104,6 +135,27 @@ public class HomeController implements Initializable {
         if (mainController != null) {
             mainController.switchToView("/fxml/data-import.fxml");
             logger.info("Navigated to data import view from home hints");
+        }
+    }
+    
+    private void navigateToDataExplore() {
+        if (mainController != null) {
+            mainController.switchToView("/fxml/data-explore.fxml");
+            logger.info("Navigated to data explore view from home hints");
+        }
+    }
+    
+    private void navigateToPvExplore() {
+        if (mainController != null) {
+            mainController.switchToView("/fxml/pv-explore.fxml");
+            logger.info("Navigated to PV explore view from home hints");
+        }
+    }
+    
+    private void navigateToAnnotationExplore() {
+        if (mainController != null) {
+            mainController.switchToView("/fxml/annotation-explore.fxml");
+            logger.info("Navigated to annotation explore view from home hints");
         }
     }
 

@@ -45,7 +45,7 @@ public class HomeViewModel {
                 hintsText.set("Data ingestion and queries completed. Use the Tools menu to annotate data or export results.");
                 detailsText.set("You have ingested data and performed queries. Explore the Tools menu for additional functionality.");
             } else {
-                hintsText.set("Data has been ingested successfully! Use the Query menu to retrieve PV time-series data, or explore PV/Provider Metadata.");
+                hintsText.set("Data ingested successfully! Use Explore→Data to query time-series data, Explore→PVs to browse metadata, or Explore→Annotations to search annotations.");
                 detailsText.set("Data is available in the archive. Try querying some PV data or exploring metadata.");
             }
         } else {

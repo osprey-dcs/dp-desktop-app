@@ -13,7 +13,7 @@ import java.io.IOException;
 public class DpDesktopApplication extends Application {
 
     private static final Logger logger = LogManager.getLogger();
-    private static final String APPLICATION_TITLE = "Data Platform Desktop Application";
+    private static final String APPLICATION_TITLE = "Machine Learning Data Platform (MLDP)";
     private static final double INITIAL_WIDTH = 1200;
     private static final double INITIAL_HEIGHT = 800;
 

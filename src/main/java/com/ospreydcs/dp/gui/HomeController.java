@@ -2,7 +2,10 @@ package com.ospreydcs.dp.gui;
 
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
+import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
+import javafx.scene.layout.HBox;
+import javafx.scene.text.Text;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -14,6 +17,7 @@ public class HomeController implements Initializable {
     private static final Logger logger = LogManager.getLogger();
 
     // FXML injected components
+    @FXML private HBox hintsContainer;
     @FXML private Label hintsLabel;
     @FXML private Label statusLabel;
     @FXML private Label detailsLabel;
@@ -21,6 +25,7 @@ public class HomeController implements Initializable {
     // Dependencies
     private HomeViewModel viewModel;
     private DpApplication dpApplication;
+    private MainController mainController;
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
@@ -37,11 +42,69 @@ public class HomeController implements Initializable {
 
     private void bindUIToViewModel() {
         // Bind labels to view model properties
-        hintsLabel.textProperty().bind(viewModel.hintsTextProperty());
         statusLabel.textProperty().bind(viewModel.statusTextProperty());
         detailsLabel.textProperty().bind(viewModel.detailsTextProperty());
         
+        // Listen to hints text changes to update hints container
+        viewModel.hintsTextProperty().addListener((obs, oldVal, newVal) -> updateHintsContent());
+        
+        // Initialize hints content
+        updateHintsContent();
+        
         logger.debug("UI bindings established in HomeController");
+    }
+
+    private void updateHintsContent() {
+        hintsContainer.getChildren().clear();
+        
+        String hintsText = viewModel.hintsTextProperty().get();
+        if (hintsText == null) return;
+        
+        // Check if this is the initial state that needs hyperlinks
+        if (hintsText.contains("Ingest→Generate") || hintsText.contains("Ingest->Generate") || 
+            hintsText.contains("Ingest→Import") || hintsText.contains("Ingest->Import")) {
+            
+            // Create the text with hyperlinks
+            Text startText = new Text("Start by using the ");
+            startText.getStyleClass().add("text-info");
+            
+            Hyperlink generateLink = new Hyperlink("Ingest→Generate");
+            generateLink.getStyleClass().addAll("text-info");
+            generateLink.setStyle("-fx-underline: true; -fx-focus-color: transparent; -fx-faint-focus-color: transparent;");
+            generateLink.setOnAction(e -> navigateToDataGeneration());
+            
+            Text middleText = new Text(" or ");
+            middleText.getStyleClass().add("text-info");
+            
+            Hyperlink importLink = new Hyperlink("Ingest→Import");
+            importLink.getStyleClass().addAll("text-info");
+            importLink.setStyle("-fx-underline: true; -fx-focus-color: transparent; -fx-faint-focus-color: transparent;");
+            importLink.setOnAction(e -> navigateToDataImport());
+            
+            Text endText = new Text(" menus to generate or import some PV data and ingest it to the MLDP archive.");
+            endText.getStyleClass().add("text-info");
+            
+            hintsContainer.getChildren().addAll(startText, generateLink, middleText, importLink, endText);
+        } else {
+            // For other states, use regular text
+            Text regularText = new Text(hintsText);
+            regularText.getStyleClass().add("text-info");
+            hintsContainer.getChildren().add(regularText);
+        }
+    }
+    
+    private void navigateToDataGeneration() {
+        if (mainController != null) {
+            mainController.switchToView("/fxml/data-generation.fxml");
+            logger.info("Navigated to data generation view from home hints");
+        }
+    }
+    
+    private void navigateToDataImport() {
+        if (mainController != null) {
+            mainController.switchToView("/fxml/data-import.fxml");
+            logger.info("Navigated to data import view from home hints");
+        }
     }
 
     // Dependency injection methods
@@ -51,6 +114,11 @@ public class HomeController implements Initializable {
             viewModel.setDpApplication(dpApplication);
         }
         logger.debug("DpApplication injected into HomeController");
+    }
+    
+    public void setMainController(MainController mainController) {
+        this.mainController = mainController;
+        logger.debug("MainController injected into HomeController");
     }
 
     // Getter for view model (to allow other controllers to access it)

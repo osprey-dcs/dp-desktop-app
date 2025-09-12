@@ -27,7 +27,7 @@ public class HomeViewModel {
     }
 
     private void initializeDefaultContent() {
-        hintsText.set("Start by using the Ingest→Generate menu to generate sample data for some PVs and ingest it to the MLDP archive.");
+        hintsText.set("Start by using the Ingest→Generate or Ingest→Import menus to generate or import some PV data and ingest it to the MLDP archive.");
         statusText.set("Ready");
         detailsText.set("No data has been ingested yet.");
     }
@@ -49,7 +49,7 @@ public class HomeViewModel {
                 detailsText.set("Data is available in the archive. Try querying some PV data or exploring metadata.");
             }
         } else {
-            hintsText.set("Start by using the Ingest→Generate menu to generate sample data for some PVs and ingest it to the MLDP archive.");
+            hintsText.set("Start by using the Ingest→Generate or Ingest→Import menus to generate or import some PV data and ingest it to the MLDP archive.");
             detailsText.set("No data has been ingested yet. Generate some sample data to get started.");
         }
 

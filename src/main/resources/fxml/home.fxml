@@ -4,30 +4,31 @@
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
 
-<VBox alignment="CENTER" spacing="30" styleClass="jumbotron" xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.ospreydcs.dp.gui.HomeController">
+<VBox alignment="CENTER" spacing="20" styleClass="jumbotron" xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.ospreydcs.dp.gui.HomeController">
    <padding>
-      <Insets bottom="40.0" left="40.0" right="40.0" top="40.0" />
+      <Insets bottom="20.0" left="40.0" right="40.0" top="20.0" />
    </padding>
    
    <!-- Application Header -->
    <VBox alignment="CENTER" spacing="10">
-      <Label styleClass="h1" text="Data Platform Desktop Application" />
-      <Label styleClass="lead" text="Machine Learning Data Platform (MLDP) Demonstration" />
+      <Label styleClass="h1" text="Machine Learning Data Platform (MLDP)" />
+      <Label styleClass="lead" text="MLDP Desktop Application" />
    </VBox>
    
    <!-- Dynamic Hints Section -->
-   <VBox alignment="CENTER" spacing="15" styleClass="alert, alert-info">
+   <VBox alignment="CENTER" spacing="10" styleClass="alert, alert-info">
       <padding>
-         <Insets bottom="20.0" left="20.0" right="20.0" top="20.0" />
+         <Insets bottom="15.0" left="20.0" right="20.0" top="15.0" />
       </padding>
       <Label styleClass="section-header" text="⭐ Suggested Next Steps" />
-      <Label fx:id="hintsLabel" styleClass="text-info" wrapText="true" textAlignment="CENTER" />
+      <HBox fx:id="hintsContainer" alignment="CENTER" spacing="5" />
+      <Label fx:id="hintsLabel" styleClass="text-info" wrapText="true" textAlignment="CENTER" visible="false" />
    </VBox>
    
    <!-- Status Section -->
-   <VBox alignment="CENTER" spacing="15" styleClass="alert, alert-success">
+   <VBox alignment="CENTER" spacing="10" styleClass="alert, alert-success">
       <padding>
-         <Insets bottom="20.0" left="20.0" right="20.0" top="20.0" />
+         <Insets bottom="15.0" left="20.0" right="20.0" top="15.0" />
       </padding>
       <Label styleClass="section-header" text="📊 Current Status" />
       <Label fx:id="statusLabel" styleClass="text-success" wrapText="true" textAlignment="CENTER" />
@@ -35,43 +36,43 @@
    </VBox>
    
    <!-- Application Features Overview -->
-   <VBox alignment="CENTER" spacing="15" styleClass="well">
+   <VBox alignment="CENTER" spacing="10" styleClass="well">
       <padding>
-         <Insets bottom="20.0" left="20.0" right="20.0" top="20.0" />
+         <Insets bottom="15.0" left="20.0" right="20.0" top="15.0" />
       </padding>
       <Label styleClass="section-header" text="⚙️ Application Features" />
-      <GridPane hgap="20" vgap="10" alignment="CENTER">
+      <GridPane hgap="20" vgap="8" alignment="CENTER">
          <columnConstraints>
             <ColumnConstraints minWidth="200" prefWidth="200" />
             <ColumnConstraints minWidth="200" prefWidth="200" />
          </columnConstraints>
          
-         <VBox spacing="5" GridPane.columnIndex="0" GridPane.rowIndex="0">
+         <VBox spacing="3" GridPane.columnIndex="0" GridPane.rowIndex="0">
             <Label styleClass="text-primary" text="📥 Data Ingestion" />
             <Label styleClass="text-muted" text="• Generate sample data" wrapText="true" />
             <Label styleClass="text-muted" text="• Import from CSV files" wrapText="true" />
-            <Label styleClass="text-muted" text="• Upload fixed datasets" wrapText="true" />
+            <Label styleClass="text-muted" text="• Subscribe to Data Events" wrapText="true" />
          </VBox>
          
-         <VBox spacing="5" GridPane.columnIndex="1" GridPane.rowIndex="0">
+         <VBox spacing="3" GridPane.columnIndex="1" GridPane.rowIndex="0">
             <Label styleClass="text-primary" text="🔍 Data Query" />
-            <Label styleClass="text-muted" text="• Time-series data retrieval" wrapText="true" />
-            <Label styleClass="text-muted" text="• PV and Provider metadata" wrapText="true" />
-            <Label styleClass="text-muted" text="• Annotation search" wrapText="true" />
+            <Label styleClass="text-muted" text="• Retrieve time-series data" wrapText="true" />
+            <Label styleClass="text-muted" text="• Visualize time-series data" wrapText="true" />
+            <Label styleClass="text-muted" text="• Export to CSV/Excel" wrapText="true" />
          </VBox>
          
-         <VBox spacing="5" GridPane.columnIndex="0" GridPane.rowIndex="1">
+         <VBox spacing="3" GridPane.columnIndex="0" GridPane.rowIndex="1">
             <Label styleClass="text-primary" text="📋 Data Annotation" />
-            <Label styleClass="text-muted" text="• Add descriptive metadata" wrapText="true" />
-            <Label styleClass="text-muted" text="• Tag datasets" wrapText="true" />
+            <Label styleClass="text-muted" text="• Build PV datasets" wrapText="true" />
+            <Label styleClass="text-muted" text="• Annotate PV datasets" wrapText="true" />
             <Label styleClass="text-muted" text="• Upload calculations" wrapText="true" />
          </VBox>
          
-         <VBox spacing="5" GridPane.columnIndex="1" GridPane.rowIndex="1">
-            <Label styleClass="text-primary" text="📤 Data Export" />
-            <Label styleClass="text-muted" text="• Export to CSV/Excel" wrapText="true" />
-            <Label styleClass="text-muted" text="• Data visualization" wrapText="true" />
-            <Label styleClass="text-muted" text="• Event subscriptions" wrapText="true" />
+         <VBox spacing="3" GridPane.columnIndex="1" GridPane.rowIndex="1">
+            <Label styleClass="text-primary" text="🔍 Archive Exploration" />
+            <Label styleClass="text-muted" text="• Browse ingestion metadata" wrapText="true" />
+            <Label styleClass="text-muted" text="• Search annotations" wrapText="true" />
+            <Label styleClass="text-muted" text="• Navigate relationships" wrapText="true" />
          </VBox>
       </GridPane>
    </VBox>

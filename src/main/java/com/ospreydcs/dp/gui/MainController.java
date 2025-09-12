@@ -328,6 +328,7 @@ public class MainController implements Initializable {
             // Get the home controller and inject dependencies
             homeController = loader.getController();
             homeController.setDpApplication(dpApplication);
+            homeController.setMainController(this);
             
             // Refresh home view with current application state
             refreshHomeView();

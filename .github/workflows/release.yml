@@ -28,6 +28,30 @@ jobs:
           VERSION="${TAG#rel-}"
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
+      - name: Checkout dp-grpc
+        uses: actions/checkout@v4
+        with:
+          repository: osprey-dcs/dp-grpc
+          ref: rel-${{ env.VERSION }}
+          path: dp-grpc
+
+      - name: Build and install dp-grpc
+        run: |
+          cd dp-grpc
+          mvn -B install -DskipTests
+
+      - name: Checkout dp-service
+        uses: actions/checkout@v4
+        with:
+          repository: osprey-dcs/dp-service
+          ref: rel-${{ env.VERSION }}
+          path: dp-service
+
+      - name: Build and install dp-service
+        run: |
+          cd dp-service
+          mvn -B install -DskipTests
+
       - name: Build shaded JAR
         run: mvn -B -DskipTests package
 

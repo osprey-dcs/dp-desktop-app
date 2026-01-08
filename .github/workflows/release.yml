@@ -63,9 +63,17 @@ jobs:
       - name: Prepare release artifact
         run: |
           mkdir -p release
-          cp target/dp-desktop-app-1.12.0-shaded.jar \
-             "release/dp-desktop-app-${VERSION}.jar"
-
+          
+          SHADED_JAR=$(ls target/dp-desktop-app-*-shaded.jar | head -n 1)
+          
+          if [ ! -f "$SHADED_JAR" ]; then
+            echo "ERROR: shaded JAR not found"
+            ls -la target
+            exit 1
+          fi
+          
+          cp "$SHADED_JAR" "release/dp-desktop-app-${VERSION}.jar"
+        
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:

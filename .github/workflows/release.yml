@@ -79,7 +79,17 @@ jobs:
           echo "Release directory contents:"
           ls -la release
 
-      - name: Publish GitHub release
+      - name: Generate checksum
+        run: |
+          sha256sum release/dp-desktop-app-${VERSION}.jar \
+            > release/dp-desktop-app-${VERSION}.jar.sha256
+
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release/dp-desktop-app-${{ env.VERSION }}.jar
+          files: |
+            release/dp-desktop-app-${{ env.VERSION }}.jar
+            release/dp-desktop-app-${{ env.VERSION }}.jar.sha256
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

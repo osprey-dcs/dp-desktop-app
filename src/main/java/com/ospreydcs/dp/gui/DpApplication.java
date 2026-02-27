@@ -11,7 +11,6 @@ import com.ospreydcs.dp.grpc.v1.ingestionstream.SubscribeDataEventResponse;
 import com.ospreydcs.dp.grpc.v1.query.QueryTableRequest;
 import com.ospreydcs.dp.gui.model.*;
 import com.ospreydcs.dp.service.common.model.ResultStatus;
-import com.ospreydcs.dp.service.common.protobuf.EventMetadataUtility;
 import com.ospreydcs.dp.service.common.protobuf.TimestampUtility;
 import com.ospreydcs.dp.service.inprocess.InprocessServiceEcosystem;
 import org.apache.logging.log4j.LogManager;
@@ -317,10 +316,7 @@ public class DpApplication {
 
                 final IngestionClient.IngestionRequestParams params = new IngestionClient.IngestionRequestParams(
                         this.providerId,                   // providerId
-                        requestId,                         // requestId
-                        tags,                              // tags
-                        attributes,                        // attributes
-                        eventName                          // eventDescription
+                        requestId
                 );
 
                 // Call ingestData() API method
@@ -545,15 +541,7 @@ public class DpApplication {
                     samplingClockCount,                // samplingClockCount
                     columnNames,                       // columnNames
                     dataType,                          // dataType
-                    values,                            // values
-                    tags,                              // tags
-                    attributes,                        // attributes
-                    eventName,                              // eventDescription
-                    null,                              // eventStartSeconds
-                    null,                              // eventStartNanos
-                    null,                              // eventStopSeconds
-                    null,                              // eventStopNanos
-                    false                              // useSerializedDataColumns
+                    values
                 );
                 
                 // Call ingestData() API method for this bucket
@@ -732,13 +720,6 @@ public class DpApplication {
             String eventName,
             List<DataFrameDetails> calculationsDataFrameDetails
     ) {
-        // create API event params
-        EventMetadataUtility.EventMetadataParams eventParams = null;
-        if (eventName != null) {
-            eventParams = new EventMetadataUtility.EventMetadataParams(
-                    eventName, null, null, null, null);
-        }
-
         // create API calculations
         Calculations.Builder calculationsBuilder = null;
         if (calculationsDataFrameDetails != null && !calculationsDataFrameDetails.isEmpty()) {
@@ -767,7 +748,6 @@ public class DpApplication {
                         comment,
                         tags,
                         attributeMap,
-                        eventParams,
                         calculationsBuilder.build()
                 );
 

@@ -78,12 +78,13 @@ public class AnnotationInfoTableRow {
     }
     
     private String formatEvent(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {
-        if (annotation == null || 
-            annotation.getEventMetadata() == null || 
-            annotation.getEventMetadata().getDescription() == null) {
-            return "";
-        }
-        return annotation.getEventMetadata().getDescription();
+//        if (annotation == null ||
+//            annotation.getEventMetadata() == null ||
+//            annotation.getEventMetadata().getDescription() == null) {
+//            return "";
+//        }
+//        return annotation.getEventMetadata().getDescription();
+        return "";
     }
     
     private String formatCalculationsDataFrames(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {

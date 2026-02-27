@@ -198,11 +198,11 @@ public class AnnotationBuilderViewModel {
         setAnnotationName(annotation.getName());
         setComment(annotation.getComment());
         
-        // Set event name from event metadata
-        if (annotation.getEventMetadata() != null && 
-            annotation.getEventMetadata().getDescription() != null) {
-            setEventName(annotation.getEventMetadata().getDescription());
-        }
+//        // Set event name from event metadata
+//        if (annotation.getEventMetadata() != null &&
+//            annotation.getEventMetadata().getDescription() != null) {
+//            setEventName(annotation.getEventMetadata().getDescription());
+//        }
         
         // Convert protobuf target datasets to DataSetDetails
         dataSets.clear();

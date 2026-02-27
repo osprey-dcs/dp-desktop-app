@@ -55,25 +55,21 @@ jobs:
       - name: Build shaded JAR
         run: mvn -B -DskipTests package
 
-      - name: Verify shaded JAR exists
+      - name: Locate shaded JAR
         run: |
           ls -l target
-          test -f "target/dp-desktop-app-1.12.0-shaded.jar"
+          SHADED_JAR=$(ls target/dp-desktop-app-*-shaded.jar 2>/dev/null | head -n 1)
+          if [ -z "$SHADED_JAR" ]; then
+            echo "ERROR: shaded JAR not found"
+            exit 1
+          fi
+          echo "SHADED_JAR=$SHADED_JAR" >> $GITHUB_ENV
 
       - name: Prepare release artifact
         run: |
           mkdir -p release
-          
-          SHADED_JAR=$(ls target/dp-desktop-app-*-shaded.jar | head -n 1)
-          
-          if [ ! -f "$SHADED_JAR" ]; then
-            echo "ERROR: shaded JAR not found"
-            ls -la target
-            exit 1
-          fi
-          
           cp "$SHADED_JAR" "release/dp-desktop-app-${VERSION}.jar"
-
+          
       - name: Verify release artifacts
         run: |
           echo "Release directory contents:"

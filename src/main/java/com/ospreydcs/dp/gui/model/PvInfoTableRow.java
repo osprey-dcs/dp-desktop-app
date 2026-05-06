@@ -1,6 +1,6 @@
 package com.ospreydcs.dp.gui.model;
 
-import com.ospreydcs.dp.grpc.v1.query.QueryPvMetadataResponse;
+import com.ospreydcs.dp.grpc.v1.query.QueryPvStatsResponse;
 import javafx.beans.property.*;
 
 import java.time.Instant;
@@ -26,9 +26,9 @@ public class PvInfoTableRow {
     private final StringProperty lastDataTimestamp = new SimpleStringProperty();
     private final IntegerProperty numBuckets = new SimpleIntegerProperty();
     
-    private final QueryPvMetadataResponse.MetadataResult.PvInfo pvInfo;
+    private final QueryPvStatsResponse.StatsResult.PvStats pvInfo;
 
-    public PvInfoTableRow(QueryPvMetadataResponse.MetadataResult.PvInfo pvInfo) {
+    public PvInfoTableRow(QueryPvStatsResponse.StatsResult.PvStats pvInfo) {
         this.pvInfo = pvInfo;
         this.pvName.set(pvInfo.getPvName());
         this.providerName.set(pvInfo.getLastProviderName());
@@ -98,7 +98,7 @@ public class PvInfoTableRow {
     
     // Access to original PvInfo for additional fields
     public String getLastProviderId() { return pvInfo.getLastProviderId(); }
-    public QueryPvMetadataResponse.MetadataResult.PvInfo getPvInfo() { return pvInfo; }
+    public QueryPvStatsResponse.StatsResult.PvStats getPvInfo() { return pvInfo; }
 
     @Override
     public String toString() {

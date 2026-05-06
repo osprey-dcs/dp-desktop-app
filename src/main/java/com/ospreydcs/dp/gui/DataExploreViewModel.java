@@ -1,8 +1,8 @@
 package com.ospreydcs.dp.gui;
 
-import com.ospreydcs.dp.client.result.QueryPvMetadataApiResult;
+import com.ospreydcs.dp.client.result.QueryPvStatsApiResult;
 import com.ospreydcs.dp.client.result.QueryTableApiResult;
-import com.ospreydcs.dp.grpc.v1.query.QueryPvMetadataResponse;
+import com.ospreydcs.dp.grpc.v1.query.QueryPvStatsResponse;
 import com.ospreydcs.dp.grpc.v1.query.QueryTableResponse;
 import javafx.beans.property.*;
 import javafx.collections.FXCollections;

@@ -595,12 +595,12 @@ public class DpApplication {
         return values;
     }
 
-    public QueryPvMetadataApiResult queryPvMetadata(List<String> pvNameList) {
-        return api.queryClient.queryPvMetadata(pvNameList);
+    public QueryPvStatsApiResult queryPvStats(List<String> pvNameList) {
+        return api.queryClient.queryPvStats(pvNameList);
     }
 
-    public QueryPvMetadataApiResult queryPvMetadata(String pvNamePattern) {
-        return api.queryClient.queryPvMetadata(pvNamePattern);
+    public QueryPvStatsApiResult queryPvStats(String pvNamePattern) {
+        return api.queryClient.queryPvStats(pvNamePattern);
     }
 
     public QueryTableApiResult queryTable(List<String> pvNameList, Instant beginTime, Instant endTime) {

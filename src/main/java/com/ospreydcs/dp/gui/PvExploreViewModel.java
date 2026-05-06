@@ -1,7 +1,7 @@
 package com.ospreydcs.dp.gui;
 
-import com.ospreydcs.dp.client.result.QueryPvMetadataApiResult;
-import com.ospreydcs.dp.grpc.v1.query.QueryPvMetadataResponse;
+import com.ospreydcs.dp.client.result.QueryPvStatsApiResult;
+import com.ospreydcs.dp.grpc.v1.query.QueryPvStatsResponse;
 import com.ospreydcs.dp.gui.component.QueryPvsComponent;
 import com.ospreydcs.dp.gui.model.PvInfoTableRow;
 import javafx.beans.property.*;
@@ -85,22 +85,22 @@ public class PvExploreViewModel {
         logger.info("Starting PV metadata search");
 
         // Create background task for search
-        Task<QueryPvMetadataApiResult> searchTask = new Task<QueryPvMetadataApiResult>() {
+        Task<QueryPvStatsApiResult> searchTask = new Task<QueryPvStatsApiResult>() {
             @Override
-            protected QueryPvMetadataApiResult call() throws Exception {
+            protected QueryPvStatsApiResult call() throws Exception {
                 if (searchByNameList.get()) {
                     // Parse comma-separated list of PV names
                     List<String> pvNames = parseCommaSeparatedList(searchTextValue);
-                    return dpApplication.queryPvMetadata(pvNames);
+                    return dpApplication.queryPvStats(pvNames);
                 } else {
                     // Use search text as pattern
-                    return dpApplication.queryPvMetadata(searchTextValue);
+                    return dpApplication.queryPvStats(searchTextValue);
                 }
             }
         };
 
         searchTask.setOnSucceeded(e -> {
-            QueryPvMetadataApiResult apiResult = searchTask.getValue();
+            QueryPvStatsApiResult apiResult = searchTask.getValue();
             handlePvMetadataSearchResult(apiResult);
             isSearching.set(false);
         });
@@ -116,7 +116,7 @@ public class PvExploreViewModel {
         searchThread.start();
     }
 
-    private void handlePvMetadataSearchResult(QueryPvMetadataApiResult apiResult) {
+    private void handlePvMetadataSearchResult(QueryPvStatsApiResult apiResult) {
         if (apiResult == null) {
             javafx.application.Platform.runLater(() -> {
                 statusMessage.set("Search failed - null response from service");
@@ -131,7 +131,7 @@ public class PvExploreViewModel {
             return;
         }
 
-        QueryPvMetadataResponse response = apiResult.queryPvMetadataResponse;
+        QueryPvStatsResponse response = apiResult.queryPvStatsResponse;
         if (response == null) {
             javafx.application.Platform.runLater(() -> {
                 statusMessage.set("Search failed - null response from service");
@@ -146,9 +146,9 @@ public class PvExploreViewModel {
             return;
         }
 
-        if (response.hasMetadataResult()) {
+        if (response.hasStatsResult()) {
             List<PvInfoTableRow> tableRows = new ArrayList<>();
-            for (QueryPvMetadataResponse.MetadataResult.PvInfo pvInfo : response.getMetadataResult().getPvInfosList()) {
+            for (QueryPvStatsResponse.StatsResult.PvStats pvInfo : response.getStatsResult().getPvStatsList()) {
                 tableRows.add(new PvInfoTableRow(pvInfo));
             }
 

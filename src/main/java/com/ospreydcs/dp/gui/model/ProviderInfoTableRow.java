@@ -48,15 +48,15 @@ public class ProviderInfoTableRow {
         }
         
         // Format PV names as comma-separated string
-        if (providerInfo.hasProviderMetadata() && !providerInfo.getProviderMetadata().getPvNamesList().isEmpty()) {
-            this.pvNames.set(String.join(", ", providerInfo.getProviderMetadata().getPvNamesList()));
+        if (providerInfo.hasProviderStats() && !providerInfo.getProviderStats().getPvNamesList().isEmpty()) {
+            this.pvNames.set(String.join(", ", providerInfo.getProviderStats().getPvNamesList()));
         } else {
             this.pvNames.set("");
         }
         
         // Format number of buckets
-        if (providerInfo.hasProviderMetadata()) {
-            this.numBuckets.set(String.valueOf(providerInfo.getProviderMetadata().getNumBuckets()));
+        if (providerInfo.hasProviderStats()) {
+            this.numBuckets.set(String.valueOf(providerInfo.getProviderStats().getNumBuckets()));
         } else {
             this.numBuckets.set("0");
         }
@@ -68,8 +68,8 @@ public class ProviderInfoTableRow {
     }
     
     public List<String> getPvNamesList() {
-        if (providerInfo.hasProviderMetadata()) {
-            return providerInfo.getProviderMetadata().getPvNamesList();
+        if (providerInfo.hasProviderStats()) {
+            return providerInfo.getProviderStats().getPvNamesList();
         }
         return List.of();
     }

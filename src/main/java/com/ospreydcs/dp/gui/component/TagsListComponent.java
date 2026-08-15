@@ -17,6 +17,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.ResourceBundle;
 
 /**
@@ -151,9 +153,34 @@ public class TagsListComponent extends VBox implements Initializable {
 
     /**
      * Sets the initial tags list (replaces existing tags).
+     *
+     * Applies the same normalization as addTag(): null and blank entries are dropped, remaining
+     * entries are trimmed, and duplicates are collapsed, so the list is guaranteed to hold only
+     * usable tags regardless of how it was populated.
      */
     public void setTags(ObservableList<String> tags) {
-        this.tags.setAll(tags);
+        this.tags.setAll(normalizeTags(tags));
+    }
+
+    /**
+     * Drops null/blank entries, trims the rest, and removes duplicates, preserving order.
+     */
+    private List<String> normalizeTags(List<String> sourceTags) {
+        final List<String> normalized = new ArrayList<>();
+        if (sourceTags == null) {
+            return normalized;
+        }
+        for (String tag : sourceTags) {
+            if (tag == null || tag.trim().isEmpty()) {
+                logger.warn("ignoring blank tag");
+                continue;
+            }
+            final String trimmed = tag.trim();
+            if (!normalized.contains(trimmed)) {
+                normalized.add(trimmed);
+            }
+        }
+        return normalized;
     }
 
     /**

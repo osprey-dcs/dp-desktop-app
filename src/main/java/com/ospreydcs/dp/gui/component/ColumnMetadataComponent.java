@@ -16,8 +16,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.ResourceBundle;
 
 /**
@@ -165,35 +163,11 @@ public class ColumnMetadataComponent extends VBox implements Initializable {
         final boolean hasSource = source != null && !source.isBlank();
         final boolean hasProcess = process != null && !process.isBlank();
 
-        // Only non-blank tags are usable.  addTag() trims and rejects blanks, but setTags() replaces
-        // the list wholesale with no filtering, so blank entries can still reach us.
-        final List<String> validTags = new ArrayList<>();
-        if (tags != null) {
-            for (String tag : tags) {
-                if (tag != null && !tag.isBlank()) {
-                    validTags.add(tag.trim());
-                } else {
-                    logger.warn("ignoring blank column tag");
-                }
-            }
-        }
-        final boolean hasTags = !validTags.isEmpty();
-
-        // Only attributes that parse to a non-blank key are usable.  The add form prevents malformed
-        // entries, but setColumnAttributes() accepts an arbitrary list, and getKeyFromAttribute()
-        // returns the whole string when there is no "=" separator.
-        final List<String> validAttributes = new ArrayList<>();
-        if (attributes != null) {
-            for (String attribute : attributes) {
-                final String key = AttributesListComponent.getKeyFromAttribute(attribute);
-                if (key != null && !key.isBlank()) {
-                    validAttributes.add(attribute);
-                } else {
-                    logger.warn("ignoring column attribute with blank key: {}", attribute);
-                }
-            }
-        }
-        final boolean hasAttributes = !validAttributes.isEmpty();
+        // TagsListComponent and AttributesListComponent normalize on both entry points (the add form
+        // and setTags()/setAttributes()), so these lists hold only non-blank tags and attributes
+        // parseable as key=value.  No filtering is needed here.
+        final boolean hasTags = tags != null && !tags.isEmpty();
+        final boolean hasAttributes = attributes != null && !attributes.isEmpty();
 
         if (!hasSource && !hasProcess && !hasTags && !hasAttributes) {
             logger.debug("no column metadata specified");
@@ -213,13 +187,17 @@ public class ColumnMetadataComponent extends VBox implements Initializable {
             metadataBuilder.setProvenance(provenanceBuilder.build());
         }
 
-        metadataBuilder.addAllTags(validTags);
+        if (hasTags) {
+            metadataBuilder.addAllTags(tags);
+        }
 
-        for (String attribute : validAttributes) {
-            final String key = AttributesListComponent.getKeyFromAttribute(attribute);
-            final String value = AttributesListComponent.getValueFromAttribute(attribute);
-            metadataBuilder.addAttributes(
-                    Attribute.newBuilder().setName(key.trim()).setValue(value).build());
+        if (hasAttributes) {
+            for (String attribute : attributes) {
+                final String key = AttributesListComponent.getKeyFromAttribute(attribute);
+                final String value = AttributesListComponent.getValueFromAttribute(attribute);
+                metadataBuilder.addAttributes(
+                        Attribute.newBuilder().setName(key).setValue(value).build());
+            }
         }
 
         final ColumnMetadata columnMetadata = metadataBuilder.build();

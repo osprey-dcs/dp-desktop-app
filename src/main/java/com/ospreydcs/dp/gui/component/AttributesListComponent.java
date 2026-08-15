@@ -17,6 +17,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.ResourceBundle;
 
 /**
@@ -186,9 +188,41 @@ public class AttributesListComponent extends VBox implements Initializable {
 
     /**
      * Sets the initial attributes list (replaces existing attributes).
+     *
+     * Applies the same normalization as addAttribute(): entries are expected in "key=value" form,
+     * and those that are null, lack a separator, or parse to a blank key are dropped.  Key and value
+     * are trimmed and duplicates collapsed, so the list is guaranteed to hold only parseable
+     * attributes regardless of how it was populated.
      */
     public void setAttributes(ObservableList<String> attributes) {
-        this.attributes.setAll(attributes);
+        this.attributes.setAll(normalizeAttributes(attributes));
+    }
+
+    /**
+     * Drops entries that do not parse to a non-blank key, trims key and value, and removes
+     * duplicates, preserving order.
+     */
+    private List<String> normalizeAttributes(List<String> sourceAttributes) {
+        final List<String> normalized = new ArrayList<>();
+        if (sourceAttributes == null) {
+            return normalized;
+        }
+        for (String attribute : sourceAttributes) {
+            if (attribute == null || !attribute.contains("=")) {
+                logger.warn("ignoring attribute not in key=value form: {}", attribute);
+                continue;
+            }
+            final String key = getKeyFromAttribute(attribute).trim();
+            if (key.isEmpty()) {
+                logger.warn("ignoring attribute with blank key: {}", attribute);
+                continue;
+            }
+            final String normalizedAttribute = key + "=" + getValueFromAttribute(attribute).trim();
+            if (!normalized.contains(normalizedAttribute)) {
+                normalized.add(normalizedAttribute);
+            }
+        }
+        return normalized;
     }
 
     /**

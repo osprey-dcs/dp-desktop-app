@@ -3,7 +3,7 @@ package com.ospreydcs.dp.gui;
 import com.ospreydcs.dp.client.result.DataImportResult;
 import com.ospreydcs.dp.client.utility.DataImportUtility;
 import com.ospreydcs.dp.gui.component.ProviderDetailsComponent;
-import com.ospreydcs.dp.gui.component.RequestDetailsComponent;
+import com.ospreydcs.dp.gui.component.ColumnMetadataComponent;
 import com.ospreydcs.dp.gui.component.SubscriptionDetailsComponent;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
@@ -22,9 +22,9 @@ public class DataImportController implements Initializable {
 
     private static final Logger logger = LogManager.getLogger();
 
-    // Provider and Request Details components
+    // Provider Details and Column Metadata components
     @FXML private ProviderDetailsComponent providerDetailsComponent;
-    @FXML private RequestDetailsComponent requestDetailsComponent;
+    @FXML private ColumnMetadataComponent columnMetadataComponent;
     private SubscriptionDetailsComponent subscriptionDetailsComponent;
     
     // Placeholder for programmatically added subscription component
@@ -61,7 +61,7 @@ public class DataImportController implements Initializable {
         
         // Inject component references into ViewModel (Critical Integration Pattern)
         viewModel.setProviderDetailsComponent(providerDetailsComponent);
-        viewModel.setRequestDetailsComponent(requestDetailsComponent);
+        viewModel.setColumnMetadataComponent(columnMetadataComponent);
         viewModel.setSubscriptionDetailsComponent(subscriptionDetailsComponent);
         
         // Set up event handlers
@@ -89,10 +89,6 @@ public class DataImportController implements Initializable {
         // Provider Details component bindings
         providerDetailsComponent.providerNameProperty().bindBidirectional(viewModel.providerNameProperty());
         providerDetailsComponent.providerDescriptionProperty().bindBidirectional(viewModel.providerDescriptionProperty());
-        // Note: Tags and attributes are managed internally by components
-
-        // Request Details component bindings
-        requestDetailsComponent.eventNameProperty().bindBidirectional(viewModel.eventNameProperty());
         // Note: Tags and attributes are managed internally by components
 
         // Import Details bindings

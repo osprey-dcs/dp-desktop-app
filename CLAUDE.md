@@ -20,9 +20,9 @@ mvn javafx:run
 ```
 Or run the shaded JAR:
 ```bash
-java -jar target/dp-desktop-app-1.11.0-shaded.jar
+java -jar target/dp-desktop-app-1.16.0-shaded.jar
 ```
-The main class is `com.ospreydcs.dp.gui.DpDesktopApplication`.
+The main class is `com.ospreydcs.dp.gui.DpDesktopApplicationRunner`, a launcher that does not extend `Application` (the java launcher rejects an `Application` subclass as main class when JavaFX is on the classpath).
 
 ### Maven Profiles
 - `dev` (default): Development profile
@@ -31,8 +31,8 @@ The main class is `com.ospreydcs.dp.gui.DpDesktopApplication`.
 
 ### Dependencies
 This project depends on:
-- `dp-grpc` (v1.11.0): gRPC API definitions
-- `dp-service` (v1.11.0): gRPC service implementations
+- `dp-grpc` (v1.16.0): gRPC API definitions
+- `dp-service` (v1.16.0): gRPC service implementations
 - MongoDB drivers for data persistence
 - JavaFX 21.0.2 for GUI framework
 - BootstrapFX 0.4.0 for styling
@@ -145,7 +145,7 @@ Explore → Data, PVs, Providers, Datasets, Annotations, Data Events
 - ✅ Annotation Builder UI with dataset targeting, tags, attributes, and save functionality
 - ✅ Cross-tab data transfer between Dataset Builder and Annotation Builder
 - ✅ Reusable TagsListComponent and AttributesListComponent for form inputs
-- ✅ Reusable ProviderDetailsComponent and RequestDetailsComponent for section modularity
+- ✅ Reusable ProviderDetailsComponent and ColumnMetadataComponent for section modularity
 - ✅ Component-based architecture for data-generation view enabling code reuse
 - ✅ Data import view with Excel file processing and DataImportUtility integration
 - ✅ Calculations section with multi-sheet Excel import functionality
@@ -153,7 +153,7 @@ Explore → Data, PVs, Providers, Datasets, Annotations, Data Events
 - ✅ Complete data ingestion workflow for both data generation and data import paths
 - ✅ Ingest and Reset button functionality in data-import view with proper error handling
 - ✅ Critical Integration Pattern implemented across all views using reusable components
-- ✅ Event name handling in Request Details sections for both generation and import workflows
+- ✅ Column-level metadata (provenance, tags, attributes) applied to every ingested column in both generation and import workflows
 - ✅ PV Explore view with dedicated PV discovery, search, and management functionality
 - ✅ QueryPvsComponent reusable component for PV list management with individual remove buttons
 - ✅ Integrated navigation between data-explore and pv-explore views
@@ -202,7 +202,7 @@ The application follows the Model-View-ViewModel pattern:
 
 ### Data Generation Workflow (Implemented)
 1. **Provider Registration**: Users fill provider details (name, description, tags, attributes)
-2. **Request Configuration**: Set time range, tags, attributes, event name
+2. **Column Metadata Configuration**: Set time range, plus column provenance (source/process), tags, and attributes applied to every generated column
 3. **PV Definition**: Always-visible form for adding process variables with automatic submission
 4. **PV Form Auto-Submission**: Automatically adds PVs when all fields are filled and user presses Enter or moves focus
 5. **Focus Management**: Returns focus to PV Name field after successful addition for rapid multi-PV entry
@@ -213,7 +213,7 @@ The application follows the Model-View-ViewModel pattern:
 
 ### Data Import Workflow (Implemented)
 1. **Provider Configuration**: Uses reusable ProviderDetailsComponent for name, description, tags, attributes
-2. **Request Configuration**: Uses reusable RequestDetailsComponent for tags, attributes, event name
+2. **Column Metadata Configuration**: Uses reusable ColumnMetadataComponent for provenance source/process, tags, and attributes applied to every imported column
 3. **File Selection**: Excel file chooser dialog (.xlsx/.xls formats) with validation
 4. **Data Processing**: Integration with DataImportUtility.importXlsxData() from dp-service
 5. **Frame Display**: Shows imported DataFrameResult objects with human-readable format
@@ -467,7 +467,7 @@ mvn clean compile javafx:run
 
 # Package application for deployment testing
 mvn clean package
-java -jar target/dp-desktop-app-1.11.0-shaded.jar
+java -jar target/dp-desktop-app-1.16.0-shaded.jar
 
 # Update shared utilities workflow (when modifying dp-service dependency)
 cd ~/dp.fork/dp-java/dp-service
@@ -672,13 +672,17 @@ When tags/attributes don't appear in the database:
 - Data access: `getProviderTags()`, `getProviderAttributes()`
 - Lifecycle method: `clearProviderDetails()`
 
-**RequestDetailsComponent** (`src/main/java/com/ospreydcs/dp/gui/component/RequestDetailsComponent.java`)
-- Reusable component for Request Details section
-- Contains request tags, attributes, and event name field
+**ColumnMetadataComponent** (`src/main/java/com/ospreydcs/dp/gui/component/ColumnMetadataComponent.java`)
+- Reusable component for the Column Metadata section
+- Contains provenance source/process fields, column tags, and column attributes
 - Uses embedded TagsListComponent and AttributesListComponent
-- Property binding: `eventNameProperty()`
-- Data access: `getRequestTags()`, `getRequestAttributes()`
-- Lifecycle method: `clearRequestDetails()`
+- Property binding: `provenanceSourceProperty()`, `provenanceProcessProperty()`
+- Data access: `getColumnMetadata()` returns a built protobuf `ColumnMetadata`, or null when nothing
+  has been entered so columns are sent without a metadata field
+- Unset provenance fields are omitted rather than sent as empty strings, per the `ColumnProvenance`
+  contract in `common.proto`
+- Lifecycle method: `clearColumnMetadata()`
+- Values apply uniformly to every column in the DataFrame(s) produced by the containing view
 
 **QueryPvsComponent** (`src/main/java/com/ospreydcs/dp/gui/component/QueryPvsComponent.java`)
 - Reusable component for PV list management with individual remove buttons
@@ -712,16 +716,16 @@ When using reusable components, you MUST inject component references into ViewMo
 ```java
 // In Controller.initialize()
 viewModel.setProviderDetailsComponent(providerDetailsComponent);
-viewModel.setRequestDetailsComponent(requestDetailsComponent);
+viewModel.setColumnMetadataComponent(columnMetadataComponent);
 
 // In ViewModel - add component references
 private ProviderDetailsComponent providerDetailsComponent;
-private RequestDetailsComponent requestDetailsComponent;
+private ColumnMetadataComponent columnMetadataComponent;
 
 // In API calls - get data from component instances
 var tags = providerDetailsComponent.getProviderTags();
 var attributes = providerDetailsComponent.getProviderAttributes();
-var eventName = requestDetailsComponent.getEventName();
+var columnMetadata = columnMetadataComponent.getColumnMetadata();
 
 // NEVER do this - ViewModel properties stay empty
 var tags = viewModel.getTags(); // Empty!

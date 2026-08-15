@@ -83,8 +83,4 @@ public class DpDesktopApplication extends Application {
             logger.info("DpApplication cleanup completed");
         }
     }
-
-    public static void main(String[] args) {
-        launch(args);
-    }
 }

@@ -35,10 +35,6 @@ public class DataGenerationViewModel {
     private final IntegerProperty endMinute = new SimpleIntegerProperty(0);
     private final IntegerProperty endSecond = new SimpleIntegerProperty(0);
     
-    private final ObservableList<String> requestTags = FXCollections.observableArrayList();
-    private final ObservableList<String> requestAttributes = FXCollections.observableArrayList();
-    private final StringProperty eventName = new SimpleStringProperty();
-
     // PV Details properties
     private final ObservableList<PvDetail> pvDetails = FXCollections.observableArrayList();
     
@@ -60,7 +56,7 @@ public class DataGenerationViewModel {
     
     // Component references for accessing component data
     private com.ospreydcs.dp.gui.component.ProviderDetailsComponent providerDetailsComponent;
-    private com.ospreydcs.dp.gui.component.RequestDetailsComponent requestDetailsComponent;
+    private com.ospreydcs.dp.gui.component.ColumnMetadataComponent columnMetadataComponent;
     private com.ospreydcs.dp.gui.component.SubscriptionDetailsComponent subscriptionDetailsComponent;
 
     public DataGenerationViewModel() {
@@ -83,9 +79,9 @@ public class DataGenerationViewModel {
         logger.debug("ProviderDetailsComponent injected into DataGenerationViewModel");
     }
     
-    public void setRequestDetailsComponent(com.ospreydcs.dp.gui.component.RequestDetailsComponent component) {
-        this.requestDetailsComponent = component;
-        logger.debug("RequestDetailsComponent injected into DataGenerationViewModel");
+    public void setColumnMetadataComponent(com.ospreydcs.dp.gui.component.ColumnMetadataComponent component) {
+        this.columnMetadataComponent = component;
+        logger.debug("ColumnMetadataComponent injected into DataGenerationViewModel");
     }
     
     public void setSubscriptionDetailsComponent(com.ospreydcs.dp.gui.component.SubscriptionDetailsComponent component) {
@@ -110,10 +106,6 @@ public class DataGenerationViewModel {
     public IntegerProperty endMinuteProperty() { return endMinute; }
     public IntegerProperty endSecondProperty() { return endSecond; }
     
-    public ObservableList<String> getRequestTags() { return requestTags; }
-    public ObservableList<String> getRequestAttributes() { return requestAttributes; }
-    public StringProperty eventNameProperty() { return eventName; }
-
     // PV Details property getters
     public ObservableList<PvDetail> getPvDetails() { return pvDetails; }
     public StringProperty currentPvNameProperty() { return currentPvName; }
@@ -157,33 +149,6 @@ public class DataGenerationViewModel {
     public void removeProviderAttribute(String attribute) {
         providerAttributes.remove(attribute);
         logger.debug("Removed provider attribute: {}", attribute);
-    }
-
-    public void addRequestTag(String tag) {
-        if (tag != null && !tag.trim().isEmpty() && !requestTags.contains(tag)) {
-            requestTags.add(tag);
-            logger.debug("Added request tag: {}", tag);
-        }
-    }
-
-    public void removeRequestTag(String tag) {
-        requestTags.remove(tag);
-        logger.debug("Removed request tag: {}", tag);
-    }
-
-    public void addRequestAttribute(String key, String value) {
-        if (key != null && value != null && !key.trim().isEmpty() && !value.trim().isEmpty()) {
-            String attribute = key + "=" + value;
-            if (!requestAttributes.contains(attribute)) {
-                requestAttributes.add(attribute);
-                logger.debug("Added request attribute: {}", attribute);
-            }
-        }
-    }
-
-    public void removeRequestAttribute(String attribute) {
-        requestAttributes.remove(attribute);
-        logger.debug("Removed request attribute: {}", attribute);
     }
 
     // PV entry panel methods - simplified since panel is always visible
@@ -259,7 +224,7 @@ public class DataGenerationViewModel {
         }
         
         // Validate components are available
-        if (providerDetailsComponent == null || requestDetailsComponent == null) {
+        if (providerDetailsComponent == null || columnMetadataComponent == null) {
             statusMessage.set("Component references not set - cannot access form data");
             return;
         }
@@ -298,11 +263,9 @@ public class DataGenerationViewModel {
             logger.info("Provider registered successfully: {}", registerResult.msg);
             statusMessage.set("Generating and ingesting data...");
             
-            // Step 2: Generate and ingest data (5.2.3) - Get data directly from RequestDetailsComponent (Critical Integration Pattern)
-            var requestTags = requestDetailsComponent.getRequestTags();
-            var requestAttributes = requestDetailsComponent.getRequestAttributes();
-            String eventName = requestDetailsComponent.getEventName();
-            Map<String, String> requestAttributesMap = convertAttributesToMap(requestAttributes);
+            // Step 2: Generate and ingest data (5.2.3) - Get data directly from ColumnMetadataComponent (Critical Integration Pattern)
+            com.ospreydcs.dp.grpc.v1.common.ColumnMetadata columnMetadata =
+                columnMetadataComponent.getColumnMetadata();
             java.time.Instant beginInstant = getBeginDateTime().atZone(java.time.ZoneId.systemDefault()).toInstant();
             java.time.Instant endInstant = getEndDateTime().atZone(java.time.ZoneId.systemDefault()).toInstant();
             
@@ -315,9 +278,7 @@ public class DataGenerationViewModel {
             com.ospreydcs.dp.service.common.model.ResultStatus ingestResult = dpApplication.generateAndIngestData(
                 beginInstant,
                 endInstant,
-                new java.util.ArrayList<>(requestTags),
-                requestAttributesMap,
-                eventName,
+                columnMetadata,
                 new java.util.ArrayList<>(pvDetails),
                 getBucketSizeSeconds(),
                 new ArrayList<>(subscriptions)

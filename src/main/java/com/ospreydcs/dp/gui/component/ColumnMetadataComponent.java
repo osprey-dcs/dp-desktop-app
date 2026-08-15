@@ -16,6 +16,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.ResourceBundle;
 
 /**
@@ -48,6 +50,7 @@ public class ColumnMetadataComponent extends VBox implements Initializable {
             VBox root = fxmlLoader.load();
             this.getChildren().setAll(root.getChildren());
             this.setSpacing(root.getSpacing());
+            this.setPadding(root.getPadding());
             this.getStyleClass().setAll(root.getStyleClass());
         } catch (IOException exception) {
             logger.error("Failed to load ColumnMetadataComponent FXML", exception);
@@ -145,6 +148,12 @@ public class ColumnMetadataComponent extends VBox implements Initializable {
      * Returns null if no metadata has been entered, so that the columns are sent without a metadata
      * field rather than with an empty one.  Unset provenance fields are omitted rather than sent as
      * empty strings, per the ColumnProvenance contract in common.proto.
+     *
+     * NOTE: the provenance blank-check and omit-empty rules below intentionally mirror
+     * IngestionClient.IngestionRequestParams.setColumnMetadata(source, process, tags, attributes)
+     * in dp-service.  That overload always builds a metadata message, so it cannot express the
+     * "nothing entered, send no metadata field at all" case this component needs.  If the
+     * ColumnProvenance contract in common.proto changes, both copies must be updated.
      */
     public ColumnMetadata getColumnMetadata() {
 
@@ -156,7 +165,22 @@ public class ColumnMetadataComponent extends VBox implements Initializable {
         final boolean hasSource = source != null && !source.isBlank();
         final boolean hasProcess = process != null && !process.isBlank();
         final boolean hasTags = tags != null && !tags.isEmpty();
-        final boolean hasAttributes = attributes != null && !attributes.isEmpty();
+
+        // Only attributes that parse to a non-blank key are usable.  The add form prevents malformed
+        // entries, but setColumnAttributes() accepts an arbitrary list, and getKeyFromAttribute()
+        // returns the whole string when there is no "=" separator.
+        final List<String> validAttributes = new ArrayList<>();
+        if (attributes != null) {
+            for (String attribute : attributes) {
+                final String key = AttributesListComponent.getKeyFromAttribute(attribute);
+                if (key != null && !key.isBlank()) {
+                    validAttributes.add(attribute);
+                } else {
+                    logger.warn("ignoring column attribute with blank key: {}", attribute);
+                }
+            }
+        }
+        final boolean hasAttributes = !validAttributes.isEmpty();
 
         if (!hasSource && !hasProcess && !hasTags && !hasAttributes) {
             logger.debug("no column metadata specified");
@@ -180,13 +204,11 @@ public class ColumnMetadataComponent extends VBox implements Initializable {
             metadataBuilder.addAllTags(tags);
         }
 
-        if (hasAttributes) {
-            for (String attribute : attributes) {
-                final String key = AttributesListComponent.getKeyFromAttribute(attribute);
-                final String value = AttributesListComponent.getValueFromAttribute(attribute);
-                metadataBuilder.addAttributes(
-                        Attribute.newBuilder().setName(key).setValue(value).build());
-            }
+        for (String attribute : validAttributes) {
+            final String key = AttributesListComponent.getKeyFromAttribute(attribute);
+            final String value = AttributesListComponent.getValueFromAttribute(attribute);
+            metadataBuilder.addAttributes(
+                    Attribute.newBuilder().setName(key.trim()).setValue(value).build());
         }
 
         final ColumnMetadata columnMetadata = metadataBuilder.build();

@@ -22,7 +22,7 @@ public class DataImportController implements Initializable {
 
     private static final Logger logger = LogManager.getLogger();
 
-    // Provider and Request Details components
+    // Provider Details and Column Metadata components
     @FXML private ProviderDetailsComponent providerDetailsComponent;
     @FXML private ColumnMetadataComponent columnMetadataComponent;
     private SubscriptionDetailsComponent subscriptionDetailsComponent;

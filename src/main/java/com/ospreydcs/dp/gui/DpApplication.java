@@ -218,9 +218,7 @@ public class DpApplication {
     }
 
     public ResultStatus ingestImportedData(
-            List<String> tags,
-            Map<String, String> attributes,
-            String eventName,
+            ColumnMetadata columnMetadata,
             List<DataImportResult.DataFrameResult> dataFrames,
             List<SubscribeDataEventDetail> subscriptionDetails
     ) {
@@ -317,7 +315,7 @@ public class DpApplication {
                 final IngestionClient.IngestionRequestParams params = new IngestionClient.IngestionRequestParams(
                         this.providerId,                   // providerId
                         requestId
-                );
+                ).setColumnMetadata(columnMetadata);
 
                 // Call ingestData() API method
                 final IngestDataApiResult apiResult = api.ingestionClient.ingestData(
@@ -370,9 +368,7 @@ public class DpApplication {
     public ResultStatus generateAndIngestData(
             Instant beginTime,
             Instant endTime,
-            List<String> tags,
-            Map<String, String> attributes,
-            String eventName,
+            ColumnMetadata columnMetadata,
             List<PvDetail> pvDetails,
             int bucketSizeSeconds,
             List<SubscribeDataEventDetail> subscriptionDetails
@@ -431,7 +427,7 @@ public class DpApplication {
             
             // Generate and ingest data for each PV
             for (PvDetail pvDetail : pvDetails) {
-                ResultStatus result = generateAndIngestPvData(pvDetail, beginTime, endTime, tags, attributes, eventName, bucketSizeSeconds);
+                ResultStatus result = generateAndIngestPvData(pvDetail, beginTime, endTime, columnMetadata, bucketSizeSeconds);
                 logger.debug("generating pv: {} values per second: {}", pvDetail.getPvName(), pvDetail.getValuesPerSecond());
                 if (result.isError) {
                     return result; // Return first error encountered
@@ -461,7 +457,7 @@ public class DpApplication {
     
     private ResultStatus generateAndIngestPvData(
             PvDetail pvDetail, Instant beginTime, Instant endTime,
-            List<String> tags, Map<String, String> attributes, String eventName, int bucketSizeSeconds
+            ColumnMetadata columnMetadata, int bucketSizeSeconds
     ) {
         try {
             // Calculate total duration and number of buckets
@@ -542,7 +538,7 @@ public class DpApplication {
                     columnNames,                       // columnNames
                     dataType,                          // dataType
                     values
-                );
+                ).setColumnMetadata(columnMetadata);
                 
                 // Call ingestData() API method for this bucket
                 final IngestDataApiResult apiResult = api.ingestionClient.ingestData(params, null, null);

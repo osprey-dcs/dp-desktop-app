@@ -24,9 +24,6 @@ public class DataImportViewModel {
     private final StringProperty providerName = new SimpleStringProperty("");
     private final StringProperty providerDescription = new SimpleStringProperty("");
 
-    // Request Details properties - only used for property binding, actual data comes from components  
-    private final StringProperty eventName = new SimpleStringProperty("");
-
     // Import Details properties
     private final StringProperty filePath = new SimpleStringProperty("");
     private final ObservableList<DataImportResult.DataFrameResult> ingestionDataFrames = FXCollections.observableArrayList();
@@ -41,7 +38,7 @@ public class DataImportViewModel {
     
     // Component references for accessing component data
     private com.ospreydcs.dp.gui.component.ProviderDetailsComponent providerDetailsComponent;
-    private com.ospreydcs.dp.gui.component.RequestDetailsComponent requestDetailsComponent;
+    private com.ospreydcs.dp.gui.component.ColumnMetadataComponent columnMetadataComponent;
     private com.ospreydcs.dp.gui.component.SubscriptionDetailsComponent subscriptionDetailsComponent;
 
     public DataImportViewModel() {
@@ -57,10 +54,6 @@ public class DataImportViewModel {
         return providerDescription;
     }
 
-
-    public StringProperty eventNameProperty() {
-        return eventName;
-    }
 
     // Import Details property methods
     public StringProperty filePathProperty() {
@@ -97,9 +90,9 @@ public class DataImportViewModel {
         logger.debug("ProviderDetailsComponent injected into DataImportViewModel");
     }
     
-    public void setRequestDetailsComponent(com.ospreydcs.dp.gui.component.RequestDetailsComponent component) {
-        this.requestDetailsComponent = component;
-        logger.debug("RequestDetailsComponent injected into DataImportViewModel");
+    public void setColumnMetadataComponent(com.ospreydcs.dp.gui.component.ColumnMetadataComponent component) {
+        this.columnMetadataComponent = component;
+        logger.debug("ColumnMetadataComponent injected into DataImportViewModel");
     }
     
     public void setSubscriptionDetailsComponent(com.ospreydcs.dp.gui.component.SubscriptionDetailsComponent component) {
@@ -154,10 +147,9 @@ public class DataImportViewModel {
             providerDetailsComponent.clearProviderDetails();
         }
         
-        // Clear request details
-        eventName.set("");
-        if (requestDetailsComponent != null) {
-            requestDetailsComponent.clearRequestDetails();
+        // Clear column metadata
+        if (columnMetadataComponent != null) {
+            columnMetadataComponent.clearColumnMetadata();
         }
         
         // Clear import details
@@ -246,7 +238,7 @@ public class DataImportViewModel {
 
     private boolean isIngestValid() {
         // Validate components are available
-        if (providerDetailsComponent == null || requestDetailsComponent == null) {
+        if (providerDetailsComponent == null || columnMetadataComponent == null) {
             updateStatus("Component references not set - cannot access form data");
             return false;
         }
@@ -284,15 +276,10 @@ public class DataImportViewModel {
     }
 
     private ResultStatus performDataIngestion() {
-        // Get data directly from RequestDetailsComponent (Critical Integration Pattern)
-        var requestTags = requestDetailsComponent.getRequestTags();
-        var requestAttributes = requestDetailsComponent.getRequestAttributes();
-        
-        // Convert request attributes list to map
-        Map<String, String> requestAttributesMap = convertAttributesToMap(requestAttributes);
-        
-        String eventNameValue = requestDetailsComponent.getEventName();
-        
+        // Get data directly from ColumnMetadataComponent (Critical Integration Pattern)
+        com.ospreydcs.dp.grpc.v1.common.ColumnMetadata columnMetadata =
+            columnMetadataComponent.getColumnMetadata();
+
         // Get subscription details from component (Critical Integration Pattern)
         java.util.List<com.ospreydcs.dp.gui.model.SubscribeDataEventDetail> subscriptions = 
             subscriptionDetailsComponent != null ? 
@@ -300,9 +287,7 @@ public class DataImportViewModel {
                 new ArrayList<>();
         
         return dpApplication.ingestImportedData(
-            List.copyOf(requestTags),
-            requestAttributesMap,
-            (eventNameValue == null || eventNameValue.trim().isEmpty()) ? null : eventNameValue,
+            columnMetadata,
             List.copyOf(ingestionDataFrames),
             new ArrayList<>(subscriptions)
         );

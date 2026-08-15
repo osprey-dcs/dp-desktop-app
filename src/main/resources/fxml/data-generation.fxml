@@ -20,7 +20,7 @@
             <com.ospreydcs.dp.gui.component.ProviderDetailsComponent fx:id="providerDetailsComponent" />
             
             <!-- Request Details Section -->
-            <com.ospreydcs.dp.gui.component.RequestDetailsComponent fx:id="requestDetailsComponent" />
+            <com.ospreydcs.dp.gui.component.ColumnMetadataComponent fx:id="columnMetadataComponent" />
             
             <!-- Generation Details Section -->
             <VBox styleClass="form-container">

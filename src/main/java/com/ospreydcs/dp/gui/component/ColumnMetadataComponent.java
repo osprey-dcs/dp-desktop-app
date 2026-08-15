@@ -164,7 +164,20 @@ public class ColumnMetadataComponent extends VBox implements Initializable {
 
         final boolean hasSource = source != null && !source.isBlank();
         final boolean hasProcess = process != null && !process.isBlank();
-        final boolean hasTags = tags != null && !tags.isEmpty();
+
+        // Only non-blank tags are usable.  addTag() trims and rejects blanks, but setTags() replaces
+        // the list wholesale with no filtering, so blank entries can still reach us.
+        final List<String> validTags = new ArrayList<>();
+        if (tags != null) {
+            for (String tag : tags) {
+                if (tag != null && !tag.isBlank()) {
+                    validTags.add(tag.trim());
+                } else {
+                    logger.warn("ignoring blank column tag");
+                }
+            }
+        }
+        final boolean hasTags = !validTags.isEmpty();
 
         // Only attributes that parse to a non-blank key are usable.  The add form prevents malformed
         // entries, but setColumnAttributes() accepts an arbitrary list, and getKeyFromAttribute()
@@ -200,9 +213,7 @@ public class ColumnMetadataComponent extends VBox implements Initializable {
             metadataBuilder.setProvenance(provenanceBuilder.build());
         }
 
-        if (hasTags) {
-            metadataBuilder.addAllTags(tags);
-        }
+        metadataBuilder.addAllTags(validTags);
 
         for (String attribute : validAttributes) {
             final String key = AttributesListComponent.getKeyFromAttribute(attribute);
@@ -212,6 +223,14 @@ public class ColumnMetadataComponent extends VBox implements Initializable {
         }
 
         final ColumnMetadata columnMetadata = metadataBuilder.build();
+
+        // Backstop for the null contract: unreachable given the checks above, but keeps the contract
+        // intact if a field is later added to the builder without updating them.
+        if (columnMetadata.equals(ColumnMetadata.getDefaultInstance())) {
+            logger.debug("built column metadata was empty, treating as unspecified");
+            return null;
+        }
+
         logger.debug(
                 "built column metadata, provenance: {}, tags: {}, attributes: {}",
                 columnMetadata.hasProvenance(),

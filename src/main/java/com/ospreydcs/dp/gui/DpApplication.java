@@ -312,10 +312,16 @@ public class DpApplication {
 
                 final String requestId = UUID.randomUUID().toString();
 
+                // columnMetadata is null when the user entered none.  Only call the setter when it
+                // is non-null: params defaults to no metadata, and IngestionRequestParams documents
+                // that null is ambiguous between the two setColumnMetadata() overloads.
                 final IngestionClient.IngestionRequestParams params = new IngestionClient.IngestionRequestParams(
                         this.providerId,                   // providerId
                         requestId
-                ).setColumnMetadata(columnMetadata);
+                );
+                if (columnMetadata != null) {
+                    params.setColumnMetadata(columnMetadata);
+                }
 
                 // Call ingestData() API method
                 final IngestDataApiResult apiResult = api.ingestionClient.ingestData(
@@ -538,7 +544,11 @@ public class DpApplication {
                     columnNames,                       // columnNames
                     dataType,                          // dataType
                     values
-                ).setColumnMetadata(columnMetadata);
+                );
+                // See note in ingestImportedData(): only set metadata when the user supplied some.
+                if (columnMetadata != null) {
+                    params.setColumnMetadata(columnMetadata);
+                }
                 
                 // Call ingestData() API method for this bucket
                 final IngestDataApiResult apiResult = api.ingestionClient.ingestData(params, null, null);

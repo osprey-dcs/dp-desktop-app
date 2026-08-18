@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<BorderPane xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.ospreydcs.dp.gui.PvMetadataController" styleClass="content-pane">
+   <top>
+      <VBox styleClass="view-container">
+         <Label styleClass="section-header" text="Create PV Metadata" />
+         <Label styleClass="app-description" text="Create or update the metadata record for a process variable, including its aliases, tags, and attributes." />
+      </VBox>
+   </top>
+
+   <center>
+      <ScrollPane fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED">
+         <VBox spacing="20" styleClass="view-container">
+
+            <!-- PV Details Section -->
+            <VBox styleClass="form-container">
+               <Label styleClass="section-header" text="PV Details" />
+
+               <Label styleClass="app-description" wrapText="true"
+                      text="Saving replaces the entire existing metadata record for this PV name. Aliases, tags, attributes, description and modified by are all replaced by the values below; anything left blank is not preserved from an existing record." />
+
+               <GridPane hgap="10" vgap="10">
+                  <columnConstraints>
+                     <ColumnConstraints minWidth="160" prefWidth="160" />
+                     <ColumnConstraints hgrow="ALWAYS" />
+                  </columnConstraints>
+
+                  <Label text="PV Name: *" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                  <TextField fx:id="pvNameField" promptText="Canonical PV name" GridPane.columnIndex="1" GridPane.rowIndex="0" />
+
+                  <Label text="Description:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+                  <TextArea fx:id="descriptionArea" prefRowCount="2" promptText="PV description" wrapText="true" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+
+                  <Label text="Modified By:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+                  <TextField fx:id="modifiedByField" promptText="User or process making this change" GridPane.columnIndex="1" GridPane.rowIndex="2" />
+
+                  <!-- Aliases (reuses the tags list component, which is a free-form string list) -->
+                  <com.ospreydcs.dp.gui.component.TagsListComponent fx:id="aliasesComponent" labelText="Aliases:" GridPane.columnIndex="0" GridPane.columnSpan="2" GridPane.rowIndex="3" />
+
+                  <com.ospreydcs.dp.gui.component.TagsListComponent fx:id="tagsComponent" labelText="Tags:" GridPane.columnIndex="0" GridPane.columnSpan="2" GridPane.rowIndex="4" />
+
+                  <com.ospreydcs.dp.gui.component.AttributesListComponent fx:id="attributesComponent" labelText="Attributes:" GridPane.columnIndex="0" GridPane.columnSpan="2" GridPane.rowIndex="5" />
+               </GridPane>
+            </VBox>
+
+            <!-- Actions Section -->
+            <VBox styleClass="form-container">
+               <HBox alignment="CENTER_LEFT" spacing="10">
+                  <Button fx:id="saveButton" onAction="#onSave" styleClass="btn-secondary" text="Save" />
+                  <Button fx:id="resetButton" onAction="#onReset" styleClass="btn-secondary" text="Reset" />
+                  <ProgressIndicator fx:id="saveProgressIndicator" prefHeight="24" prefWidth="24" visible="false" />
+                  <Label fx:id="statusLabel" styleClass="app-description" />
+               </HBox>
+            </VBox>
+
+         </VBox>
+      </ScrollPane>
+   </center>
+</BorderPane>

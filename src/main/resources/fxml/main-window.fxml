@@ -22,6 +22,11 @@
                   <MenuItem fx:id="importMenuItem" onAction="#onImport" text="Import" />
                </items>
             </Menu>
+            <Menu text="Metadata">
+               <items>
+                  <MenuItem fx:id="pvMetadataCreateMenuItem" onAction="#onCreatePvMetadata" text="PV" />
+               </items>
+            </Menu>
             <Menu text="Explore">
                <items>
                   <MenuItem fx:id="dataMenuItem" disable="true" onAction="#onData" text="Data" />

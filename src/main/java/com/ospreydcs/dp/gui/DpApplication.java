@@ -827,6 +827,47 @@ public class DpApplication {
         return api.annotationClient.exportData(params);
     }
 
+    /**
+     * Creates or updates the PV metadata record for the specified canonical PV name.
+     *
+     * This is a full-replace upsert: aliases, tags, attributes, description and modifiedBy are all
+     * replaced by the values supplied here on every save, and fields omitted are not preserved from
+     * an existing record.  Callers updating an existing record must supply the complete desired
+     * state rather than only the fields being changed.
+     *
+     * Optional fields are converted from empty to null so that the client request builder omits
+     * them, following the convention used by the other wrappers in this class.  Note that pvName,
+     * description and modifiedBy are plain proto3 strings with no field presence, so the server
+     * cannot distinguish an unset field from an empty one; do not build behavior that depends on
+     * telling the two apart.
+     *
+     * Server-side rejections (blank pvName, a pvName already registered as another record's alias,
+     * or an alias already in use) are returned via resultStatus.isError and resultStatus.msg rather
+     * than thrown.
+     */
+    public SavePvMetadataApiResult savePvMetadata(
+            String pvName,
+            List<String> aliases,
+            List<String> tags,
+            Map<String, String> attributeMap,
+            String description,
+            String modifiedBy
+    ) {
+        // create params for api call, omitting optional fields that were not supplied
+        final AnnotationClient.SavePvMetadataParams params =
+                new AnnotationClient.SavePvMetadataParams(
+                        pvName,
+                        (aliases == null || aliases.isEmpty()) ? null : aliases,
+                        (tags == null || tags.isEmpty()) ? null : tags,
+                        (attributeMap == null || attributeMap.isEmpty()) ? null : attributeMap,
+                        (description == null || description.isEmpty()) ? null : description,
+                        (modifiedBy == null || modifiedBy.isEmpty()) ? null : modifiedBy
+                );
+
+        // call api method
+        return api.annotationClient.savePvMetadata(params);
+    }
+
     public ResultStatus subscribeDataEvent(
             SubscribeDataEventDetail subscriptionDetail,
             IngestionClient.IngestionDataType dataType

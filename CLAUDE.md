@@ -89,13 +89,15 @@ The application integrates with external repositories:
 ```
 File → Connection, Preferences, Exit
 Ingest → Generate, Import (Fixed and Subscribe removed)
+Metadata → PV
 Explore → Data, PVs, Providers, Datasets, Annotations, Data Events
 ```
 
 **Menu Item Logic:**
 - **Generate**: Conditionally enabled (disabled for remote production connections to prevent fake data contamination)
 - **Import**: Always enabled (real data import is safe for all environments)
-- **Data/Metadata menus**: Enabled after data ingestion (in-process mode) or immediately (remote production mode)
+- **Metadata > PV**: Always enabled (creating PV metadata does not depend on session data ingestion); navigates to pv-metadata view for creating/updating PV metadata records
+- **Explore menu items**: Enabled after data ingestion (in-process mode) or immediately (remote production mode), because they browse metadata derived by aggregation over ingested documents and have nothing to show until data exists
 - **PVs**: Navigate to pv-explore view for PV discovery and management
 - **Providers**: Navigate to provider-explore view for provider discovery and management
 - **Datasets**: Navigate to dataset-explore view for dataset discovery and Dataset Builder navigation
@@ -179,6 +181,7 @@ Explore → Data, PVs, Providers, Datasets, Annotations, Data Events
 - ✅ Custom ListCell and TableCell implementations with hyperlinks for cross-view navigation
 - ✅ Real-time data event subscription processing with background task integration
 - ✅ Event timestamp hyperlinks with automatic query editor navigation and time window setup
+- ✅ PV Metadata view for creating/updating PV metadata records via savePvMetadata() (aliases, tags, attributes, description)
 
 ## GUI Architecture
 
@@ -188,17 +191,17 @@ The application follows the Model-View-ViewModel pattern:
 **Controllers** (`src/main/java/com/ospreydcs/dp/gui/*Controller.java`)
 - Handle FXML UI binding and user interactions
 - Delegate business logic to ViewModels
-- Example: `DataGenerationController`, `DataExploreController`, `DataImportController`, `PvExploreController`, `ProviderExploreController`, `DatasetExploreController`, `AnnotationExploreController`, `DataEventExploreController`, `MainController`
+- Example: `DataGenerationController`, `DataExploreController`, `DataImportController`, `PvExploreController`, `ProviderExploreController`, `DatasetExploreController`, `AnnotationExploreController`, `DataEventExploreController`, `PvMetadataController`, `MainController`
 
 **ViewModels** (`src/main/java/com/ospreydcs/dp/gui/*ViewModel.java`)
 - Contain UI state and business logic
 - Use JavaFX properties for data binding
-- Example: `DataGenerationViewModel`, `DataExploreViewModel`, `DataImportViewModel`, `PvExploreViewModel`, `ProviderExploreViewModel`, `DatasetExploreViewModel`, `AnnotationExploreViewModel`, `DataEventExploreViewModel`, `MainViewModel`
+- Example: `DataGenerationViewModel`, `DataExploreViewModel`, `DataImportViewModel`, `PvExploreViewModel`, `ProviderExploreViewModel`, `DatasetExploreViewModel`, `AnnotationExploreViewModel`, `DataEventExploreViewModel`, `PvMetadataViewModel`, `MainViewModel`
 
 **Views** (`src/main/resources/fxml/*.fxml`)
 - FXML layout definitions
 - Styled with BootstrapFX and custom CSS
-- Example: `data-generation.fxml`, `data-explore.fxml`, `data-import.fxml`, `pv-explore.fxml`, `provider-explore.fxml`, `dataset-explore.fxml`, `annotation-explore.fxml`, `data-event-explore.fxml`, `main-window.fxml`
+- Example: `data-generation.fxml`, `data-explore.fxml`, `data-import.fxml`, `pv-explore.fxml`, `provider-explore.fxml`, `dataset-explore.fxml`, `annotation-explore.fxml`, `data-event-explore.fxml`, `pv-metadata.fxml`, `main-window.fxml`
 
 ### Data Generation Workflow (Implemented)
 1. **Provider Registration**: Users fill provider details (name, description, tags, attributes)
@@ -291,6 +294,21 @@ The application follows the Model-View-ViewModel pattern:
 10. **API Integration**: Uses `DpApplication.subscribeDataEvent()`, `cancelDataEventSubscription()`, and `dataEventsForSubscription()` methods
 11. **Menu Integration**: "Data Events" menu item enabled after data ingestion, following established patterns
 12. **Background Processing**: All operations use JavaFX Tasks to prevent UI blocking
+
+### PV Metadata Workflow (Implemented)
+1. **Navigation**: `Metadata > PV` menu item (always enabled) opens the pv-metadata view via `switchToView()`
+2. **Form Entry**: PV Name (required), Description, and Modified By text fields
+3. **Aliases**: Reuses `TagsListComponent` (a free-form string list) with `labelText="Aliases:"`
+4. **Tags & Attributes**: `TagsListComponent` and `AttributesListComponent` for tags and key-value attributes
+5. **Validation**: Save button disabled while PV Name is blank (trimmed, so whitespace-only does not enable it) or a save is in progress
+6. **Save Execution**: Background `javafx.concurrent.Task` calls `DpApplication.savePvMetadata()`, keeping the UI responsive
+7. **Status Feedback**: View-local status label plus a `ProgressIndicator` bound to an `isSaving` property
+8. **Error Surfacing**: Server rejections reported verbatim from `apiResult.resultStatus.msg`
+9. **Reset**: Clears all fields and all three list components
+
+**Full-replace upsert:** `savePvMetadata()` replaces the ENTIRE record for a given PV name — aliases, tags, attributes, description and modifiedBy are all overwritten, and omitted fields are not preserved. The view states this in the panel. Loading an existing record before editing (`getPvMetadata()`) is deferred to a follow-up.
+
+**Critical Integration Pattern:** aliases/tags/attributes are read from the injected component instances, never from ViewModel properties. `PvMetadataViewModel` holds no collections for them. The component lists are copied on the FX thread before the background task starts, so the task never touches the observable lists off-thread.
 
 ### Dataset Builder Workflow (Implemented)
 1. **Dataset Configuration**: Enter dataset name (required), description (optional), and auto-generated ID field

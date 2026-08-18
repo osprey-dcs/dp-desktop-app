@@ -213,4 +213,9 @@ public class MainViewModel {
         logger.info("Data events action triggered");
         updateStatus("Opening data event subscriptions manager...");
     }
+
+    public void handleCreatePvMetadata() {
+        logger.info("Create PV metadata action triggered");
+        updateStatus("Opening PV metadata editor...");
+    }
 }

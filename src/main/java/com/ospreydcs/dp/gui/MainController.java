@@ -37,6 +37,8 @@ public class MainController implements Initializable {
     @FXML private MenuItem datasetsMenuItem;
     @FXML private MenuItem annotationsMenuItem;
     @FXML private MenuItem dataEventsMenuItem;
+    // note: distinct from pvMetadataMenuItem above, which opens the read-only Explore > PVs view
+    @FXML private MenuItem pvMetadataCreateMenuItem;
 
     // Dependencies
     private MainViewModel viewModel;
@@ -75,6 +77,8 @@ public class MainController implements Initializable {
         datasetsMenuItem.disableProperty().bind(viewModel.datasetsEnabledProperty().not());
         annotationsMenuItem.disableProperty().bind(viewModel.annotationsEnabledProperty().not());
         dataEventsMenuItem.disableProperty().bind(viewModel.dataEventsEnabledProperty().not());
+        // pvMetadataCreateMenuItem is always enabled (no binding needed) - creating PV metadata
+        // does not depend on data having been ingested in this session
     }
 
     // Dependency injection methods
@@ -166,6 +170,13 @@ public class MainController implements Initializable {
         switchToView("/fxml/data-event-explore.fxml");
     }
 
+    // Menu action handlers - Metadata menu
+    @FXML
+    private void onCreatePvMetadata() {
+        viewModel.handleCreatePvMetadata();
+        switchToView("/fxml/pv-metadata.fxml");
+    }
+
     // Utility methods for view management
     public void switchToView(String fxmlPath) {
         try {
@@ -220,6 +231,11 @@ public class MainController implements Initializable {
                 deeController.setDpApplication(dpApplication);
                 deeController.setPrimaryStage(primaryStage);
                 deeController.setMainController(this);
+            } else if (controller instanceof PvMetadataController) {
+                PvMetadataController pmController = (PvMetadataController) controller;
+                pmController.setDpApplication(dpApplication);
+                pmController.setPrimaryStage(primaryStage);
+                pmController.setMainController(this);
             }
             
             viewModel.updateStatus("View loaded successfully");

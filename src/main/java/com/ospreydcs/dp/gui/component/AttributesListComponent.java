@@ -18,7 +18,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.ResourceBundle;
 
 /**
@@ -175,6 +177,36 @@ public class AttributesListComponent extends VBox implements Initializable {
             return attribute.substring(attribute.indexOf("=") + 1);
         }
         return "";
+    }
+
+    /**
+     * Converts a list of "key=value" attribute strings into a map.
+     *
+     * <p>Shared by every view that sends attributes to the backend, so that identical
+     * user input produces identical stored data regardless of which view submitted it.
+     * Follows the same contract as {@link #normalizeAttributes}: entries that are null
+     * or not in key=value form are skipped, keys and values are trimmed, and entries
+     * with a blank key are skipped rather than written as a blank or null map key.
+     * Insertion order is preserved. On duplicate keys the last entry wins.
+     */
+    public static Map<String, String> attributesToMap(List<String> attributes) {
+        final Map<String, String> attributeMap = new LinkedHashMap<>();
+        if (attributes == null) {
+            return attributeMap;
+        }
+        for (String attribute : attributes) {
+            if (attribute == null || !attribute.contains("=")) {
+                logger.warn("ignoring attribute not in key=value form: {}", attribute);
+                continue;
+            }
+            final String key = getKeyFromAttribute(attribute).trim();
+            if (key.isEmpty()) {
+                logger.warn("ignoring attribute with blank key: {}", attribute);
+                continue;
+            }
+            attributeMap.put(key, getValueFromAttribute(attribute).trim());
+        }
+        return attributeMap;
     }
 
     // Property accessors for external binding

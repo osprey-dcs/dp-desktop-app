@@ -105,7 +105,6 @@ public class DataExploreController implements Initializable {
     @FXML private TextField annotationIdField;
     @FXML private TextField annotationNameField;
     @FXML private TextArea annotationCommentField;
-    @FXML private TextField annotationEventNameField;
     @FXML private ListView<com.ospreydcs.dp.gui.model.DataSetDetail> targetDatasetsList;
     @FXML private Button removeTargetDatasetButton;
     @FXML private Button resetAnnotationButton;
@@ -318,7 +317,6 @@ public class DataExploreController implements Initializable {
         annotationIdField.textProperty().bindBidirectional(annotationBuilderViewModel.annotationIdProperty());
         annotationNameField.textProperty().bindBidirectional(annotationBuilderViewModel.annotationNameProperty());
         annotationCommentField.textProperty().bindBidirectional(annotationBuilderViewModel.commentProperty());
-        annotationEventNameField.textProperty().bindBidirectional(annotationBuilderViewModel.eventNameProperty());
         annotationStatusLabel.textProperty().bind(annotationBuilderViewModel.statusMessageProperty());
         
         // Annotation Button state bindings
@@ -1169,14 +1167,13 @@ public class DataExploreController implements Initializable {
         // Step 2: Extract annotation details
         String id = annotationBuilderViewModel.getAnnotationId();
         String comment = annotationBuilderViewModel.getComment();
-        String eventName = annotationBuilderViewModel.getEventName();
         var dataSets = new java.util.ArrayList<>(annotationBuilderViewModel.getDataSets());
         var tags = new java.util.ArrayList<>(tagsComponent.getTags());
         var attributes = new java.util.ArrayList<>(attributesComponent.getAttributes());
         var calculations = new java.util.ArrayList<>(calculationsDataFramesList.getItems());
         
-        logger.info("Saving annotation: id={}, name={}, comment={}, eventName={}, dataSets={}, tags={}, attributes={}, calculations={}",
-                   id, name, comment, eventName, dataSets.size(), tags.size(), attributes.size(), calculations.size());
+        logger.info("Saving annotation: id={}, name={}, comment={}, dataSets={}, tags={}, attributes={}, calculations={}",
+                   id, name, comment, dataSets.size(), tags.size(), attributes.size(), calculations.size());
         
         // Step 3: Convert attributes list to Map<String, String>
         Map<String, String> attributeMap = new HashMap<>();
@@ -1199,7 +1196,6 @@ public class DataExploreController implements Initializable {
         
         // Convert empty strings to null for optional fields
         String commentToSave = (comment != null && !comment.trim().isEmpty()) ? comment.trim() : null;
-        String eventNameToSave = (eventName != null && !eventName.trim().isEmpty()) ? eventName.trim() : null;
         List<String> tagsToSave = tags.isEmpty() ? null : new ArrayList<>(tags);
         Map<String, String> attributesToSave = attributeMap.isEmpty() ? null : attributeMap;
         
@@ -1218,7 +1214,6 @@ public class DataExploreController implements Initializable {
                     commentToSave,
                     tagsToSave,
                     attributesToSave,
-                    eventNameToSave,
                     calculations
                 );
             

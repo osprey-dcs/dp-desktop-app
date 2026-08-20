@@ -45,7 +45,6 @@ public class AnnotationExploreController implements Initializable {
     @FXML private TableColumn<AnnotationInfoTableRow, String> commentColumn;
     @FXML private TableColumn<AnnotationInfoTableRow, String> tagsColumn;
     @FXML private TableColumn<AnnotationInfoTableRow, String> attributesColumn;
-    @FXML private TableColumn<AnnotationInfoTableRow, String> eventColumn;
     @FXML private TableColumn<AnnotationInfoTableRow, String> calculationsColumn;
     @FXML private Label resultCountLabel;
     @FXML private Label resultsStatusLabel;
@@ -103,7 +102,6 @@ public class AnnotationExploreController implements Initializable {
         commentColumn.setCellValueFactory(new PropertyValueFactory<>("comment"));
         tagsColumn.setCellValueFactory(new PropertyValueFactory<>("tags"));
         attributesColumn.setCellValueFactory(new PropertyValueFactory<>("attributes"));
-        eventColumn.setCellValueFactory(new PropertyValueFactory<>("event"));
         
         // Set up hyperlink columns
         setupAnnotationIdColumn();

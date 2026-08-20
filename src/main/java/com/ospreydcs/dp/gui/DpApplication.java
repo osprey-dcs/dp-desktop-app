@@ -779,7 +779,6 @@ public class DpApplication {
             String comment,
             List<String> tags,
             Map<String, String> attributeMap,
-            String eventName,
             List<DataFrameDetails> calculationsDataFrameDetails
     ) {
         // create API calculations (null when none were imported, so the field is omitted)

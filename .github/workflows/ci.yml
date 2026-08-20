@@ -88,12 +88,11 @@ jobs:
         working-directory: dp-service
         run: mvn -B -Dmaven.test.skip=true install
 
-      - name: Build dp-desktop-app
-        # `package` rather than bare `compile`: same coverage plus it exercises the shade
-        # plugin, whose breakage would otherwise only surface at release time.  There is no
-        # test run yet -- src/test is empty; dropping -DskipTests is staged behind the test
-        # harness wiring (issue #29, PR 2).
-        run: mvn -B -DskipTests package
+      - name: Build and test dp-desktop-app
+        # `package` rather than bare `compile`: it runs the unit tests via surefire and
+        # exercises the shade plugin, whose breakage would otherwise only surface at
+        # release time.
+        run: mvn -B package
 
       - name: Verify shaded JAR was produced
         # Same check as release.yml's "Locate shaded JAR" step.  Without it, a shade

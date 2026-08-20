@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      JAVA_VERSION: '21'
+      # The dp-grpc and dp-service dependencies are not published to any package registry;
+      # like release.yml, CI builds them from sibling checkouts.  Building at `main` assumes
+      # all three repos carry the same pom version (they are bumped in lockstep).  If a
+      # sibling bumps first, this build breaks until its ref is pinned here -- same failure
+      # mode as local development, and a one-line fix.
+      DP_GRPC_REF: 'main'
+      DP_SERVICE_REF: 'main'
+
+    steps:
+      - name: Checkout this repository
+        # Actions are pinned to commit SHAs rather than floating major tags: a mutable tag
+        # can be repointed by whoever controls the action's repo, and every run would pick
+        # up the new code with no diff and no review.  Dependabot (.github/dependabot.yml)
+        # keeps the pins current.
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up JDK
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'maven'
+
+      - name: Checkout dp-grpc dependency
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: 'osprey-dcs/dp-grpc'
+          path: dp-grpc
+          ref: ${{ env.DP_GRPC_REF }}
+
+      - name: Build and install dp-grpc to local Maven repo
+        working-directory: dp-grpc
+        run: |
+          mvn -B -DskipTests install
+
+      - name: Checkout dp-service dependency
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: 'osprey-dcs/dp-service'
+          path: dp-service
+          ref: ${{ env.DP_SERVICE_REF }}
+
+      - name: Build and install dp-service to local Maven repo
+        working-directory: dp-service
+        run: |
+          mvn -B -DskipTests install
+
+      - name: Build dp-desktop-app
+        # `package` rather than bare `compile`: same coverage plus it exercises the shade
+        # plugin, whose breakage would otherwise only surface at release time.  There is no
+        # test run yet -- src/test is empty; dropping -DskipTests is staged behind the test
+        # harness wiring (issue #29, PR 2).
+        run: |
+          mvn -B -DskipTests package

@@ -12,7 +12,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -265,7 +264,8 @@ public class DataImportViewModel {
         var providerAttributes = providerDetailsComponent.getProviderAttributes();
         
         // Convert provider attributes list to map
-        Map<String, String> attributesMap = convertAttributesToMap(providerAttributes);
+        Map<String, String> attributesMap =
+            com.ospreydcs.dp.gui.component.AttributesListComponent.attributesToMap(providerAttributes);
         
         return dpApplication.registerProvider(
             providerDetailsComponent.getProviderName(),
@@ -291,19 +291,6 @@ public class DataImportViewModel {
             List.copyOf(ingestionDataFrames),
             new ArrayList<>(subscriptions)
         );
-    }
-
-    private Map<String, String> convertAttributesToMap(ObservableList<String> attributesList) {
-        Map<String, String> attributesMap = new HashMap<>();
-        for (String attribute : attributesList) {
-            if (attribute != null && attribute.contains("=")) {
-                String[] parts = attribute.split("=", 2);
-                if (parts.length == 2) {
-                    attributesMap.put(parts[0].trim(), parts[1].trim());
-                }
-            }
-        }
-        return attributesMap;
     }
 
     public void resetImportDetails() {

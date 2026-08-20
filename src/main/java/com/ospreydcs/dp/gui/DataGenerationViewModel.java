@@ -11,7 +11,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Map;
 
 public class DataGenerationViewModel {
@@ -245,7 +244,8 @@ public class DataGenerationViewModel {
             // Step 1: Register provider (5.2.2) - Get data directly from ProviderDetailsComponent (Critical Integration Pattern)
             var providerTags = providerDetailsComponent.getProviderTags();
             var providerAttributes = providerDetailsComponent.getProviderAttributes();
-            Map<String, String> providerAttributesMap = convertAttributesToMap(providerAttributes);
+            Map<String, String> providerAttributesMap =
+                    com.ospreydcs.dp.gui.component.AttributesListComponent.attributesToMap(providerAttributes);
             
             com.ospreydcs.dp.service.common.model.ResultStatus registerResult = dpApplication.registerProvider(
                 providerDetailsComponent.getProviderName(),
@@ -317,21 +317,6 @@ public class DataGenerationViewModel {
         } finally {
             isGenerating.set(false);
         }
-    }
-    
-    private Map<String, String> convertAttributesToMap(ObservableList<String> attributeList) {
-        Map<String, String> attributeMap = new java.util.HashMap<>();
-        for (String attribute : attributeList) {
-            String[] parts = attribute.split("=", 2); // Split into at most 2 parts
-            if (parts.length == 2) {
-                String key = parts[0].trim();
-                String value = parts[1].trim();
-                attributeMap.put(key, value);
-            } else {
-                logger.warn("Invalid attribute format: {}", attribute);
-            }
-        }
-        return attributeMap;
     }
 
     private boolean isFormValid() {

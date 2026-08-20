@@ -109,7 +109,7 @@ public class PvMetadataViewModel {
         final List<String> tags = tagsComponent != null
                 ? new ArrayList<>(tagsComponent.getTags()) : new ArrayList<>();
         final Map<String, String> attributeMap = attributesComponent != null
-                ? convertAttributesToMap(attributesComponent.getAttributes()) : new LinkedHashMap<>();
+                ? AttributesListComponent.attributesToMap(attributesComponent.getAttributes()) : new LinkedHashMap<>();
 
         final String descriptionValue = description.get() == null ? "" : description.get().trim();
         final String modifiedByValue = modifiedBy.get() == null ? "" : modifiedBy.get().trim();
@@ -184,21 +184,4 @@ public class PvMetadataViewModel {
         logger.debug("PV metadata form reset");
     }
 
-    /**
-     * Converts the component's "key=value" attribute strings to a map.  A duplicate key would be
-     * collapsed here, but AttributesListComponent already keys on the parsed name, so duplicates
-     * cannot reach this point.
-     */
-    private Map<String, String> convertAttributesToMap(List<String> attributes) {
-        final Map<String, String> attributeMap = new LinkedHashMap<>();
-        if (attributes == null) {
-            return attributeMap;
-        }
-        for (String attribute : attributes) {
-            final String key = AttributesListComponent.getKeyFromAttribute(attribute);
-            final String value = AttributesListComponent.getValueFromAttribute(attribute);
-            attributeMap.put(key, value);
-        }
-        return attributeMap;
-    }
 }

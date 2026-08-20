@@ -1,9 +1,12 @@
 package com.ospreydcs.dp.gui.model;
 
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.TimeZone;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -12,6 +15,27 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * "ID: [dataset-id] - Dataset name - Description snippet - First data block".
  */
 public class DataSetDetailTest {
+    /*
+     * These tests assert literal timestamp strings, and the classes under test format
+     * via ZoneId.systemDefault(). Surefire pins the fork to UTC, but that does not apply
+     * when the class is run directly from an IDE, so pin it here too and make the tests
+     * runner-independent. The previous default is restored afterwards because surefire
+     * reuses a single fork across test classes (forkCount=1, reuseForks=true), so an
+     * unrestored setDefault would silently leak into every class that runs later.
+     */
+    private static TimeZone previousDefaultTimeZone;
+
+    @BeforeAll
+    public static void pinTimeZoneToUtc() {
+        previousDefaultTimeZone = TimeZone.getDefault();
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+    }
+
+    @AfterAll
+    public static void restoreTimeZone() {
+        TimeZone.setDefault(previousDefaultTimeZone);
+    }
+
 
     private static final Instant BEGIN = Instant.parse("2025-08-15T11:03:00Z");
     private static final Instant END = Instant.parse("2025-08-15T11:05:00Z");

@@ -92,6 +92,9 @@ jobs:
         # `package` rather than bare `compile`: it runs the unit tests via surefire and
         # exercises the shade plugin, whose breakage would otherwise only surface at
         # release time.
+        # Note the ordering: surefire runs before shade, so a failing unit test halts
+        # the build here and the shade plugin (and the shaded-JAR check below) never
+        # runs. A test failure therefore masks any shade breakage until it is fixed.
         run: mvn -B package
 
       - name: Verify shaded JAR was produced

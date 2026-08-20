@@ -1,18 +1,44 @@
 package com.ospreydcs.dp.gui.model;
 
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.TimeZone;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 /**
  * Tests for the user-visible toString() format of DataBlockDetail.
- * The test JVM runs in UTC (see surefire argLine), so expected strings are literal.
+ * Timestamps are asserted as literal UTC strings; the class pins the default
+ * time zone to UTC in @BeforeAll (surefire also pins the fork) so the expectations
+ * hold regardless of how the test is run.
  */
 public class DataBlockDetailTest {
+    /*
+     * These tests assert literal timestamp strings, and the classes under test format
+     * via ZoneId.systemDefault(). Surefire pins the fork to UTC, but that does not apply
+     * when the class is run directly from an IDE, so pin it here too and make the tests
+     * runner-independent. The previous default is restored afterwards because surefire
+     * reuses a single fork across test classes (forkCount=1, reuseForks=true), so an
+     * unrestored setDefault would silently leak into every class that runs later.
+     */
+    private static TimeZone previousDefaultTimeZone;
+
+    @BeforeAll
+    public static void pinTimeZoneToUtc() {
+        previousDefaultTimeZone = TimeZone.getDefault();
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+    }
+
+    @AfterAll
+    public static void restoreTimeZone() {
+        TimeZone.setDefault(previousDefaultTimeZone);
+    }
+
 
     private static final Instant BEGIN = Instant.parse("2025-08-15T11:03:00Z");
     private static final Instant END = Instant.parse("2025-08-15T11:05:00Z");

@@ -19,6 +19,12 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <main.basedir>${project.basedir}</main.basedir>
+        <!-- Default for the surefire <argLine> @{argLine} placeholder. Maven does not
+             resolve @{...} for an undefined property; it passes the literal text to the
+             JVM and the test fork dies on startup. Declaring it empty here keeps the
+             placeholder safe today, and a coverage agent (jacoco prepare-agent) will
+             overwrite this value at build time so its -javaagent flag is preserved. -->
+        <argLine></argLine>
         <dp-grpc.version>1.16.0</dp-grpc.version>
         <dp-service.version>1.16.0</dp-service.version>
         <mongodb.version>5.4.0</mongodb.version>
@@ -243,8 +249,13 @@
                 <configuration>
                     <!-- Several model classes format timestamps via ZoneId.systemDefault(); pin
                          the test JVM to UTC so expected strings are identical on every machine
-                         and in CI. -->
-                    <argLine>-Duser.timezone=UTC</argLine>
+                         and in CI.
+                         @{argLine} is the late-evaluated form: it appends to whatever the
+                         'argLine' property holds rather than replacing it, so a coverage agent
+                         (e.g. jacoco prepare-agent) can still contribute its -javaagent flag.
+                         Without it, adding jacoco later would silently drop the agent and
+                         produce empty coverage reports with no error. -->
+                    <argLine>@{argLine} -Duser.timezone=UTC</argLine>
                 </configuration>
             </plugin>
 

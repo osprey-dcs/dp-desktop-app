@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  pull_request:
+    # dev-* covers the dev-1.NN integration branches this repo has used as PR bases;
+    # without it those PRs would get no CI at all.
+    branches: [ main, dev-* ]
+  # PRs are validated against a base that may be stale by merge time, and the sibling
+  # repos' main can break this build with no local commits at all -- so build main itself
+  # on every push to it.
+  push:
+    branches: [ main ]
+
+# A superseded run answers questions about commits nobody will merge; cancel it when a
+# newer push arrives.  (Not appropriate for release.yml, where every run publishes.)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      # The dp-grpc and dp-service dependencies are not published to any package registry;
+      # like release.yml, CI builds them from sibling checkouts.  Building at `main` assumes
+      # all three repos carry the same pom version (they are bumped in lockstep).  Two known
+      # consequences, both accepted: a sibling bumping first breaks this build until its ref
+      # is pinned here (same failure mode as local development, one-line fix), and the
+      # coordinated version-bump PR in this repo stays red until the sibling bumps merge.
+      DP_GRPC_REF: 'main'
+      DP_SERVICE_REF: 'main'
+
+    steps:
+      - name: Checkout this repository
+        # Actions are pinned to commit SHAs rather than floating major tags: a mutable tag
+        # can be repointed by whoever controls the action's repo, and every run would pick
+        # up the new code with no diff and no review.  Dependabot (.github/dependabot.yml)
+        # keeps the pins current.
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up JDK
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Cache Maven repository
+        # An explicit cache step rather than setup-java's `cache: maven`, so the
+        # com.ospreydcs artifacts installed from the sibling checkouts below can be
+        # excluded: they are rebuilt every run, track sibling main rather than this repo's
+        # pom.xml (the cache key), and a cache entry is immutable once saved -- caching
+        # them would pin progressively staler jars under an unchanged key.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.m2/repository
+            !~/.m2/repository/com/ospreydcs
+          key: ${{ runner.os }}-maven-${{ hashFiles('pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Checkout dp-grpc dependency
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: 'osprey-dcs/dp-grpc'
+          path: dp-grpc
+          ref: ${{ env.DP_GRPC_REF }}
+
+      - name: Build and install dp-grpc to local Maven repo
+        # -Dmaven.test.skip=true (not -DskipTests) so the siblings' test sources are not
+        # even compiled: this repo consumes only their main artifacts, and a test-compile
+        # error on a sibling's main should not redden PRs here.
+        working-directory: dp-grpc
+        run: mvn -B -Dmaven.test.skip=true install
+
+      - name: Checkout dp-service dependency
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: 'osprey-dcs/dp-service'
+          path: dp-service
+          ref: ${{ env.DP_SERVICE_REF }}
+
+      - name: Build and install dp-service to local Maven repo
+        working-directory: dp-service
+        run: mvn -B -Dmaven.test.skip=true install
+
+      - name: Build dp-desktop-app
+        # `package` rather than bare `compile`: same coverage plus it exercises the shade
+        # plugin, whose breakage would otherwise only surface at release time.  There is no
+        # test run yet -- src/test is empty; dropping -DskipTests is staged behind the test
+        # harness wiring (issue #29, PR 2).
+        run: mvn -B -DskipTests package
+
+      - name: Verify shaded JAR was produced
+        # Same check as release.yml's "Locate shaded JAR" step.  Without it, a shade
+        # misconfiguration that silently stops producing the JAR (or renames it) would
+        # pass CI and only fail on a rel-* tag.
+        run: |
+          set -euo pipefail
+          ls -l target
+          SHADED_JAR=$(ls target/dp-desktop-app-*-shaded.jar 2>/dev/null | head -n 1)
+          if [ -z "$SHADED_JAR" ]; then
+            echo "::error::shaded JAR not found in target/"
+            exit 1
+          fi
+          echo "Found shaded JAR: $SHADED_JAR"

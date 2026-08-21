@@ -13,8 +13,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for the static "key=value" parsing helpers on AttributesListComponent.
- * Only the static methods are exercised — instantiating the component would load FXML
- * and JavaFX controls, which is out of scope for unit tests (issue #29).
+ * Only the static methods are exercised here, so this class stays toolkit-free;
+ * the instance API (add/remove/set against a live component) is covered by
+ * AttributesListComponentInstanceTest, which runs under the JavaFX toolkit.
  */
 public class AttributesListComponentTest {
 

@@ -89,7 +89,7 @@ The application integrates with external repositories:
 ```
 File → Connection, Preferences, Exit
 Ingest → Generate, Import (Fixed and Subscribe removed)
-Metadata → PV
+Metadata → PV, Machine Configuration
 Explore → Data, PVs, Providers, Datasets, Annotations, Data Events
 ```
 
@@ -97,6 +97,7 @@ Explore → Data, PVs, Providers, Datasets, Annotations, Data Events
 - **Generate**: Conditionally enabled (disabled for remote production connections to prevent fake data contamination)
 - **Import**: Always enabled (real data import is safe for all environments)
 - **Metadata > PV**: Always enabled (creating PV metadata does not depend on session data ingestion); navigates to pv-metadata view for creating/updating PV metadata records
+- **Metadata > Machine Configuration**: Always enabled (same rationale); navigates to machine-configuration view for creating machine configuration records and their activation intervals
 - **Explore menu items**: Enabled after data ingestion (in-process mode) or immediately (remote production mode), because they browse metadata derived by aggregation over ingested documents and have nothing to show until data exists
 - **PVs**: Navigate to pv-explore view for PV discovery and management
 - **Providers**: Navigate to provider-explore view for provider discovery and management
@@ -182,6 +183,7 @@ Explore → Data, PVs, Providers, Datasets, Annotations, Data Events
 - ✅ Real-time data event subscription processing with background task integration
 - ✅ Event timestamp hyperlinks with automatic query editor navigation and time window setup
 - ✅ PV Metadata view for creating/updating PV metadata records via savePvMetadata() (aliases, tags, attributes, description)
+- ✅ Machine Configuration view for creating configuration records and activation intervals via saveConfiguration() / saveConfigurationActivation(), with a getConfiguration() overwrite warning
 
 ## GUI Architecture
 
@@ -191,17 +193,17 @@ The application follows the Model-View-ViewModel pattern:
 **Controllers** (`src/main/java/com/ospreydcs/dp/gui/*Controller.java`)
 - Handle FXML UI binding and user interactions
 - Delegate business logic to ViewModels
-- Example: `DataGenerationController`, `DataExploreController`, `DataImportController`, `PvExploreController`, `ProviderExploreController`, `DatasetExploreController`, `AnnotationExploreController`, `DataEventExploreController`, `PvMetadataController`, `MainController`
+- Example: `DataGenerationController`, `DataExploreController`, `DataImportController`, `PvExploreController`, `ProviderExploreController`, `DatasetExploreController`, `AnnotationExploreController`, `DataEventExploreController`, `PvMetadataController`, `MachineConfigurationController`, `MainController`
 
 **ViewModels** (`src/main/java/com/ospreydcs/dp/gui/*ViewModel.java`)
 - Contain UI state and business logic
 - Use JavaFX properties for data binding
-- Example: `DataGenerationViewModel`, `DataExploreViewModel`, `DataImportViewModel`, `PvExploreViewModel`, `ProviderExploreViewModel`, `DatasetExploreViewModel`, `AnnotationExploreViewModel`, `DataEventExploreViewModel`, `PvMetadataViewModel`, `MainViewModel`
+- Example: `DataGenerationViewModel`, `DataExploreViewModel`, `DataImportViewModel`, `PvExploreViewModel`, `ProviderExploreViewModel`, `DatasetExploreViewModel`, `AnnotationExploreViewModel`, `DataEventExploreViewModel`, `PvMetadataViewModel`, `MachineConfigurationViewModel`, `MainViewModel`
 
 **Views** (`src/main/resources/fxml/*.fxml`)
 - FXML layout definitions
 - Styled with BootstrapFX and custom CSS
-- Example: `data-generation.fxml`, `data-explore.fxml`, `data-import.fxml`, `pv-explore.fxml`, `provider-explore.fxml`, `dataset-explore.fxml`, `annotation-explore.fxml`, `data-event-explore.fxml`, `pv-metadata.fxml`, `main-window.fxml`
+- Example: `data-generation.fxml`, `data-explore.fxml`, `data-import.fxml`, `pv-explore.fxml`, `provider-explore.fxml`, `dataset-explore.fxml`, `annotation-explore.fxml`, `data-event-explore.fxml`, `pv-metadata.fxml`, `machine-configuration.fxml`, `main-window.fxml`
 
 ### Data Generation Workflow (Implemented)
 1. **Provider Registration**: Users fill provider details (name, description, tags, attributes)
@@ -309,6 +311,30 @@ The application follows the Model-View-ViewModel pattern:
 **Full-replace upsert:** `savePvMetadata()` replaces the ENTIRE record for a given PV name — aliases, tags, attributes, description and modifiedBy are all overwritten, and omitted fields are not preserved. The view states this in the panel. Loading an existing record before editing (`getPvMetadata()`) is deferred to a follow-up.
 
 **Critical Integration Pattern:** aliases/tags/attributes are read from the injected component instances, never from ViewModel properties. `PvMetadataViewModel` holds no collections for them. The component lists are copied on the FX thread before the background task starts, so the task never touches the observable lists off-thread.
+
+### Machine Configuration Workflow (Implemented)
+1. **Navigation**: `Metadata > Machine Configuration` menu item (always enabled) opens the machine-configuration view via `switchToView()`
+2. **Section 1 — Configuration**: Configuration Name (required), Category (required), Description, Parent Configuration, Modified By, plus `TagsListComponent` and `AttributesListComponent`
+3. **Configuration Validation**: Save button disabled while either required field is blank (trimmed) or a save is in progress
+4. **Overwrite Warning**: Before saving, `getConfiguration()` checks for an existing record and prompts for confirmation, since the save is a full-replace upsert
+5. **Section 2 — Activations**: Disabled until a configuration is saved in this session; start/end `DatePicker` + hour/minute/second `Spinner`s, Client Activation ID, Description, Modified By, plus its own independent `TagsListComponent` and `AttributesListComponent`
+6. **Activation Validation**: Add button disabled until both dates are set; end time must be after start time
+7. **Session List**: Activations created this session accumulate in a `ListView` showing the activation id and time interval, via `ConfigurationActivationDetail`
+8. **Save Execution**: Background `javafx.concurrent.Task` calls `DpApplication.saveConfiguration()` / `saveConfigurationActivation()`
+9. **Status Feedback**: View-local status label plus a `ProgressIndicator` bound to an `isSaving` property
+10. **Reset**: Clears both forms, all four list components, the session activation list, and re-disables the activation section
+
+**Why one view and not two:** an activation cannot be created without an existing configuration. The server resolves `configurationName` against the Configuration collection on every activation save and rejects the request outright if it does not resolve (`no Configuration found for configurationName: '<name>'`). Gating section 2 on a configuration saved in this session, and binding it to the name the server returned rather than to the still-editable text field, makes that rejection unreachable through normal use.
+
+**Activation overlap is rejected on same configurationName OR same category.** The Configuration's category is denormalized onto each activation record as `internalCategory`, so two *different* configurations sharing a category cannot have overlapping activations. This is correct server behavior; the view surfaces the message rather than swallowing it.
+
+**Detecting not-found:** `getConfiguration()` reports a missing record as a *rejection*, not an empty successful result. Branch on `ApiResultBase.isReject()` rather than `isError()` — a service that is unreachable also sets `isError`, and treating that as "no existing record" would suppress the overwrite warning. Note that `REJECT` also covers server-side validation failures, so reading it as not-found is only safe once the request itself is known to be valid.
+
+**Full-replace upsert:** both `saveConfiguration()` and `saveConfigurationActivation()` replace the ENTIRE record; omitted fields are not preserved. The view states this in the panel. Loading an existing record before editing is deferred to a follow-up.
+
+**End time is required in this version.** The server supports open-ended activations (absent `endTime`), but one blocks every subsequent activation in its entire category indefinitely. This is a UI-side constraint only — `DpApplication.saveConfigurationActivation()` keeps `endTime` nullable.
+
+**Critical Integration Pattern:** tags/attributes are read from the injected component instances, never from ViewModel properties. There are **four** components, not two — the configuration and the activation carry separate tag and attribute fields on separate records. The component lists are copied on the FX thread before each background task starts.
 
 ### Dataset Builder Workflow (Implemented)
 1. **Dataset Configuration**: Enter dataset name (required), description (optional), and auto-generated ID field
@@ -443,6 +469,14 @@ Represents data event subscription configuration:
 - Used for data event monitoring and notification subscriptions
 - Integrated with data generation and import workflows for event-driven data ingestion
 
+### ConfigurationActivationDetail (`src/main/java/com/ospreydcs/dp/gui/model/ConfigurationActivationDetail.java`)
+Represents a configuration activation created during the current session:
+- Client activation ID, configuration name, start and end time (Instant)
+- The activation ID is always the identifier of the saved record: the one supplied in the request, or the one the server generated when the request omitted it — in the latter case it is the caller's only handle on the record, which is why it is displayed
+- Display string formatting for ListView presentation: "activation-id: 2026-08-21 09:00:00 -> 2026-08-21 17:00:00"
+- A null end time renders as "open-ended"; the view requires an end time, but the model does not impose the restriction the UI does
+- Used in machine-configuration view for the session activation list
+
 ### Global State Management
 `DpApplication` maintains cross-view state with automatic synchronization:
 - Provider ID and name after registration
@@ -492,7 +526,21 @@ cd ~/dp.fork/dp-java/dp-service
 mvn clean install -DskipTests
 cd ~/dp.fork/dp-java/dp-desktop-app
 mvn clean compile
+
+# Run the test suite
+mvn clean test
 ```
+
+**Test suite** (added by #29): unit tests for models, components and the `DpApplication` static
+helpers, plus JavaFX smoke tests run under a real toolkit. `ViewLoadSmokeTest` enumerates every
+FXML under `/fxml` declaring an `fx:controller` **from the classpath rather than a hand-maintained
+list**, so a newly added view is covered the moment its file lands — it will fail the build on an
+FXML syntax error, an `fx:id` type mismatch, or an `initialize()` that throws. This is why
+`initialize()` must stay dependency-free, with `DpApplication` / `Stage` / `MainController`
+injected afterward via setters.
+
+Post-injection behavior (button handlers calling `DpApplication`, background tasks, navigation) is
+not covered — that needs an injection seam and robot-driven interaction testing.
 
 ## MongoDB Integration
 - Default database: `dp-demo`
@@ -654,6 +702,14 @@ javafx.application.Platform.runLater(() -> {
 - Use `apiResult.resultStatus.msg` (not `.message`) for error messages
 - Handle null responses and exceptional results from gRPC services
 - Status messages should provide immediate user feedback during API operations
+- Use `ApiResultBase.isReject()` to distinguish a *rejected* request from a service failure. The single-record getters (`getConfiguration()`, and the other getters by the same convention) report a missing record as a rejection rather than as an empty successful result, so an existence check must branch on `isReject()` — `isError()` alone cannot tell "does not exist" from "the service is unreachable". Note `REJECT` also covers server-side validation failures, so reading it as not-found is only safe for a request already known to be valid.
+
+**Parameter normalization helpers** (package-private statics on `DpApplication`, unit-tested in `DpApplicationParamsTest`):
+- `emptyToNull(String / List / Map)` — a field left blank in the UI is omitted from the request rather than sent as an empty string or empty collection
+- `setIfPresent()` / `setIfBothPresent()` — conditional criterion setters for the query wrappers
+- `timestampFromInstant(Instant)` — converts to the protobuf `Timestamp`, **mapping null to null**. The null case is the point: `Timestamp` is a message field with real protobuf field presence, so an optional time left unset must reach the request builder as null. A zero-valued `Timestamp` would mark the field present and describe a time at the epoch — for `SaveConfigurationActivationRequest.endTime` that is the difference between an open-ended activation and one that ended in 1970. `TimestampUtility.getTimestampFromInstant()` does the non-null conversion but throws on null, so it cannot be called directly for an optional field.
+
+Prefer these over re-implementing the conversions inline: they are extracted precisely so they are testable without a service ecosystem.
 
 ### Debugging Component Data Issues
 When tags/attributes don't appear in the database:

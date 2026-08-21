@@ -18,6 +18,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public class DpApplication {
@@ -56,6 +58,83 @@ public class DpApplication {
         GREATER_OR_EQUAL,
         LESS,
         LESS_OR_EQUAL,
+    }
+
+    // ------------------- parameter normalization helpers ---------------------------
+    //
+    // The client request builders in dp-service treat null as "field not supplied" and omit it
+    // from the request, while the UI hands this class empty strings and collections for fields
+    // the user left blank.  These helpers convert between the two conventions in one place.
+    // Package-private and static so they are unit-testable without a service ecosystem.
+
+    /**
+     * Returns the value, or null when it is null or empty, so optional request fields left
+     * blank in the UI are omitted rather than sent as empty strings.
+     */
+    static String emptyToNull(String value) {
+        return (value == null || value.isEmpty()) ? null : value;
+    }
+
+    /**
+     * Returns the list, or null when it is null or empty.
+     */
+    static <T> List<T> emptyToNull(List<T> value) {
+        return (value == null || value.isEmpty()) ? null : value;
+    }
+
+    /**
+     * Returns the map, or null when it is null or empty.
+     */
+    static <K, V> Map<K, V> emptyToNull(Map<K, V> value) {
+        return (value == null || value.isEmpty()) ? null : value;
+    }
+
+    /**
+     * Applies the setter only when the criterion is non-null and non-empty, so blank search
+     * fields are left out of the query entirely.
+     */
+    static void setIfPresent(String criterion, Consumer<String> setter) {
+        if (criterion != null && !criterion.isEmpty()) {
+            setter.accept(criterion);
+        }
+    }
+
+    /**
+     * Applies the setter only when BOTH values are non-null and non-empty.  Used for the
+     * attribute key/value criterion pair, which is only meaningful as a complete pair.
+     */
+    static void setIfBothPresent(String first, String second, BiConsumer<String, String> setter) {
+        if (first != null && !first.isEmpty() && second != null && !second.isEmpty()) {
+            setter.accept(first, second);
+        }
+    }
+
+    /**
+     * Builds the protobuf Calculations message from imported data frames, or returns null when
+     * there are none so the request builder omits the calculations field.  Returning null for
+     * the no-calculations case matches AnnotationClient.buildSaveAnnotationRequest(), which
+     * null-checks the field; previously saveAnnotation() called build() on a builder that was
+     * never created and threw NullPointerException for annotations without calculations.
+     */
+    static Calculations buildCalculations(List<DataFrameDetails> calculationsDataFrameDetails) {
+        if (calculationsDataFrameDetails == null || calculationsDataFrameDetails.isEmpty()) {
+            return null;
+        }
+        final Calculations.Builder calculationsBuilder = Calculations.newBuilder();
+        for (DataFrameDetails dataFrameDetails : calculationsDataFrameDetails) {
+            final TimestampList frameTimestampList =
+                    TimestampList.newBuilder().addAllTimestamps(dataFrameDetails.getTimestamps()).build();
+            final DataTimestamps frameDataTimestamps =
+                    DataTimestamps.newBuilder().setTimestampList(frameTimestampList).build();
+            final Calculations.CalculationsDataFrame calculationsDataFrame =
+                    Calculations.CalculationsDataFrame.newBuilder()
+                            .setName(dataFrameDetails.getName())
+                            .setDataTimestamps(frameDataTimestamps)
+                            .addAllDataColumns(dataFrameDetails.getDataColumns())
+                            .build();
+            calculationsBuilder.addCalculationDataFrames(calculationsDataFrame);
+        }
+        return calculationsBuilder.build();
     }
 
     // Getters for state variables (for use by other views)
@@ -633,20 +712,12 @@ public class DpApplication {
             String attributeKeyCriterion,
             String attributeValueCriterion
     ) {
-        // create params
+        // create params, omitting criteria left blank in the UI
         QueryClient.QueryProvidersRequestParams params = new QueryClient.QueryProvidersRequestParams();
-        if (idCriterion != null && !idCriterion.isEmpty()) {
-            params.setIdCriterion(idCriterion);
-        }
-        if (textCriterion != null && !textCriterion.isEmpty()) {
-            params.setTextCriterion(textCriterion);
-        }
-        if (tagsCriterion != null && !tagsCriterion.isEmpty()) {
-            params.setTagsCriterion(tagsCriterion);
-        }
-        if (attributeKeyCriterion != null && !attributeKeyCriterion.isEmpty() && attributeValueCriterion != null && !attributeValueCriterion.isEmpty()) {
-            params.setAttributesCriterion(attributeKeyCriterion, attributeValueCriterion);
-        }
+        setIfPresent(idCriterion, params::setIdCriterion);
+        setIfPresent(textCriterion, params::setTextCriterion);
+        setIfPresent(tagsCriterion, params::setTagsCriterion);
+        setIfBothPresent(attributeKeyCriterion, attributeValueCriterion, params::setAttributesCriterion);
 
         return api.queryClient.queryProviders(params);
     }
@@ -666,17 +737,10 @@ public class DpApplication {
             ));
         }
 
-        // create API dataset containing datablocks
-        String annotationId;
-        // make sure id is either null or non-empty string
-        if (id != null && id.isEmpty()) {
-            annotationId = null;
-        } else {
-            annotationId = id;
-        }
+        // create API dataset containing datablocks, normalizing a blank id to null
         final AnnotationClient.AnnotationDataSet annotationDataSet =
                 new AnnotationClient.AnnotationDataSet(
-                        annotationId,
+                        emptyToNull(id),
                         name,
                         "demo-user",
                         description,
@@ -697,20 +761,12 @@ public class DpApplication {
             String textCriterion, // search name and description fields
             String pvNameCriterion
     ) {
-        // create params
+        // create params, omitting criteria left blank in the UI
         AnnotationClient.QueryDataSetsParams params = new AnnotationClient.QueryDataSetsParams();
-        if (idCriterion != null && !idCriterion.isEmpty()) {
-            params.setIdCriterion(idCriterion);
-        }
-        if (ownerCriterion != null && !ownerCriterion.isEmpty()) {
-            params.setOwnerCriterion(ownerCriterion);
-        }
-        if (textCriterion != null && !textCriterion.isEmpty()) {
-            params.setTextCriterion(textCriterion);
-        }
-        if (pvNameCriterion != null && !pvNameCriterion.isEmpty()) {
-            params.setPvNameCriterion(pvNameCriterion);
-        }
+        setIfPresent(idCriterion, params::setIdCriterion);
+        setIfPresent(ownerCriterion, params::setOwnerCriterion);
+        setIfPresent(textCriterion, params::setTextCriterion);
+        setIfPresent(pvNameCriterion, params::setPvNameCriterion);
 
         return api.annotationClient.queryDataSets(params);
     }
@@ -723,25 +779,10 @@ public class DpApplication {
             String comment,
             List<String> tags,
             Map<String, String> attributeMap,
-            String eventName,
             List<DataFrameDetails> calculationsDataFrameDetails
     ) {
-        // create API calculations
-        Calculations.Builder calculationsBuilder = null;
-        if (calculationsDataFrameDetails != null && !calculationsDataFrameDetails.isEmpty()) {
-            calculationsBuilder = Calculations.newBuilder();
-            for (DataFrameDetails dataFrameDetails : calculationsDataFrameDetails) {
-                final TimestampList frameTimestampList =
-                        TimestampList.newBuilder().addAllTimestamps(dataFrameDetails.getTimestamps()).build();
-                final DataTimestamps frameDataTimestamps = DataTimestamps.newBuilder().setTimestampList(frameTimestampList).build();
-                final Calculations.CalculationsDataFrame calculationsDataFrame = Calculations.CalculationsDataFrame.newBuilder()
-                        .setName(dataFrameDetails.getName())
-                        .setDataTimestamps(frameDataTimestamps)
-                        .addAllDataColumns(dataFrameDetails.getDataColumns())
-                        .build();
-                calculationsBuilder.addCalculationDataFrames(calculationsDataFrame);
-            }
-        }
+        // create API calculations (null when none were imported, so the field is omitted)
+        final Calculations calculations = buildCalculations(calculationsDataFrameDetails);
 
         // create API request params
         final AnnotationClient.SaveAnnotationRequestParams params =
@@ -754,7 +795,7 @@ public class DpApplication {
                         comment,
                         tags,
                         attributeMap,
-                        calculationsBuilder.build()
+                        calculations
                 );
 
         // call api method
@@ -772,29 +813,15 @@ public class DpApplication {
             String attributeValueCriterion
 
     ) {
-        // create params
+        // create params, omitting criteria left blank in the UI
         AnnotationClient.QueryAnnotationsParams params = new AnnotationClient.QueryAnnotationsParams();
-        if (idCriterion != null && !idCriterion.isEmpty()) {
-            params.setIdCriterion(idCriterion);
-        }
-        if (ownerCriterion != null && !ownerCriterion.isEmpty()) {
-            params.setOwnerCriterion(ownerCriterion);
-        }
-        if (dataSetsCriterion != null && !dataSetsCriterion.isEmpty()) {
-            params.setDatasetsCriterion(dataSetsCriterion);
-        }
-        if (annotationsCriterion != null && !annotationsCriterion.isEmpty()) {
-            params.setAnnotationsCriterion(annotationsCriterion);
-        }
-        if (textCriterion != null && !textCriterion.isEmpty()) {
-            params.setTextCriterion(textCriterion);
-        }
-        if (tagsCriterion != null && !tagsCriterion.isEmpty()) {
-            params.setTagsCriterion(tagsCriterion);
-        }
-        if (attributeKeyCriterion != null && !attributeKeyCriterion.isEmpty() && attributeValueCriterion != null && !attributeValueCriterion.isEmpty()) {
-            params.setAttributesCriterion(attributeKeyCriterion, attributeValueCriterion);
-        }
+        setIfPresent(idCriterion, params::setIdCriterion);
+        setIfPresent(ownerCriterion, params::setOwnerCriterion);
+        setIfPresent(dataSetsCriterion, params::setDatasetsCriterion);
+        setIfPresent(annotationsCriterion, params::setAnnotationsCriterion);
+        setIfPresent(textCriterion, params::setTextCriterion);
+        setIfPresent(tagsCriterion, params::setTagsCriterion);
+        setIfBothPresent(attributeKeyCriterion, attributeValueCriterion, params::setAttributesCriterion);
 
         return api.annotationClient.queryAnnotations(params);
     }
@@ -857,11 +884,11 @@ public class DpApplication {
         final AnnotationClient.SavePvMetadataParams params =
                 new AnnotationClient.SavePvMetadataParams(
                         pvName,
-                        (aliases == null || aliases.isEmpty()) ? null : aliases,
-                        (tags == null || tags.isEmpty()) ? null : tags,
-                        (attributeMap == null || attributeMap.isEmpty()) ? null : attributeMap,
-                        (description == null || description.isEmpty()) ? null : description,
-                        (modifiedBy == null || modifiedBy.isEmpty()) ? null : modifiedBy
+                        emptyToNull(aliases),
+                        emptyToNull(tags),
+                        emptyToNull(attributeMap),
+                        emptyToNull(description),
+                        emptyToNull(modifiedBy)
                 );
 
         // call api method

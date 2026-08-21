@@ -164,8 +164,10 @@ public class TagsListComponent extends VBox implements Initializable {
 
     /**
      * Drops null/blank entries, trims the rest, and removes duplicates, preserving order.
+     * Static (and package-private) so the normalization rules are unit-testable without
+     * instantiating the component, which would load FXML and JavaFX controls.
      */
-    private List<String> normalizeTags(List<String> sourceTags) {
+    static List<String> normalizeTags(List<String> sourceTags) {
         final List<String> normalized = new ArrayList<>();
         if (sourceTags == null) {
             return normalized;

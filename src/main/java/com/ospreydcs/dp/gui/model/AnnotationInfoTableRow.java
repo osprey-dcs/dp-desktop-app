@@ -23,7 +23,6 @@ public class AnnotationInfoTableRow {
     private final StringProperty comment;
     private final StringProperty tags;
     private final StringProperty attributes;
-    private final StringProperty event;
     private final StringProperty calculationsDataFrames;
 
     public AnnotationInfoTableRow(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {
@@ -40,7 +39,6 @@ public class AnnotationInfoTableRow {
         this.relatedAnnotations = new SimpleStringProperty(formatAnnotationIds(annotation));
         this.tags = new SimpleStringProperty(formatTags(annotation));
         this.attributes = new SimpleStringProperty(formatAttributes(annotation));
-        this.event = new SimpleStringProperty(formatEvent(annotation));
         this.calculationsDataFrames = new SimpleStringProperty(formatCalculationsDataFrames(annotation));
     }
     
@@ -75,16 +73,6 @@ public class AnnotationInfoTableRow {
         return annotation.getAttributesList().stream()
             .map(attr -> attr.getName() + "=" + attr.getValue())
             .collect(Collectors.joining(", "));
-    }
-    
-    private String formatEvent(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {
-//        if (annotation == null ||
-//            annotation.getEventMetadata() == null ||
-//            annotation.getEventMetadata().getDescription() == null) {
-//            return "";
-//        }
-//        return annotation.getEventMetadata().getDescription();
-        return "";
     }
     
     private String formatCalculationsDataFrames(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {
@@ -124,9 +112,6 @@ public class AnnotationInfoTableRow {
     
     public StringProperty attributesProperty() { return attributes; }
     public String getAttributes() { return attributes.get(); }
-    
-    public StringProperty eventProperty() { return event; }
-    public String getEvent() { return event.get(); }
     
     public StringProperty calculationsDataFramesProperty() { return calculationsDataFrames; }
     public String getCalculationsDataFrames() { return calculationsDataFrames.get(); }

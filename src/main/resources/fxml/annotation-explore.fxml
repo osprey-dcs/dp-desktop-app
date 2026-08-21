@@ -99,7 +99,6 @@
                 <TableColumn fx:id="commentColumn" text="Comment" prefWidth="150" />
                 <TableColumn fx:id="tagsColumn" text="Tags" prefWidth="100" />
                 <TableColumn fx:id="attributesColumn" text="Attributes" prefWidth="120" />
-                <TableColumn fx:id="eventColumn" text="Event" prefWidth="100" />
                 <TableColumn fx:id="calculationsColumn" text="Calculations Data Frames" prefWidth="180" />
             </columns>
             <placeholder>

@@ -195,12 +195,6 @@
                                     <TextArea fx:id="annotationCommentField" promptText="Enter annotation comment (optional)" 
                                               prefRowCount="3" wrapText="true" />
                                 </VBox>
-                                
-                                <!-- Event Name Field -->
-                                <VBox spacing="5">
-                                    <Label styleClass="control-label" text="Event Name:" />
-                                    <TextField fx:id="annotationEventNameField" promptText="Enter event or experiment name (optional)" />
-                                </VBox>
                             </VBox>
                             
                             <!-- Target Datasets Section -->

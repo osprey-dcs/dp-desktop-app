@@ -20,7 +20,6 @@ public class AnnotationBuilderViewModel {
     private final StringProperty annotationId = new SimpleStringProperty("");
     private final StringProperty annotationName = new SimpleStringProperty("");
     private final StringProperty comment = new SimpleStringProperty("");
-    private final StringProperty eventName = new SimpleStringProperty("");
     
     // Target datasets
     private final ObservableList<DataSetDetail> dataSets = FXCollections.observableArrayList();
@@ -67,7 +66,6 @@ public class AnnotationBuilderViewModel {
         
         // Update button states when other properties change
         comment.addListener((obs, oldVal, newVal) -> updateButtonStates());
-        eventName.addListener((obs, oldVal, newVal) -> updateButtonStates());
         
         // Listen to tags and attributes changes for button state updates
         tags.addListener((javafx.collections.ListChangeListener<String>) change -> updateButtonStates());
@@ -97,7 +95,6 @@ public class AnnotationBuilderViewModel {
         boolean hasDataSets = !dataSets.isEmpty();
         boolean hasContent = hasName || 
                             (comment.get() != null && !comment.get().trim().isEmpty()) ||
-                            (eventName.get() != null && !eventName.get().trim().isEmpty()) ||
                             !tags.isEmpty() || 
                             !attributes.isEmpty() || 
                             hasDataSets;
@@ -137,7 +134,6 @@ public class AnnotationBuilderViewModel {
         annotationId.set("");
         annotationName.set("");
         comment.set("");
-        eventName.set("");
         clearDataSets();
         tags.clear();
         attributes.clear();
@@ -158,10 +154,6 @@ public class AnnotationBuilderViewModel {
     public StringProperty commentProperty() { return comment; }
     public String getComment() { return comment.get(); }
     public void setComment(String comment) { this.comment.set(comment != null ? comment : ""); }
-    
-    public StringProperty eventNameProperty() { return eventName; }
-    public String getEventName() { return eventName.get(); }
-    public void setEventName(String eventName) { this.eventName.set(eventName != null ? eventName : ""); }
     
     public ObservableList<DataSetDetail> getDataSets() { return dataSets; }
     

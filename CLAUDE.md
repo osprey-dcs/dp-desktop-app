@@ -71,9 +71,17 @@ Located in `src/main/java/com/ospreydcs/dp/service/inprocess/`:
 - **In-process gRPC**: Default communication model (remote gRPC planned)
 
 ### External Dependencies
-The application integrates with external repositories:
-- `~/dp.fork/dp-java/dp-service`: gRPC service implementations
-- `~/dp.fork/dp-java/dp-grpc`: gRPC API definitions
+The application integrates with external sibling repositories, checked out alongside this one:
+- `~/dp/dp-java/dp-service`: gRPC service implementations
+- `~/dp/dp-java/dp-grpc`: gRPC API definitions
+
+These track the upstream `osprey-dcs` org and are the checkouts to build from.
+
+> **Note:** a second set of checkouts may exist under `~/dp.fork/dp-java/`, tracking a personal
+> fork (`craigmcchesney/*`) rather than the org. Earlier revisions of this file pointed there.
+> Building from that tree installs whatever version it happens to sit at, which silently produces
+> compile errors against APIs added upstream since — the failure looks like a missing class rather
+> than a stale dependency. Use `~/dp/dp-java/` unless you are deliberately working on the fork.
 
 ## Planned Application Features
 
@@ -494,7 +502,7 @@ Represents a configuration activation created during the current session:
 ## Shared Utilities Integration
 
 ### DataImportUtility
-Located in `dp-service` dependency (`~/dp.fork/dp-java/dp-service`):
+Located in `dp-service` dependency (`~/dp/dp-java/dp-service`):
 - **Multi-Sheet Excel Import**: `DataImportUtility.importXlsxData(String filePath)`
 - **Input Format**: First two columns must be epoch seconds and nanoseconds
 - **Returns**: `DataImportResult` with list of `DataFrameResult` objects (one per sheet)
@@ -504,13 +512,23 @@ Located in `dp-service` dependency (`~/dp.fork/dp-java/dp-service`):
 - **Integration Pattern**: Import `com.ospreydcs.dp.client.result.DataImportResult` for result handling
 
 ### Dependency Updates
-When modifying shared utilities in `dp-service`:
+`dp-grpc` and `dp-service` are not published to any package registry — they are resolved from the
+local Maven repository, so a change in either only reaches this app once it is installed there.
+Reinstall after modifying them, **and also after pulling upstream changes that this app needs**:
+
 ```bash
-cd ~/dp.fork/dp-java/dp-service
+cd ~/dp/dp-java/dp-service
 mvn clean install -DskipTests
-cd ~/dp.fork/dp-java/dp-desktop-app
+cd ~/dp/dp-java/dp-desktop-app
 mvn clean compile
 ```
+
+The three repos carry the same pom version and are bumped in lockstep, so an installed jar built
+before an upstream API was added is indistinguishable by version from one built after it. The
+symptom is a compile error naming a class or method that demonstrably exists in the dp-service
+source — at which point the fix is to reinstall, not to go looking for the missing code. CI
+(`.github/workflows/ci.yml`) sidesteps this entirely by building both siblings from `main` on every
+run, which is why a green CI does not prove a local build is current.
 
 ### Testing and Development Workflow
 ```bash
@@ -522,9 +540,9 @@ mvn clean package
 java -jar target/dp-desktop-app-1.16.0-shaded.jar
 
 # Update shared utilities workflow (when modifying dp-service dependency)
-cd ~/dp.fork/dp-java/dp-service
+cd ~/dp/dp-java/dp-service
 mvn clean install -DskipTests
-cd ~/dp.fork/dp-java/dp-desktop-app
+cd ~/dp/dp-java/dp-desktop-app
 mvn clean compile
 
 # Run the test suite

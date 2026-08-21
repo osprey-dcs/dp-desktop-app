@@ -218,4 +218,9 @@ public class MainViewModel {
         logger.info("Create PV metadata action triggered");
         updateStatus("Opening PV metadata editor...");
     }
+
+    public void handleCreateMachineConfiguration() {
+        logger.info("Create machine configuration action triggered");
+        updateStatus("Opening machine configuration editor...");
+    }
 }

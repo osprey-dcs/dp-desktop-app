@@ -25,6 +25,7 @@
             <Menu text="Metadata">
                <items>
                   <MenuItem fx:id="pvMetadataCreateMenuItem" onAction="#onCreatePvMetadata" text="PV" />
+                  <MenuItem fx:id="machineConfigCreateMenuItem" onAction="#onCreateMachineConfiguration" text="Machine Configuration" />
                </items>
             </Menu>
             <Menu text="Explore">

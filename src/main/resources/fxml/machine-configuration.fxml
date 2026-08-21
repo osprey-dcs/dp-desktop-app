@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<BorderPane xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.ospreydcs.dp.gui.MachineConfigurationController" styleClass="content-pane">
+   <top>
+      <VBox styleClass="view-container">
+         <Label styleClass="section-header" text="Create Machine Configuration" />
+         <Label styleClass="app-description" text="Create or update a machine configuration definition, then record the time intervals during which it was active." />
+      </VBox>
+   </top>
+
+   <center>
+      <ScrollPane fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED">
+         <VBox spacing="20" styleClass="view-container">
+
+            <!-- Configuration Section -->
+            <VBox styleClass="form-container">
+               <Label styleClass="section-header" text="Configuration" />
+
+               <Label styleClass="app-description" wrapText="true"
+                      text="Saving replaces the entire existing record for this configuration name. Category, description, parent configuration, tags, attributes and modified by are all replaced by the values below; anything left blank is not preserved from an existing record." />
+
+               <GridPane hgap="10" vgap="10">
+                  <columnConstraints>
+                     <ColumnConstraints minWidth="160" prefWidth="160" />
+                     <ColumnConstraints hgrow="ALWAYS" />
+                  </columnConstraints>
+
+                  <Label text="Configuration Name: *" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                  <TextField fx:id="configurationNameField" promptText="Canonical configuration name" GridPane.columnIndex="1" GridPane.rowIndex="0" />
+
+                  <Label text="Category: *" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+                  <TextField fx:id="categoryField" promptText="Configuration category" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+
+                  <Label text="Description:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+                  <TextArea fx:id="configurationDescriptionArea" prefRowCount="2" promptText="Configuration description" wrapText="true" GridPane.columnIndex="1" GridPane.rowIndex="2" />
+
+                  <Label text="Parent Configuration:" GridPane.columnIndex="0" GridPane.rowIndex="3" />
+                  <TextField fx:id="parentConfigurationNameField" promptText="Name of the parent configuration, if any" GridPane.columnIndex="1" GridPane.rowIndex="3" />
+
+                  <Label text="Modified By:" GridPane.columnIndex="0" GridPane.rowIndex="4" />
+                  <TextField fx:id="configurationModifiedByField" promptText="User or process making this change" GridPane.columnIndex="1" GridPane.rowIndex="4" />
+
+                  <com.ospreydcs.dp.gui.component.TagsListComponent fx:id="configurationTagsComponent" labelText="Tags:" GridPane.columnIndex="0" GridPane.columnSpan="2" GridPane.rowIndex="5" />
+
+                  <com.ospreydcs.dp.gui.component.AttributesListComponent fx:id="configurationAttributesComponent" labelText="Attributes:" GridPane.columnIndex="0" GridPane.columnSpan="2" GridPane.rowIndex="6" />
+               </GridPane>
+
+               <HBox alignment="CENTER_LEFT" spacing="10">
+                  <Button fx:id="saveConfigurationButton" onAction="#onSaveConfiguration" styleClass="btn-secondary" text="Save Configuration" />
+                  <Button fx:id="resetButton" onAction="#onReset" styleClass="btn-secondary" text="Reset" />
+               </HBox>
+            </VBox>
+
+            <!-- Activations Section -->
+            <VBox fx:id="activationsSection" styleClass="form-container">
+               <Label styleClass="section-header" text="Activations" />
+
+               <Label styleClass="app-description" wrapText="true"
+                      text="An activation records a time interval during which this configuration was active. Save a configuration above to enable this section. Note that activations may not overlap another activation of the same configuration OR of any other configuration in the same category." />
+
+               <GridPane hgap="10" vgap="10">
+                  <columnConstraints>
+                     <ColumnConstraints minWidth="160" prefWidth="160" />
+                     <ColumnConstraints hgrow="ALWAYS" />
+                  </columnConstraints>
+
+                  <Label text="Configuration Name:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                  <Label fx:id="activationConfigurationNameLabel" styleClass="app-description" GridPane.columnIndex="1" GridPane.rowIndex="0" />
+
+                  <Label text="Start Date: *" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+                  <DatePicker fx:id="startDatePicker" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+
+                  <Label text="Start Time: *" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+                  <HBox spacing="5" GridPane.columnIndex="1" GridPane.rowIndex="2">
+                     <Spinner fx:id="startHourSpinner" editable="true" prefWidth="80">
+                        <valueFactory>
+                           <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="23" min="0" />
+                        </valueFactory>
+                     </Spinner>
+                     <Label text=":" />
+                     <Spinner fx:id="startMinuteSpinner" editable="true" prefWidth="80">
+                        <valueFactory>
+                           <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="59" min="0" />
+                        </valueFactory>
+                     </Spinner>
+                     <Label text=":" />
+                     <Spinner fx:id="startSecondSpinner" editable="true" prefWidth="80">
+                        <valueFactory>
+                           <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="59" min="0" />
+                        </valueFactory>
+                     </Spinner>
+                  </HBox>
+
+                  <Label text="End Date: *" GridPane.columnIndex="0" GridPane.rowIndex="3" />
+                  <DatePicker fx:id="endDatePicker" GridPane.columnIndex="1" GridPane.rowIndex="3" />
+
+                  <Label text="End Time: *" GridPane.columnIndex="0" GridPane.rowIndex="4" />
+                  <HBox spacing="5" GridPane.columnIndex="1" GridPane.rowIndex="4">
+                     <Spinner fx:id="endHourSpinner" editable="true" prefWidth="80">
+                        <valueFactory>
+                           <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="23" min="0" />
+                        </valueFactory>
+                     </Spinner>
+                     <Label text=":" />
+                     <Spinner fx:id="endMinuteSpinner" editable="true" prefWidth="80">
+                        <valueFactory>
+                           <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="59" min="0" />
+                        </valueFactory>
+                     </Spinner>
+                     <Label text=":" />
+                     <Spinner fx:id="endSecondSpinner" editable="true" prefWidth="80">
+                        <valueFactory>
+                           <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="59" min="0" />
+                        </valueFactory>
+                     </Spinner>
+                  </HBox>
+
+                  <Label text="Client Activation ID:" GridPane.columnIndex="0" GridPane.rowIndex="5" />
+                  <TextField fx:id="clientActivationIdField" promptText="Leave blank to let the server generate one" GridPane.columnIndex="1" GridPane.rowIndex="5" />
+
+                  <Label text="Description:" GridPane.columnIndex="0" GridPane.rowIndex="6" />
+                  <TextArea fx:id="activationDescriptionArea" prefRowCount="2" promptText="Activation description" wrapText="true" GridPane.columnIndex="1" GridPane.rowIndex="6" />
+
+                  <Label text="Modified By:" GridPane.columnIndex="0" GridPane.rowIndex="7" />
+                  <TextField fx:id="activationModifiedByField" promptText="User or process making this change" GridPane.columnIndex="1" GridPane.rowIndex="7" />
+
+                  <com.ospreydcs.dp.gui.component.TagsListComponent fx:id="activationTagsComponent" labelText="Tags:" GridPane.columnIndex="0" GridPane.columnSpan="2" GridPane.rowIndex="8" />
+
+                  <com.ospreydcs.dp.gui.component.AttributesListComponent fx:id="activationAttributesComponent" labelText="Attributes:" GridPane.columnIndex="0" GridPane.columnSpan="2" GridPane.rowIndex="9" />
+               </GridPane>
+
+               <HBox alignment="CENTER_LEFT" spacing="10">
+                  <Button fx:id="addActivationButton" onAction="#onAddActivation" styleClass="btn-secondary" text="Add Activation" />
+               </HBox>
+
+               <Label text="Activations created this session:" />
+               <ListView fx:id="activationsListView" prefHeight="120" />
+            </VBox>
+
+            <!-- Status Section -->
+            <VBox styleClass="form-container">
+               <HBox alignment="CENTER_LEFT" spacing="10">
+                  <ProgressIndicator fx:id="saveProgressIndicator" prefHeight="24" prefWidth="24" visible="false" />
+                  <Label fx:id="statusLabel" styleClass="app-description" wrapText="true" />
+               </HBox>
+            </VBox>
+
+         </VBox>
+      </ScrollPane>
+   </center>
+</BorderPane>

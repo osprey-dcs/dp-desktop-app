@@ -39,6 +39,7 @@ public class MainController implements Initializable {
     @FXML private MenuItem dataEventsMenuItem;
     // note: distinct from pvMetadataMenuItem above, which opens the read-only Explore > PVs view
     @FXML private MenuItem pvMetadataCreateMenuItem;
+    @FXML private MenuItem machineConfigCreateMenuItem;
 
     // Dependencies
     private MainViewModel viewModel;
@@ -77,8 +78,8 @@ public class MainController implements Initializable {
         datasetsMenuItem.disableProperty().bind(viewModel.datasetsEnabledProperty().not());
         annotationsMenuItem.disableProperty().bind(viewModel.annotationsEnabledProperty().not());
         dataEventsMenuItem.disableProperty().bind(viewModel.dataEventsEnabledProperty().not());
-        // pvMetadataCreateMenuItem is always enabled (no binding needed) - creating PV metadata
-        // does not depend on data having been ingested in this session
+        // pvMetadataCreateMenuItem and machineConfigCreateMenuItem are always enabled (no binding
+        // needed) - creating metadata does not depend on data having been ingested in this session
     }
 
     // Dependency injection methods
@@ -177,6 +178,12 @@ public class MainController implements Initializable {
         switchToView("/fxml/pv-metadata.fxml");
     }
 
+    @FXML
+    private void onCreateMachineConfiguration() {
+        viewModel.handleCreateMachineConfiguration();
+        switchToView("/fxml/machine-configuration.fxml");
+    }
+
     // Utility methods for view management
     public void switchToView(String fxmlPath) {
         try {
@@ -236,6 +243,11 @@ public class MainController implements Initializable {
                 pmController.setDpApplication(dpApplication);
                 pmController.setPrimaryStage(primaryStage);
                 pmController.setMainController(this);
+            } else if (controller instanceof MachineConfigurationController) {
+                MachineConfigurationController mcController = (MachineConfigurationController) controller;
+                mcController.setDpApplication(dpApplication);
+                mcController.setPrimaryStage(primaryStage);
+                mcController.setMainController(this);
             }
             
             viewModel.updateStatus("View loaded successfully");

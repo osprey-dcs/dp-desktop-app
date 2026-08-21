@@ -88,6 +88,14 @@ jobs:
         working-directory: dp-service
         run: mvn -B -Dmaven.test.skip=true install
 
+      - name: Ensure xvfb is available
+        # xvfb has historically shipped preinstalled on the ubuntu runner image, but
+        # ubuntu-latest floats across image rollovers; without this guard, a slimmed
+        # image would fail the build step with an opaque exit 127 ("xvfb-run: command
+        # not found") that reads as a build break rather than an environment one.
+        # The check is free when the image already has it.
+        run: command -v xvfb-run >/dev/null || (sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb)
+
       - name: Build and test dp-desktop-app
         # `package` rather than bare `compile`: it runs the unit tests via surefire and
         # exercises the shade plugin, whose breakage would otherwise only surface at
@@ -97,11 +105,12 @@ jobs:
         # runs. A test failure therefore masks any shade breakage until it is fixed.
         #
         # xvfb-run: the JavaFX view-load smoke tests start the toolkit, which needs a
-        # display; the runner has none, so wrap the build in a virtual X server (xvfb is
-        # preinstalled on the ubuntu runner image).  Deliberately not Monocle: the
-        # openjfx-monocle artifact is unmaintained against JavaFX 21.  Local runs need
-        # no wrapper -- the toolkit starts windowless because no test calls show().
-        run: xvfb-run mvn -B package
+        # display; the runner has none, so wrap the build in a virtual X server.  -a
+        # picks a free display number instead of assuming :99 is available.
+        # Deliberately not Monocle: the openjfx-monocle artifact is unmaintained
+        # against JavaFX 21.  Local runs need no wrapper -- the toolkit starts
+        # windowless because no test calls show().
+        run: xvfb-run -a mvn -B package
 
       - name: Verify shaded JAR was produced
         # Same check as release.yml's "Locate shaded JAR" step.  Without it, a shade

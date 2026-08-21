@@ -4,8 +4,10 @@ import javafx.application.Platform;
 
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Starts the JavaFX toolkit for tests that load FXML or instantiate controls, and runs test
@@ -37,9 +39,22 @@ public final class FxToolkitSupport {
         final CountDownLatch ready = new CountDownLatch(1);
         try {
             Platform.startup(ready::countDown);
-        } catch (IllegalStateException alreadyRunning) {
-            // Started outside this helper (e.g., by a future TestFX dependency); treat as ready.
-            ready.countDown();
+        } catch (IllegalStateException startupRejected) {
+            // Platform.startup() throws IllegalStateException both when the toolkit is already
+            // running (e.g., started outside this helper by a future TestFX dependency) and when
+            // startup genuinely failed.  Probe with runLater, which executes only on a live
+            // toolkit and itself throws when the toolkit never initialized — so a real startup
+            // failure surfaces here once, with its cause, instead of poisoning every later
+            // FX-thread call with opaque timeouts.
+            try {
+                Platform.runLater(ready::countDown);
+            } catch (IllegalStateException toolkitNotRunning) {
+                final IllegalStateException failure = new IllegalStateException(
+                        "Platform.startup() was rejected but the JavaFX toolkit is not running",
+                        startupRejected);
+                failure.addSuppressed(toolkitNotRunning);
+                throw failure;
+            }
         }
         if (!ready.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
             throw new IllegalStateException(
@@ -52,28 +67,27 @@ public final class FxToolkitSupport {
     /**
      * Runs the action on the FX application thread and returns its result.  Anything the action
      * throws — including assertion failures from JUnit assertions inside it — is rethrown on the
-     * calling (test) thread, so JUnit reports it as the test's own failure.
+     * calling (test) thread, so JUnit reports it as the test's own failure.  On timeout the
+     * queued action is cancelled so it cannot run late against discarded state or push its delay
+     * onto actions queued behind it.
      */
     public static <T> T callOnFxThread(Callable<T> action) throws Exception {
         ensureStarted();
-        final AtomicReference<T> result = new AtomicReference<>();
-        final AtomicReference<Throwable> thrown = new AtomicReference<>();
-        final CountDownLatch done = new CountDownLatch(1);
-        Platform.runLater(() -> {
-            try {
-                result.set(action.call());
-            } catch (Throwable throwable) {
-                thrown.set(throwable);
-            } finally {
-                done.countDown();
-            }
-        });
-        if (!done.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+        if (Platform.isFxApplicationThread()) {
+            // Run directly: queueing via runLater and blocking here would deadlock the FX
+            // thread on itself.
+            return action.call();
+        }
+        final FutureTask<T> task = new FutureTask<>(action);
+        Platform.runLater(task);
+        try {
+            return task.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException timeout) {
+            task.cancel(true);
             throw new IllegalStateException(
                     "FX-thread action did not complete within " + TIMEOUT_SECONDS + " seconds");
-        }
-        final Throwable failure = thrown.get();
-        if (failure != null) {
+        } catch (ExecutionException wrapped) {
+            final Throwable failure = wrapped.getCause();
             if (failure instanceof Exception exception) {
                 throw exception;
             }
@@ -83,7 +97,6 @@ public final class FxToolkitSupport {
             }
             throw new IllegalStateException("FX-thread action threw", failure);
         }
-        return result.get();
     }
 
     /**

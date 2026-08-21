@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Construction smoke tests for the reusable components not covered by their own instance
@@ -23,11 +22,16 @@ public class ComponentConstructionSmokeTest {
             final ProviderDetailsComponent component = new ProviderDetailsComponent();
             component.setProviderName("provider-1");
             component.setProviderDescription("test provider");
+            component.getProviderTags().add("tag-1");
+            component.getProviderAttributes().add("key=value");
             assertEquals("provider-1", component.getProviderName());
             assertEquals("test provider", component.getProviderDescription());
+            assertEquals(List.of("tag-1"), component.getProviderTags());
+            assertEquals(List.of("key=value"), component.getProviderAttributes());
 
             component.clearProviderDetails();
-            assertTrue(component.getProviderName() == null || component.getProviderName().isEmpty());
+            assertEquals("", component.getProviderName());
+            assertEquals("", component.getProviderDescription());
             assertEquals(List.of(), component.getProviderTags());
             assertEquals(List.of(), component.getProviderAttributes());
         });
@@ -38,8 +42,12 @@ public class ComponentConstructionSmokeTest {
         FxToolkitSupport.runOnFxThread(() -> {
             final QueryPvsComponent component = new QueryPvsComponent();
             // Pre-injection, add/remove must be no-ops rather than NPEs: the views construct
-            // components during FXML load, before dependencies are injected.
+            // components during FXML load, before dependencies are injected.  Assert after
+            // each call separately, so an add that mutated state cannot be masked by a
+            // remove that undid it.
+            assertEquals(List.of(), component.getPvNames());
             component.addPvName("pv-1");
+            assertEquals(List.of(), component.getPvNames());
             component.removePvName("pv-1");
             assertEquals(List.of(), component.getPvNames());
         });

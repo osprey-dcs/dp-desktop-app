@@ -110,6 +110,22 @@ public class DpApplication {
     }
 
     /**
+     * Converts an Instant to a protobuf Timestamp, mapping null to null.
+     *
+     * The null case is the point of this helper.  A Timestamp is a message field with real
+     * protobuf field presence, so an optional time left unset must be passed as null rather than
+     * as a zero-valued Timestamp: the latter marks the field present and describes a time at the
+     * epoch.  For SaveConfigurationActivationRequest.endTime that is the difference between an
+     * open-ended activation and one that ended in 1970.
+     *
+     * TimestampUtility.getTimestampFromInstant() does the non-null conversion but throws on null,
+     * so it cannot be called directly for an optional field.
+     */
+    static Timestamp timestampFromInstant(Instant instant) {
+        return (instant == null) ? null : TimestampUtility.getTimestampFromInstant(instant);
+    }
+
+    /**
      * Builds the protobuf Calculations message from imported data frames, or returns null when
      * there are none so the request builder omits the calculations field.  Returning null for
      * the no-calculations case matches AnnotationClient.buildSaveAnnotationRequest(), which
@@ -893,6 +909,104 @@ public class DpApplication {
 
         // call api method
         return api.annotationClient.savePvMetadata(params);
+    }
+
+    /**
+     * Creates or updates the machine configuration record for the specified configuration name.
+     *
+     * This is a full-replace upsert: every mutable field is replaced by the value supplied here on
+     * each save, and a field left blank is not preserved from an existing record.  Callers must
+     * therefore supply the complete desired state of the record.
+     *
+     * configurationName and category are required by the server; the remaining fields are optional
+     * and are omitted from the request when blank.  Server-side rejections - a blank name or
+     * category, or a category change while activations exist for the configuration - are returned
+     * via resultStatus rather than thrown.
+     */
+    public SaveConfigurationApiResult saveConfiguration(
+            String configurationName,
+            String category,
+            String description,
+            String parentConfigurationName,
+            List<String> tags,
+            Map<String, String> attributeMap,
+            String modifiedBy
+    ) {
+        // create params for api call, omitting optional fields that were not supplied
+        final AnnotationClient.SaveConfigurationParams params =
+                new AnnotationClient.SaveConfigurationParams(
+                        configurationName,
+                        category,
+                        emptyToNull(description),
+                        emptyToNull(parentConfigurationName),
+                        emptyToNull(tags),
+                        emptyToNull(attributeMap),
+                        emptyToNull(modifiedBy)
+                );
+
+        // call api method
+        return api.annotationClient.saveConfiguration(params);
+    }
+
+    /**
+     * Creates or updates an activation recording the time interval during which a configuration
+     * was active.
+     *
+     * This is a full-replace upsert keyed by clientActivationId, with the same
+     * supply-the-complete-state requirement as saveConfiguration().
+     *
+     * configurationName and startTime are required by the server, and configurationName must
+     * resolve to an existing Configuration.  A blank clientActivationId is omitted, in which case
+     * the server generates an identifier and returns it in the result - that value is the caller's
+     * only handle on the new record.  A null endTime produces an open-ended activation.
+     *
+     * Server-side rejections are returned via resultStatus rather than thrown.  These include an
+     * endTime not after startTime, a configurationName that does not resolve, and an activation
+     * overlapping an existing one.  Note that the overlap check rejects on a matching
+     * configuration name OR a matching category, so two different configurations sharing a
+     * category cannot have overlapping activations.
+     */
+    public SaveConfigurationActivationApiResult saveConfigurationActivation(
+            String clientActivationId,
+            String configurationName,
+            Instant startTime,
+            Instant endTime,
+            String description,
+            List<String> tags,
+            Map<String, String> attributeMap,
+            String modifiedBy
+    ) {
+        // create params for api call, omitting optional fields that were not supplied.  endTime is
+        // converted through timestampFromInstant() so that a null stays null rather than becoming a
+        // zero-valued Timestamp, which would describe an activation ending at the epoch instead of
+        // an open-ended one.
+        final AnnotationClient.SaveConfigurationActivationParams params =
+                new AnnotationClient.SaveConfigurationActivationParams(
+                        emptyToNull(clientActivationId),
+                        configurationName,
+                        timestampFromInstant(startTime),
+                        timestampFromInstant(endTime),
+                        emptyToNull(description),
+                        emptyToNull(tags),
+                        emptyToNull(attributeMap),
+                        emptyToNull(modifiedBy)
+                );
+
+        // call api method
+        return api.annotationClient.saveConfigurationActivation(params);
+    }
+
+    /**
+     * Retrieves the machine configuration record for the specified configuration name.
+     *
+     * Note that a missing record is NOT reported as an empty successful result: the server rejects
+     * the request, so a name that does not exist comes back with resultStatus.isError true and
+     * apiResultStatus REJECT.  Callers using this as an existence check should branch on
+     * isReject() rather than on isError(), so that a service failure is not mistaken for a record
+     * that does not exist.
+     */
+    public GetConfigurationApiResult getConfiguration(String configurationName) {
+        return api.annotationClient.getConfiguration(configurationName);
     }
 
     public ResultStatus subscribeDataEvent(

@@ -95,7 +95,13 @@ jobs:
         # Note the ordering: surefire runs before shade, so a failing unit test halts
         # the build here and the shade plugin (and the shaded-JAR check below) never
         # runs. A test failure therefore masks any shade breakage until it is fixed.
-        run: mvn -B package
+        #
+        # xvfb-run: the JavaFX view-load smoke tests start the toolkit, which needs a
+        # display; the runner has none, so wrap the build in a virtual X server (xvfb is
+        # preinstalled on the ubuntu runner image).  Deliberately not Monocle: the
+        # openjfx-monocle artifact is unmaintained against JavaFX 21.  Local runs need
+        # no wrapper -- the toolkit starts windowless because no test calls show().
+        run: xvfb-run mvn -B package
 
       - name: Verify shaded JAR was produced
         # Same check as release.yml's "Locate shaded JAR" step.  Without it, a shade

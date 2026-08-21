@@ -10,8 +10,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 /**
  * Tests for the static tag normalization rules on TagsListComponent: drop null/blank,
  * trim, and collapse duplicates while preserving order.
- * Only the static method is exercised — instantiating the component would load FXML
- * and JavaFX controls, which is out of scope for unit tests (issue #29).
+ * Only the static method is exercised here, so this class stays toolkit-free;
+ * the instance API (add/remove/set against a live component) is covered by
+ * TagsListComponentInstanceTest, which runs under the JavaFX toolkit.
  */
 public class TagsListComponentTest {
 

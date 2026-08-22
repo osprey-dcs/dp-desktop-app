@@ -19,6 +19,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
 /**
@@ -34,6 +36,13 @@ import java.util.function.BooleanSupplier;
 public class MachineConfigurationViewModel {
 
     private static final Logger logger = LogManager.getLogger();
+
+    /*
+     * How long a background save waits for a confirmation dialog to be answered on the FX thread
+     * before giving up.  Generous, since it is bounding a human response, not a service call; it
+     * exists only so that an FX thread which will never answer cannot park the save thread forever.
+     */
+    private static final long FX_CONFIRMATION_TIMEOUT_SECONDS = 300;
 
     // Configuration form properties
     private final StringProperty configurationName = new SimpleStringProperty("");
@@ -87,6 +96,25 @@ public class MachineConfigurationViewModel {
         boolean confirmOverwrite(String configurationName);
     }
 
+    /*
+     * Asks the user whether to replace an activation already created in this session under the
+     * same client activation id.  Same rationale as OverwriteConfirmation: the controller owns the
+     * dialog, this ViewModel stays free of JavaFX dialog code.  Returns true to proceed.
+     */
+    private ActivationOverwriteConfirmation activationOverwriteConfirmation;
+
+    @FunctionalInterface
+    public interface ActivationOverwriteConfirmation {
+        boolean confirmOverwrite(String clientActivationId);
+    }
+
+    /*
+     * Clears the activation date and time controls, which are owned by the controller rather than
+     * by this ViewModel.  Supplied by the controller so that clearing the activation form clears
+     * the whole form and not just the parts this ViewModel holds.
+     */
+    private Runnable activationTemporalFieldsReset;
+
     public MachineConfigurationViewModel() {
         logger.debug("MachineConfigurationViewModel initialized");
     }
@@ -125,6 +153,15 @@ public class MachineConfigurationViewModel {
 
     public void setOverwriteConfirmation(OverwriteConfirmation overwriteConfirmation) {
         this.overwriteConfirmation = overwriteConfirmation;
+    }
+
+    public void setActivationOverwriteConfirmation(
+            ActivationOverwriteConfirmation activationOverwriteConfirmation) {
+        this.activationOverwriteConfirmation = activationOverwriteConfirmation;
+    }
+
+    public void setActivationTemporalFieldsReset(Runnable activationTemporalFieldsReset) {
+        this.activationTemporalFieldsReset = activationTemporalFieldsReset;
     }
 
     // Property getters
@@ -199,39 +236,54 @@ public class MachineConfigurationViewModel {
         isSaving.set(true);
         statusMessage.set("Saving configuration...");
 
-        final Task<SaveConfigurationApiResult> saveTask = new Task<>() {
+        final Task<SaveOutcome> saveTask = new Task<>() {
             @Override
-            protected SaveConfigurationApiResult call() throws Exception {
+            protected SaveOutcome call() throws Exception {
 
-                // Warn before clobbering an existing record.  A null return means the user
-                // declined; the task reports that through a null result rather than an error.
-                if (!confirmOverwriteIfExists(configurationNameValue)) {
-                    return null;
+                // Warn before clobbering an existing record.  The pre-save check reports its own
+                // outcome as a typed value rather than as a null result, so the success handler can
+                // tell "the user declined" from "the service returned nothing" without inspecting
+                // the status message.
+                final PreSaveOutcome preSave = confirmOverwriteIfExists(configurationNameValue);
+                if (preSave != PreSaveOutcome.PROCEED) {
+                    return SaveOutcome.notAttempted(preSave);
                 }
 
-                return dpApplication.saveConfiguration(
+                return SaveOutcome.attempted(dpApplication.saveConfiguration(
                         configurationNameValue,
                         categoryValue,
                         descriptionValue,
                         parentValue,
                         tags,
                         attributeMap,
-                        modifiedByValue);
+                        modifiedByValue));
             }
         };
 
         saveTask.setOnSucceeded(e -> Platform.runLater(() -> {
             isSaving.set(false);
-            final SaveConfigurationApiResult apiResult = saveTask.getValue();
+            final SaveOutcome outcome = saveTask.getValue();
+
+            if (outcome == null) {
+                // Not reachable through call() above, which always returns a value; handled so a
+                // future change cannot turn this into a silent no-op.
+                statusMessage.set("Save failed: no outcome reported");
+                logger.error("saveConfiguration task produced a null outcome");
+                return;
+            }
+
+            if (!outcome.wasAttempted()) {
+                // The save was deliberately not attempted.  confirmOverwriteIfExists() has already
+                // set the status message explaining which case this was.
+                logger.debug("saveConfiguration not attempted: {}", outcome.preSaveOutcome);
+                return;
+            }
+
+            final SaveConfigurationApiResult apiResult = outcome.apiResult;
 
             if (apiResult == null) {
-                // The user declined the overwrite, or a status message was already set explaining
-                // why the existence check could not be completed.
-                if (!statusMessage.get().startsWith("Save cancelled")
-                        && !statusMessage.get().startsWith("Save failed")) {
-                    statusMessage.set("Save failed: null response from service");
-                    logger.error("saveConfiguration returned a null result");
-                }
+                statusMessage.set("Save failed: null response from service");
+                logger.error("saveConfiguration returned a null result");
                 return;
             }
 
@@ -239,6 +291,22 @@ public class MachineConfigurationViewModel {
                 statusMessage.set("Save failed: " + apiResult.resultStatus.msg);
                 logger.error("saveConfiguration failed: {}", apiResult.resultStatus.msg);
                 return;
+            }
+
+            /*
+             * The session activation list describes activations of the configuration named in
+             * savedConfigurationName.  When a save switches that name, entries created under the
+             * previous configuration no longer belong to what the section now shows, so they are
+             * discarded rather than left to be read as activations of the new configuration.
+             */
+            final String previousName = savedConfigurationName.get();
+            if (previousName != null && !previousName.isEmpty()
+                    && !previousName.equals(apiResult.configurationName)
+                    && !activations.isEmpty()) {
+                logger.debug(
+                        "clearing {} session activation(s) recorded under previous configuration: {}",
+                        activations.size(), previousName);
+                activations.clear();
             }
 
             // Bind the activation section to the name the server actually saved under, not to the
@@ -276,7 +344,8 @@ public class MachineConfigurationViewModel {
      *
      * Runs on the background task; the dialog itself is raised on the FX thread and waited on.
      */
-    private boolean confirmOverwriteIfExists(String configurationNameValue) throws InterruptedException {
+    private PreSaveOutcome confirmOverwriteIfExists(String configurationNameValue)
+            throws InterruptedException {
 
         final GetConfigurationApiResult getResult = dpApplication.getConfiguration(configurationNameValue);
 
@@ -285,13 +354,13 @@ public class MachineConfigurationViewModel {
             Platform.runLater(() -> statusMessage.set(
                     "Save failed: could not check for an existing configuration"));
             logger.error("getConfiguration returned a null result for: {}", configurationNameValue);
-            return false;
+            return PreSaveOutcome.CHECK_FAILED;
         }
 
         if (getResult.isReject()) {
             // No existing record - nothing to overwrite.
             logger.debug("no existing configuration for: {}, saving as new", configurationNameValue);
-            return true;
+            return PreSaveOutcome.PROCEED;
         }
 
         if (getResult.resultStatus.isError) {
@@ -301,7 +370,7 @@ public class MachineConfigurationViewModel {
                             + getResult.resultStatus.msg));
             logger.error("getConfiguration failed for {}: {}",
                     configurationNameValue, getResult.resultStatus.msg);
-            return false;
+            return PreSaveOutcome.CHECK_FAILED;
         }
 
         // A record exists and would be replaced in its entirety.  Ask before proceeding.
@@ -310,18 +379,68 @@ public class MachineConfigurationViewModel {
         if (overwriteConfirmation == null) {
             // No dialog wired up: proceed rather than deadlock, but say so.
             logger.warn("no overwrite confirmation handler set; overwriting {}", configurationNameValue);
-            return true;
+            return PreSaveOutcome.PROCEED;
         }
 
-        final boolean confirmed = runOnFxThreadAndWait(
+        final Boolean confirmed = runOnFxThreadAndWait(
                 () -> overwriteConfirmation.confirmOverwrite(configurationNameValue));
+
+        if (confirmed == null) {
+            // The FX thread never answered - see runOnFxThreadAndWait().  Do not save: the whole
+            // point of this check is that an unconfirmed overwrite must not go through.
+            Platform.runLater(() -> statusMessage.set(
+                    "Save failed: timed out waiting for the overwrite confirmation"));
+            logger.error("timed out waiting for overwrite confirmation for: {}", configurationNameValue);
+            return PreSaveOutcome.CHECK_FAILED;
+        }
 
         if (!confirmed) {
             Platform.runLater(() -> statusMessage.set("Save cancelled: existing configuration not replaced"));
             logger.info("user declined to overwrite existing configuration: {}", configurationNameValue);
+            return PreSaveOutcome.DECLINED;
         }
 
-        return confirmed;
+        return PreSaveOutcome.PROCEED;
+    }
+
+    /**
+     * Why a configuration save did or did not go ahead, as decided before the save call is made.
+     * Typed so the success handler can distinguish these cases without reading the status message.
+     */
+    private enum PreSaveOutcome {
+        /** No existing record, or the user confirmed replacing the one that exists. */
+        PROCEED,
+        /** An existing record was found and the user declined to replace it. */
+        DECLINED,
+        /** The existence check could not be completed, so the save was not attempted. */
+        CHECK_FAILED
+    }
+
+    /**
+     * The result of the configuration save task: either the save was attempted and carries the API
+     * result, or it was deliberately not attempted and carries the reason.
+     */
+    private static final class SaveOutcome {
+
+        final PreSaveOutcome preSaveOutcome;
+        final SaveConfigurationApiResult apiResult;
+
+        private SaveOutcome(PreSaveOutcome preSaveOutcome, SaveConfigurationApiResult apiResult) {
+            this.preSaveOutcome = preSaveOutcome;
+            this.apiResult = apiResult;
+        }
+
+        static SaveOutcome attempted(SaveConfigurationApiResult apiResult) {
+            return new SaveOutcome(PreSaveOutcome.PROCEED, apiResult);
+        }
+
+        static SaveOutcome notAttempted(PreSaveOutcome preSaveOutcome) {
+            return new SaveOutcome(preSaveOutcome, null);
+        }
+
+        boolean wasAttempted() {
+            return preSaveOutcome == PreSaveOutcome.PROCEED;
+        }
     }
 
     /**
@@ -375,6 +494,28 @@ public class MachineConfigurationViewModel {
         final String modifiedByValue =
                 activationModifiedBy.get() == null ? "" : activationModifiedBy.get().trim();
 
+        /*
+         * saveConfigurationActivation() is a full-replace upsert keyed by clientActivationId, so a
+         * supplied id that already names a record replaces it outright.  When that record is one
+         * this session created, the collision is detectable here and is confirmed before the call,
+         * so the user is not silently editing an activation they believe they are adding.
+         *
+         * A supplied id may of course collide with a record this session knows nothing about.
+         * Catching that needs a server round trip, and AnnotationClient currently exposes no
+         * wrapper for the getConfigurationActivation() RPC - see the follow-up issue.  Until then
+         * the field carries a warning that a supplied id replaces any existing activation.
+         */
+        if (findSessionActivation(clientActivationIdValue) != null) {
+            if (activationOverwriteConfirmation == null) {
+                logger.warn("no activation overwrite confirmation handler set; replacing {}",
+                        clientActivationIdValue);
+            } else if (!activationOverwriteConfirmation.confirmOverwrite(clientActivationIdValue)) {
+                statusMessage.set("Add cancelled: existing activation not replaced");
+                logger.info("user declined to replace existing activation: {}", clientActivationIdValue);
+                return;
+            }
+        }
+
         logger.debug(
                 "Saving activation for configuration: {}, start: {}, end: {}",
                 configurationNameValue, startTime, endTime);
@@ -414,10 +555,26 @@ public class MachineConfigurationViewModel {
                 return;
             }
 
-            // The id here is the server-generated one when the request omitted it, which is the
-            // only handle on the new record - so it goes into the list.
-            activations.add(new ConfigurationActivationDetail(
-                    apiResult.clientActivationId, configurationNameValue, startTime, endTime));
+            /*
+             * The id here is the server-generated one when the request omitted it, which is the
+             * only handle on the new record - so it goes into the list.
+             *
+             * Reconciled rather than appended: when the save replaced an activation this session
+             * already listed, the list must show the replacement in place of the stale row, not
+             * both.  Matching is on the id the server reports, which is the record's actual key.
+             */
+            final ConfigurationActivationDetail savedActivation = new ConfigurationActivationDetail(
+                    apiResult.clientActivationId, configurationNameValue, startTime, endTime);
+
+            final ConfigurationActivationDetail replaced =
+                    findSessionActivation(apiResult.clientActivationId);
+
+            if (replaced != null) {
+                activations.set(activations.indexOf(replaced), savedActivation);
+                logger.debug("replaced session activation row for id: {}", apiResult.clientActivationId);
+            } else {
+                activations.add(savedActivation);
+            }
 
             clearActivationForm();
 
@@ -437,6 +594,23 @@ public class MachineConfigurationViewModel {
     }
 
     /**
+     * Returns the activation this session already recorded under the given client activation id, or
+     * null when there is none.  Ids are compared exactly: they are server-side record keys, not
+     * user-facing text.
+     */
+    private ConfigurationActivationDetail findSessionActivation(String clientActivationIdValue) {
+        if (clientActivationIdValue == null || clientActivationIdValue.isEmpty()) {
+            return null;
+        }
+        for (ConfigurationActivationDetail activation : activations) {
+            if (clientActivationIdValue.equals(activation.clientActivationId)) {
+                return activation;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Clears the activation entry fields after a successful save, so the next activation is entered
      * from a clean form.  The activation list and the saved configuration binding are preserved.
      */
@@ -450,6 +624,17 @@ public class MachineConfigurationViewModel {
         }
         if (activationAttributesComponent != null) {
             activationAttributesComponent.clearAttributes();
+        }
+
+        /*
+         * The date pickers and time spinners belong to the controller, not to this ViewModel, so
+         * clearing them has to go back through it.  Without this the next activation silently
+         * reuses the previous interval's time of day - which, given that the server rejects
+         * overlapping activations across an entire category, surfaces as a confusing overlap
+         * rejection rather than as an obviously stale form.
+         */
+        if (activationTemporalFieldsReset != null) {
+            activationTemporalFieldsReset.run();
         }
     }
 
@@ -486,13 +671,13 @@ public class MachineConfigurationViewModel {
      * Used for the overwrite confirmation, which has to be raised on the FX thread but whose answer
      * decides whether the background task proceeds.
      */
-    private static boolean runOnFxThreadAndWait(BooleanSupplier supplier) throws InterruptedException {
+    private static Boolean runOnFxThreadAndWait(BooleanSupplier supplier) throws InterruptedException {
 
         if (Platform.isFxApplicationThread()) {
             return supplier.getAsBoolean();
         }
 
-        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        final CountDownLatch latch = new CountDownLatch(1);
         final boolean[] result = new boolean[1];
 
         Platform.runLater(() -> {
@@ -503,7 +688,17 @@ public class MachineConfigurationViewModel {
             }
         });
 
-        latch.await();
+        /*
+         * Bounded rather than indefinite.  If the FX thread is gone - the view was navigated away
+         * from, or the application is shutting down mid-save - the runnable above never executes
+         * and the latch is never counted down.  An unbounded await() would park this thread
+         * forever, leaving isSaving true and the progress indicator spinning with no way back.
+         * The caller treats a null return as "no answer" and declines to save.
+         */
+        if (!latch.await(FX_CONFIRMATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            return null;
+        }
+
         return result[0];
     }
 

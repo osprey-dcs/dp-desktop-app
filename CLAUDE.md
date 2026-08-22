@@ -344,6 +344,43 @@ The application follows the Model-View-ViewModel pattern:
 
 **Critical Integration Pattern:** tags/attributes are read from the injected component instances, never from ViewModel properties. There are **four** components, not two — the configuration and the activation carry separate tag and attribute fields on separate records. The component lists are copied on the FX thread before each background task starts.
 
+**The activation date/time controls are owned by the controller, not the ViewModel.** Clearing the
+activation form therefore has to call back into the controller, via the
+`setActivationTemporalFieldsReset(Runnable)` seam — the same shape as the `OverwriteConfirmation`
+seam, and for the same reason (the ViewModel stays free of JavaFX control code). Both the
+successful-save path and Reset go through that one callback, so they cannot drift apart. Clearing
+only the `DatePicker`s is not enough: the six time spinners hold a time of day that would otherwise
+be silently reused by the next activation, and since the server rejects overlapping activations
+across an entire *category*, a stale time surfaces as a confusing overlap rejection rather than as
+an obviously stale form.
+
+**The session activation list is scoped to the saved configuration name.** Saving a *second*
+configuration in the same session clears the list, because its entries describe activations of the
+configuration previously named in `savedConfigurationName` and would otherwise be read as
+activations of the new one.
+
+**A supplied `clientActivationId` is an upsert key, not a label.** Supplying one that already names
+a record replaces that record outright. A collision with an activation created *in this session* is
+detected locally and confirmed through `setActivationOverwriteConfirmation(...)`, and the session
+list is reconciled in place rather than appended to, so a replacement does not leave a stale row
+beside its replacement. A collision with a record this session knows nothing about is **not**
+detected: that needs a server round trip, and `AnnotationClient` exposes no wrapper for the
+`getConfigurationActivation()` RPC even though the service implements it — see the follow-up issue.
+Until that lands the field's prompt text carries the warning.
+
+**Waiting on an FX-thread confirmation from a background task is bounded.** `runOnFxThreadAndWait()`
+awaits with a timeout and returns `Boolean` so the caller can tell "declined" from "never answered".
+An unbounded await deadlocks the save thread if the FX thread is gone (view navigated away,
+application shutting down mid-save), leaving `isSaving` true and the progress indicator spinning
+with no way back. A timeout is treated as *do not save* — an unconfirmed overwrite must never go
+through.
+
+**The save task reports a typed outcome, not a null sentinel.** Whether a save was skipped because
+the user declined, because the existence check failed, or was actually attempted is carried by
+`SaveOutcome`/`PreSaveOutcome`. The earlier version distinguished these by prefix-matching the
+status message, which both re-introduced the message-sniffing that `isReject()` exists to avoid and
+raced with the `Platform.runLater` that sets the message.
+
 ### Dataset Builder Workflow (Implemented)
 1. **Dataset Configuration**: Enter dataset name (required), description (optional), and auto-generated ID field
 2. **Data Block Management**: Collect DataBlockDetail objects from Data Explorer using "Add to Dataset" button

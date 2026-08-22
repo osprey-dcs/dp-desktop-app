@@ -89,6 +89,13 @@ public class MachineConfigurationController implements Initializable {
         // replace an existing configuration record.
         viewModel.setOverwriteConfirmation(this::confirmOverwrite);
 
+        // Same for an activation whose client activation id collides with one created this session.
+        viewModel.setActivationOverwriteConfirmation(this::confirmActivationOverwrite);
+
+        // The activation date and time controls live here, not in the ViewModel, so clearing the
+        // activation form has to come back through this callback to reach them.
+        viewModel.setActivationTemporalFieldsReset(this::clearActivationTemporalFields);
+
         // Bind UI to ViewModel
         bindUIToViewModel();
 
@@ -132,7 +139,11 @@ public class MachineConfigurationController implements Initializable {
         // The activation section stays disabled until a configuration has been saved in this
         // session.  That is what keeps the server's "no Configuration found" rejection from being
         // reachable through normal use of this view.
-        activationsSection.disableProperty().bind(viewModel.configurationSavedProperty().not());
+        //
+        // It is also disabled while a save is in flight: a successful activation save clears this
+        // form, so input typed into it during the request would be discarded on completion.
+        activationsSection.disableProperty().bind(
+                viewModel.configurationSavedProperty().not().or(viewModel.isSavingProperty()));
         activationConfigurationNameLabel.textProperty().bind(viewModel.savedConfigurationNameProperty());
 
         // Add is disabled until both dates are set, and while a save is in progress.  The times
@@ -171,6 +182,54 @@ public class MachineConfigurationController implements Initializable {
 
         final Optional<ButtonType> choice = alert.showAndWait();
         return choice.isPresent() && choice.get() == ButtonType.OK;
+    }
+
+    /**
+     * Asks the user whether to replace an activation already created in this session under the same
+     * client activation id.  Called on the FX thread by the ViewModel before the save is issued.
+     */
+    private boolean confirmActivationOverwrite(String clientActivationId) {
+        final Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Replace existing activation?");
+        alert.setHeaderText(
+                "An activation with client activation id \"" + clientActivationId
+                        + "\" was already created in this session.");
+        alert.setContentText(
+                "Saving replaces that entire activation record: interval, description, tags, "
+                        + "attributes and modified by are all overwritten, and anything left blank "
+                        + "is not preserved.\n\nLeave the id blank to add a new activation "
+                        + "instead.\n\nReplace it?");
+
+        if (primaryStage != null) {
+            alert.initOwner(primaryStage);
+        }
+
+        final Optional<ButtonType> choice = alert.showAndWait();
+        return choice.isPresent() && choice.get() == ButtonType.OK;
+    }
+
+    /**
+     * Clears the activation date pickers and resets the six time spinners to zero.
+     *
+     * The spinners are reset explicitly: clearing only the dates would leave a previously entered
+     * time of day in place, so the next activation would silently reuse it.
+     */
+    private void clearActivationTemporalFields() {
+        startDatePicker.setValue(null);
+        endDatePicker.setValue(null);
+
+        resetSpinners(List.of(
+                startHourSpinner, startMinuteSpinner, startSecondSpinner,
+                endHourSpinner, endMinuteSpinner, endSecondSpinner));
+    }
+
+    private void resetSpinners(List<Spinner<Integer>> spinners) {
+        for (Spinner<Integer> spinner : spinners) {
+            final SpinnerValueFactory<Integer> valueFactory = spinner.getValueFactory();
+            if (valueFactory != null) {
+                valueFactory.setValue(0);
+            }
+        }
     }
 
     /**
@@ -253,9 +312,9 @@ public class MachineConfigurationController implements Initializable {
     private void onReset() {
         logger.debug("Reset machine configuration form action triggered");
 
-        startDatePicker.setValue(null);
-        endDatePicker.setValue(null);
-
+        // The temporal controls are cleared through resetForm() below, which calls back into
+        // clearActivationTemporalFields() - the same path a successful activation save takes, so
+        // the two cannot drift apart.
         viewModel.resetForm();
     }
 }

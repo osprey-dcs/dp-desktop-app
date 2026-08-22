@@ -119,7 +119,7 @@
                   </HBox>
 
                   <Label text="Client Activation ID:" GridPane.columnIndex="0" GridPane.rowIndex="5" />
-                  <TextField fx:id="clientActivationIdField" promptText="Leave blank to let the server generate one" GridPane.columnIndex="1" GridPane.rowIndex="5" />
+                  <TextField fx:id="clientActivationIdField" promptText="Leave blank to let the server generate one; a supplied id replaces any existing activation" GridPane.columnIndex="1" GridPane.rowIndex="5" />
 
                   <Label text="Description:" GridPane.columnIndex="0" GridPane.rowIndex="6" />
                   <TextArea fx:id="activationDescriptionArea" prefRowCount="2" promptText="Activation description" wrapText="true" GridPane.columnIndex="1" GridPane.rowIndex="6" />

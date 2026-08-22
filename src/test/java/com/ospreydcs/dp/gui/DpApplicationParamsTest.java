@@ -7,6 +7,7 @@ import com.ospreydcs.dp.grpc.v1.common.Timestamp;
 import com.ospreydcs.dp.gui.model.DataFrameDetails;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -20,7 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 /**
  * Tests for the static parameter-normalization helpers on DpApplication: the empty-to-null
  * conversions that keep blank UI fields out of client requests, the conditional criterion
- * setters used by the query wrappers, and the calculations builder used by saveAnnotation().
+ * setters used by the query wrappers, the Instant-to-Timestamp conversion used by the
+ * configuration activation wrapper, and the calculations builder used by saveAnnotation().
  * All are pure static methods, so no service ecosystem or mocked client is needed.
  */
 public class DpApplicationParamsTest {
@@ -86,6 +88,43 @@ public class DpApplicationParamsTest {
         DpApplication.setIfBothPresent("", "value", applied::put);
         DpApplication.setIfBothPresent("key", "", applied::put);
         assertEquals(Map.of(), applied);
+    }
+
+    // ------------------- timestampFromInstant ---------------------------
+
+    @Test
+    public void timestampFromInstantConvertsSecondsAndNanos() {
+        Timestamp timestamp =
+                DpApplication.timestampFromInstant(Instant.ofEpochSecond(1_700_000_000L, 123_456_789));
+
+        assertNotNull(timestamp);
+        assertEquals(1_700_000_000L, timestamp.getEpochSeconds());
+        assertEquals(123_456_789, timestamp.getNanoseconds());
+    }
+
+    /**
+     * An Instant on a whole second must still convert, with a zero nanosecond component.  This is
+     * the ordinary case for a time entered through the view's date picker and hour/minute/second
+     * spinners, which have no sub-second field.
+     */
+    @Test
+    public void timestampFromInstantConvertsWholeSecond() {
+        Timestamp timestamp = DpApplication.timestampFromInstant(Instant.ofEpochSecond(1_700_000_000L));
+
+        assertNotNull(timestamp);
+        assertEquals(1_700_000_000L, timestamp.getEpochSeconds());
+        assertEquals(0, timestamp.getNanoseconds());
+    }
+
+    /**
+     * The case this helper exists for.  A Timestamp is a message field with real protobuf field
+     * presence, so an optional time left unset has to reach the request builder as null.  Returning
+     * a zero-valued Timestamp instead would mark the field present, turning an open-ended
+     * activation into one that ended at the epoch.
+     */
+    @Test
+    public void timestampFromInstantMapsNullToNull() {
+        assertNull(DpApplication.timestampFromInstant(null));
     }
 
     // ------------------- buildCalculations ---------------------------

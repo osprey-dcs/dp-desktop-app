@@ -251,6 +251,25 @@ cookbook recommends for dense labeling.
 one entry per timestamp), and an all-empty `reasons` list must be omitted rather than sent as empty
 strings.
 
+**A sample status save failure does not fail the ingestion.** By the time a save is attempted the
+bucket's data is already in the archive, and status generation is an opt-in demo extra. Aborting
+would skip the `hasIngestedData` / `totalPvsIngested` / `totalBucketsCreated` assignments on the
+success path, which are what enable the Explore menu — leaving data that was genuinely ingested
+present but unreachable from the UI. Failures are instead collected in `SampleStatusAccumulator`
+(first error only, since a failing status service fails identically once per bucket), logged at
+WARN, and reported in the success message alongside the count.
+
+**`modifiedBy` falls back rather than passing null.** `sampleStatusModifiedBy()` uses the
+registered provider name when set, and `SAMPLE_STATUS_DEMO_SOURCE` otherwise. `providerName` is
+only assigned by `registerProvider()` while `generateAndIngestData()` guards on `providerId`, and
+`AnnotationClient.saveSampleStatuses()` omits the field entirely when it is null — which would
+store the statuses unattributed with nothing indicating that happened.
+
+**The reported count is an upsert count, not an insert count.** Saves are keyed on
+`(pvName, timestamp, domain, layer)` and fully replace, so re-generating over the same PVs and time
+range reports the same number while replacing rather than adding. The success message and the view
+caption both say so.
+
 **The domain registry is not implemented.** `saveSampleStatusDomain()` / `querySampleStatusDomains()`
 are reserved in the proto but deferred server-side, so the `epics_alarm` code mapping exists only in
 `DpApplication` constants — nothing can resolve code 2 to "MAJOR_ALARM" from the archive.

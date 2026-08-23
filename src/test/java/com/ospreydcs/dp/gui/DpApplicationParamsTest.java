@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -314,5 +315,88 @@ public class DpApplicationParamsTest {
     @Test
     public void generatedAlarmCodesHandleZeroSampleCount() {
         assertEquals(0, DpApplication.generateRandomAlarmStatusCodes(0, new Random(1)).size());
+    }
+
+    /*
+     * A negative count is a caller bug.  Throwing here surfaces it at its origin; returning an
+     * empty list would defer it to a count mismatch in buildSampleStatusFrame(), which is exactly
+     * what that guard exists to prevent.
+     */
+    @Test
+    public void generatedAlarmCodesRejectNegativeSampleCount() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DpApplication.generateRandomAlarmStatusCodes(-1, new Random(1)));
+    }
+
+    // ------------------- sample status provenance and accumulation ---------------------------
+
+    /*
+     * The registered provider name is the useful answer for modifiedBy, but providerName is only
+     * set by registerProvider() while generateAndIngestData() guards on providerId.  A null would
+     * make the client omit the field entirely and store the statuses unattributed with no
+     * indication, so an unset name falls back to the demo source rather than through.
+     */
+    @Test
+    public void sampleStatusModifiedByUsesProviderNameWhenSet() {
+        assertEquals("test-provider", DpApplication.sampleStatusModifiedBy("test-provider"));
+    }
+
+    @Test
+    public void sampleStatusModifiedByFallsBackWhenProviderNameIsMissing() {
+        assertEquals(
+                DpApplication.SAMPLE_STATUS_DEMO_SOURCE,
+                DpApplication.sampleStatusModifiedBy(null));
+        assertEquals(
+                DpApplication.SAMPLE_STATUS_DEMO_SOURCE,
+                DpApplication.sampleStatusModifiedBy("   "));
+    }
+
+    @Test
+    public void sampleStatusAccumulatorSumsSavedCounts() {
+        DpApplication.SampleStatusAccumulator accumulator =
+                new DpApplication.SampleStatusAccumulator(new Random(1));
+
+        assertEquals(0, accumulator.savedCount());
+        assertFalse(accumulator.hasError());
+
+        accumulator.recordSaved(20);
+        accumulator.recordSaved(22);
+
+        assertEquals(42, accumulator.savedCount());
+        assertFalse(accumulator.hasError());
+    }
+
+    /*
+     * Only the first failure is kept: a failing status service fails once per bucket, and
+     * repeating the same cause adds nothing to the message the user sees.
+     */
+    @Test
+    public void sampleStatusAccumulatorKeepsOnlyTheFirstError() {
+        DpApplication.SampleStatusAccumulator accumulator =
+                new DpApplication.SampleStatusAccumulator(new Random(1));
+
+        accumulator.recordError("first failure");
+        accumulator.recordError("second failure");
+
+        assertTrue(accumulator.hasError());
+        assertEquals("first failure", accumulator.firstError());
+    }
+
+    /*
+     * A save failure must not discard counts already accumulated: the run continues past a failed
+     * bucket, so successes on either side of it are still reported.
+     */
+    @Test
+    public void sampleStatusAccumulatorKeepsCountsAlongsideAnError() {
+        DpApplication.SampleStatusAccumulator accumulator =
+                new DpApplication.SampleStatusAccumulator(new Random(1));
+
+        accumulator.recordSaved(10);
+        accumulator.recordError("bucket 2 failed");
+        accumulator.recordSaved(10);
+
+        assertEquals(20, accumulator.savedCount());
+        assertTrue(accumulator.hasError());
     }
 }

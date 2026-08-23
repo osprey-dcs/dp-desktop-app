@@ -165,9 +165,17 @@ public class DpApplication {
      * Codes are drawn independently with NO_ALARM dominating; see the threshold constants.  This
      * is demo data only and models no real alarm behavior (a real alarm history would be highly
      * autocorrelated rather than independent per sample).
+     *
+     * @throws IllegalArgumentException if sampleCount is negative.  Returning an empty list would
+     *     surface a caller bug later as a count mismatch in buildSampleStatusFrame() instead of
+     *     here, which is the very thing that guard exists to avoid.
      */
     static List<Integer> generateRandomAlarmStatusCodes(int sampleCount, Random random) {
-        final List<Integer> statusCodes = new ArrayList<>(Math.max(sampleCount, 0));
+        if (sampleCount < 0) {
+            throw new IllegalArgumentException("negative sample count: " + sampleCount);
+        }
+
+        final List<Integer> statusCodes = new ArrayList<>(sampleCount);
         for (int i = 0; i < sampleCount; i++) {
             final double draw = random.nextDouble();
             if (draw < ALARM_THRESHOLD_NO_ALARM) {
@@ -181,6 +189,68 @@ public class DpApplication {
             }
         }
         return statusCodes;
+    }
+
+    /*
+     * Accumulates demo sample status results across every PV and bucket of one generation run.
+     *
+     * A status save failure is recorded here rather than aborting the run.  By the time a save is
+     * attempted the bucket's data is already ingested, and sample status generation is an opt-in
+     * demo extra -- failing the whole ingestion because the demo extra failed would strand data
+     * that is in the archive but unreachable, since the state tracking that enables the Explore
+     * menu is only set on the success path.  Only the first failure is kept; the rest are almost
+     * always the same cause repeated once per bucket.
+     */
+    static final class SampleStatusAccumulator {
+
+        private final Random random;
+        private long savedCount = 0;
+        private String firstError = null;
+
+        SampleStatusAccumulator(Random random) {
+            this.random = random;
+        }
+
+        Random random() {
+            return random;
+        }
+
+        void recordSaved(long count) {
+            savedCount += count;
+        }
+
+        void recordError(String message) {
+            if (firstError == null) {
+                firstError = message;
+            }
+        }
+
+        long savedCount() {
+            return savedCount;
+        }
+
+        boolean hasError() {
+            return firstError != null;
+        }
+
+        String firstError() {
+            return firstError;
+        }
+    }
+
+    /*
+     * Provenance for the modifiedBy field of a demo sample status save.
+     *
+     * The registered provider name is the most useful answer to "who did this", but providerName
+     * is only assigned by registerProvider() and generateAndIngestData() guards on providerId
+     * rather than on it.  Falling through with a null would make AnnotationClient omit the field
+     * entirely, storing the statuses with no attribution at all and no indication that happened,
+     * so an explicit fallback is used instead.
+     */
+    static String sampleStatusModifiedBy(String providerName) {
+        return (providerName == null || providerName.isBlank())
+                ? SAMPLE_STATUS_DEMO_SOURCE
+                : providerName;
     }
 
     /**
@@ -653,15 +723,15 @@ public class DpApplication {
         try {
             int totalBuckets = 0;
 
-            // single element array accumulates the sample status count across PVs and buckets
-            final long[] sampleStatusesSaved = new long[1];
-            final Random sampleStatusRandom = new Random();
+            // accumulates sample status counts and any save failure across PVs and buckets
+            final SampleStatusAccumulator sampleStatusAccumulator =
+                    new SampleStatusAccumulator(new Random());
 
             // Generate and ingest data for each PV
             for (PvDetail pvDetail : pvDetails) {
                 ResultStatus result = generateAndIngestPvData(
                         pvDetail, beginTime, endTime, columnMetadata, bucketSizeSeconds,
-                        generateSampleStatuses, sampleStatusRandom, sampleStatusesSaved);
+                        generateSampleStatuses, sampleStatusAccumulator);
                 logger.debug("generating pv: {} values per second: {}", pvDetail.getPvName(), pvDetail.getValuesPerSecond());
                 if (result.isError) {
                     return result; // Return first error encountered
@@ -681,8 +751,22 @@ public class DpApplication {
             String successMessage = "Successfully generated and ingested data for " + pvDetails.size() + 
                 " PVs in " + totalBuckets + " bucket(s)";
             if (generateSampleStatuses) {
+                /*
+                 * "upserted" rather than "saved": the save is keyed on
+                 * (pvName, timestamp, domain, layer) and fully replaces an existing status, so
+                 * re-generating over the same PVs and time range reports the same count while
+                 * replacing rather than adding.  A sample status save failure is reported here
+                 * alongside the successful ingestion rather than as an overall error, since the
+                 * data itself is in the archive either way.
+                 */
                 successMessage = successMessage
-                        + ", and saved " + sampleStatusesSaved[0] + " sample status(es)";
+                        + ", and upserted " + sampleStatusAccumulator.savedCount()
+                        + " sample status(es)";
+                if (sampleStatusAccumulator.hasError()) {
+                    successMessage = successMessage
+                            + " (some sample status saves failed: "
+                            + sampleStatusAccumulator.firstError() + ")";
+                }
             }
             this.lastOperationResult = successMessage;
             
@@ -697,15 +781,14 @@ public class DpApplication {
      * Generates and ingests data for a single PV, one ingestion request per bucket.
      *
      * When generateSampleStatuses is true, a demo sample status frame is saved for each bucket
-     * immediately after that bucket's data is ingested, and sampleStatusesSaved accumulates the
-     * total number of individual statuses saved.  See the sample status save below for why the
-     * frame is built here rather than batched.
+     * immediately after that bucket's data is ingested, and sampleStatusAccumulator collects the
+     * counts and any save failure.  See the sample status save below for why the frame is built
+     * here rather than batched, and why a save failure does not fail this method.
      */
     private ResultStatus generateAndIngestPvData(
             PvDetail pvDetail, Instant beginTime, Instant endTime,
             ColumnMetadata columnMetadata, int bucketSizeSeconds,
-            boolean generateSampleStatuses, Random sampleStatusRandom,
-            long[] sampleStatusesSaved
+            boolean generateSampleStatuses, SampleStatusAccumulator sampleStatusAccumulator
     ) {
         try {
             // Calculate total duration and number of buckets
@@ -816,7 +899,7 @@ public class DpApplication {
                  */
                 if (generateSampleStatuses) {
                     final List<Integer> statusCodes = generateRandomAlarmStatusCodes(
-                            samplingClockCount, sampleStatusRandom);
+                            samplingClockCount, sampleStatusAccumulator.random());
 
                     final SampleStatusFrame statusFrame = buildSampleStatusFrame(
                             pvDetail.getPvName(),
@@ -829,16 +912,27 @@ public class DpApplication {
                             statusCodes);
 
                     final SaveSampleStatusesApiResult statusResult = saveSampleStatuses(
-                            List.of(statusFrame), SAMPLE_STATUS_DEMO_SOURCE, providerName);
+                            List.of(statusFrame),
+                            SAMPLE_STATUS_DEMO_SOURCE,
+                            sampleStatusModifiedBy(providerName));
 
+                    /*
+                     * A failed status save is recorded and generation continues, rather than
+                     * returning an error.  The bucket's data was ingested successfully just
+                     * above and is in the archive; aborting here would skip the state tracking
+                     * that enables the Explore menu, leaving that data present but unreachable
+                     * from the UI -- a worse outcome than a demo extra silently coming up short,
+                     * which the success message reports.
+                     */
                     if (statusResult.resultStatus.isError) {
-                        return new ResultStatus(
-                                true,
-                                "error saving sample statuses for PV " + pvDetail.getPvName()
-                                        + ": " + statusResult.resultStatus.msg);
+                        logger.warn("error saving sample statuses for PV {}: {}",
+                                pvDetail.getPvName(), statusResult.resultStatus.msg);
+                        sampleStatusAccumulator.recordError(
+                                "PV " + pvDetail.getPvName() + ": "
+                                        + statusResult.resultStatus.msg);
+                    } else {
+                        sampleStatusAccumulator.recordSaved(statusResult.savedCount);
                     }
-
-                    sampleStatusesSaved[0] += statusResult.savedCount;
                 }
             }
             

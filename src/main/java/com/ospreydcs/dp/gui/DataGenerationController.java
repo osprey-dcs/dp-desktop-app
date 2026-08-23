@@ -30,6 +30,7 @@ public class DataGenerationController implements Initializable {
     
     // Placeholder for programmatically added subscription component
     @FXML private VBox subscriptionDetailsPlaceholder;
+    @FXML private CheckBox generateSampleStatusesCheckBox;
 
     // Generation Details FXML components
     @FXML private DatePicker dataBeginDatePicker;
@@ -135,6 +136,10 @@ public class DataGenerationController implements Initializable {
         setupIntegerComboBinding(pvValuesPerSecondCombo, viewModel.currentPvValuesPerSecondProperty());
         pvInitialValueField.textProperty().bindBidirectional(viewModel.currentPvInitialValueProperty());
         pvMaxStepField.textProperty().bindBidirectional(viewModel.currentPvMaxStepProperty());
+
+        // Sample status bindings
+        generateSampleStatusesCheckBox.selectedProperty()
+                .bindBidirectional(viewModel.generateSampleStatusesProperty());
 
         // Button state bindings
         generateButton.disableProperty().bind(viewModel.isGeneratingProperty());

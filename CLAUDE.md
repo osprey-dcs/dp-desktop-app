@@ -192,6 +192,7 @@ Explore → Data, PVs, Providers, Datasets, Annotations, Data Events
 - ✅ Event timestamp hyperlinks with automatic query editor navigation and time window setup
 - ✅ PV Metadata view for creating/updating PV metadata records via savePvMetadata() (aliases, tags, attributes, description)
 - ✅ Machine Configuration view for creating configuration records and activation intervals via saveConfiguration() / saveConfigurationActivation(), with a getConfiguration() overwrite warning
+- ✅ Demo sample status generation in the data-generation view via saveSampleStatuses(), plus an unwired querySampleStatuses() read-back wrapper
 
 ## GUI Architecture
 
@@ -219,10 +220,40 @@ The application follows the Model-View-ViewModel pattern:
 3. **PV Definition**: Always-visible form for adding process variables with automatic submission
 4. **PV Form Auto-Submission**: Automatically adds PVs when all fields are filled and user presses Enter or moves focus
 5. **Focus Management**: Returns focus to PV Name field after successful addition for rapid multi-PV entry
-6. **Subscription Configuration**: Data event subscription details with trigger conditions and PV monitoring
-7. **Form Validation**: Ensures all required fields are filled and time ranges are valid
-8. **Data Generation**: Uses random walk algorithm to generate time-series data
-9. **Ingestion**: Calls gRPC API to ingest generated data into MongoDB with subscription details
+6. **Sample Status (demo)**: Optional checkbox generating a random EPICS-style alarm status for every sample of every PV
+7. **Subscription Configuration**: Data event subscription details with trigger conditions and PV monitoring
+8. **Form Validation**: Ensures all required fields are filled and time ranges are valid
+9. **Data Generation**: Uses random walk algorithm to generate time-series data
+10. **Ingestion**: Calls gRPC API to ingest generated data into MongoDB with subscription details
+
+**Sample status generation is demo-only and off by default.** When checked, each ingestion bucket
+is followed immediately by a `saveSampleStatuses()` call for the samples just ingested, in domain
+`epics_alarm` / layer `demo_generator` (0=NO_ALARM, 1=MINOR_ALARM, 2=MAJOR_ALARM,
+3=INVALID_ALARM, weighted ~85/10/4/1).
+
+**Why the save happens inside the bucket loop rather than batched at the end:** a sample status
+attaches to a sample only by exact `(pvName, timestamp)` equality at *nanosecond* precision, so a
+status frame's `SamplingClock` must equal the clock the data was ingested with exactly. Building
+the frame in the loop lets it reuse the very same `samplingClockStartSeconds` /
+`samplingClockStartNanos` / `samplingClockPeriodNanos` / `samplingClockCount` locals already
+computed for the ingestion request, so the two clocks cannot drift apart. Accumulating frames and
+reconstructing their clocks later reintroduces exactly that risk — and misalignment **fails
+silently**: the save succeeds, the statuses are stored, and nothing matches at query time. Saving
+per bucket also keeps each request bounded, since the service may enforce a configured batch size
+limit.
+
+Switching to an explicit `TimestampList` would not make this safer: the risk is in *recomputing*
+timestamps independently of the ingested ones, not in the encoding, and a list would add a second
+computation to keep in sync. `SamplingClock` keeps one source of truth and is the shape the
+cookbook recommends for dense labeling.
+
+`confidence` and `reasons` are deliberately left unset — each is all-or-nothing (empty, or exactly
+one entry per timestamp), and an all-empty `reasons` list must be omitted rather than sent as empty
+strings.
+
+**The domain registry is not implemented.** `saveSampleStatusDomain()` / `querySampleStatusDomains()`
+are reserved in the proto but deferred server-side, so the `epics_alarm` code mapping exists only in
+`DpApplication` constants — nothing can resolve code 2 to "MAJOR_ALARM" from the archive.
 
 ### Data Import Workflow (Implemented)
 1. **Provider Configuration**: Uses reusable ProviderDetailsComponent for name, description, tags, attributes
@@ -758,6 +789,24 @@ javafx.application.Platform.runLater(() -> {
 - Handle null responses and exceptional results from gRPC services
 - Status messages should provide immediate user feedback during API operations
 - Use `ApiResultBase.isReject()` to distinguish a *rejected* request from a service failure. The single-record getters (`getConfiguration()`, and the other getters by the same convention) report a missing record as a rejection rather than as an empty successful result, so an existence check must branch on `isReject()` — `isError()` alone cannot tell "does not exist" from "the service is unreachable". Note `REJECT` also covers server-side validation failures, so reading it as not-found is only safe for a request already known to be valid.
+
+**Sample Status API wrappers** on `DpApplication` (the client wrappers themselves already exist on
+`AnnotationClient`, added by dp-service #239 — no dp-service work is needed to use them):
+- `saveSampleStatuses(frames, source, modifiedBy)` — batch upsert. Upsert is per individual status
+  keyed by `(pvName, timestamp, domain, layer)` and is a **full replace**: re-saving a key with an
+  empty confidence/reasons list clears the stored values.
+- `querySampleStatuses(beginTime, endTime, pvNames, domains, layers, limit, pageToken)` — unary,
+  resumable paging. Takes `Instant` at this boundary and converts inward via `timestampFromInstant()`,
+  since `QuerySampleStatusesParams` takes protobuf `Timestamp` (unlike `queryTable()`). **Bucket
+  selection is a `TimeRange` overlap test and boundary buckets are returned whole**, so a returned
+  bucket may contain statuses outside the requested range — callers counting or displaying
+  individual statuses must account for this. Currently has no UI caller; it is groundwork for the
+  query view in #39.
+
+`deleteSampleStatuses()` and `querySampleStatusesStream()` are deliberately **not** wrapped yet:
+which of unary vs. streaming is wanted depends on the query interface designed in #39, and delete
+has a wildcard (an empty `pvNames` deletes the layer's statuses for ALL PVs in the range) that
+deserves its own consideration.
 
 **Parameter normalization helpers** (package-private statics on `DpApplication`, unit-tested in `DpApplicationParamsTest`):
 - `emptyToNull(String / List / Map)` — a field left blank in the UI is omitted from the request rather than sent as an empty string or empty collection

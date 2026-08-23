@@ -3,6 +3,9 @@ package com.ospreydcs.dp.gui;
 import com.ospreydcs.dp.grpc.v1.annotation.Calculations;
 import com.ospreydcs.dp.grpc.v1.common.DataColumn;
 import com.ospreydcs.dp.grpc.v1.common.DataValue;
+import com.ospreydcs.dp.grpc.v1.common.SampleStatusColumn;
+import com.ospreydcs.dp.grpc.v1.common.SampleStatusFrame;
+import com.ospreydcs.dp.grpc.v1.common.SamplingClock;
 import com.ospreydcs.dp.grpc.v1.common.Timestamp;
 import com.ospreydcs.dp.gui.model.DataFrameDetails;
 import org.junit.jupiter.api.Test;
@@ -12,11 +15,14 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for the static parameter-normalization helpers on DpApplication: the empty-to-null
@@ -169,5 +175,144 @@ public class DpApplicationParamsTest {
         assertEquals(1.5, first.getDataColumns(0).getDataValues(0).getDoubleValue());
 
         assertEquals("frame-2", calculations.getCalculationDataFrames(1).getName());
+    }
+    // ------------------- sample status ---------------------------
+
+    private static final long CLOCK_START_SECONDS = 1_700_000_000L;
+    private static final long CLOCK_START_NANOS = 123_456_789L;
+    private static final long CLOCK_PERIOD_NANOS = 100_000_000L; // 10 Hz
+
+    private static SampleStatusFrame frameWithCodes(int count, List<Integer> codes) {
+        return DpApplication.buildSampleStatusFrame(
+                "test-pv",
+                DpApplication.SAMPLE_STATUS_DEMO_DOMAIN,
+                DpApplication.SAMPLE_STATUS_DEMO_LAYER,
+                CLOCK_START_SECONDS,
+                CLOCK_START_NANOS,
+                CLOCK_PERIOD_NANOS,
+                count,
+                codes);
+    }
+
+    private static List<Integer> zeroCodes(int count) {
+        List<Integer> codes = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            codes.add(DpApplication.EPICS_ALARM_NO_ALARM);
+        }
+        return codes;
+    }
+
+    /**
+     * The sampling clock of a status frame must equal the clock the data was ingested with
+     * exactly: statuses attach to samples by exact (pvName, timestamp) equality at nanosecond
+     * precision, so an altered start or period silently matches nothing at query time.  This
+     * asserts the builder passes the caller's clock values through untouched rather than
+     * recomputing them.
+     */
+    @Test
+    public void sampleStatusFrameClockMatchesSuppliedValuesExactly() {
+        SampleStatusFrame frame = frameWithCodes(3, zeroCodes(3));
+
+        SamplingClock clock = frame.getDataTimestamps().getSamplingClock();
+        assertEquals(CLOCK_START_SECONDS, clock.getStartTime().getEpochSeconds());
+        assertEquals(CLOCK_START_NANOS, clock.getStartTime().getNanoseconds());
+        assertEquals(CLOCK_PERIOD_NANOS, clock.getPeriodNanos());
+        assertEquals(3, clock.getCount());
+    }
+
+    @Test
+    public void sampleStatusFrameCarriesPvNameDomainAndLayer() {
+        SampleStatusFrame frame = frameWithCodes(2, zeroCodes(2));
+
+        assertEquals(DpApplication.SAMPLE_STATUS_DEMO_DOMAIN, frame.getDomain());
+        assertEquals(DpApplication.SAMPLE_STATUS_DEMO_LAYER, frame.getLayer());
+        assertEquals(1, frame.getStatusColumnsCount());
+        assertEquals("test-pv", frame.getStatusColumns(0).getPvName());
+    }
+
+    @Test
+    public void sampleStatusFrameCarriesOneCodePerTimestamp() {
+        List<Integer> codes = List.of(
+                DpApplication.EPICS_ALARM_NO_ALARM,
+                DpApplication.EPICS_ALARM_MAJOR_ALARM,
+                DpApplication.EPICS_ALARM_INVALID_ALARM);
+
+        SampleStatusColumn column = frameWithCodes(3, codes).getStatusColumns(0);
+
+        assertEquals(3, column.getStatusCodesCount());
+        assertEquals(DpApplication.EPICS_ALARM_NO_ALARM, column.getStatusCodes(0));
+        assertEquals(DpApplication.EPICS_ALARM_MAJOR_ALARM, column.getStatusCodes(1));
+        assertEquals(DpApplication.EPICS_ALARM_INVALID_ALARM, column.getStatusCodes(2));
+    }
+
+    /*
+     * confidence and reasons are all-or-nothing: each must be empty or carry exactly one entry
+     * per timestamp.  The demo supplies neither, and an all-empty reasons list must be omitted
+     * entirely rather than sent as empty strings.
+     */
+    @Test
+    public void sampleStatusFrameLeavesConfidenceAndReasonsEmpty() {
+        SampleStatusColumn column = frameWithCodes(3, zeroCodes(3)).getStatusColumns(0);
+
+        assertEquals(0, column.getConfidenceCount());
+        assertEquals(0, column.getReasonsCount());
+    }
+
+    /*
+     * The service rejects a column whose code count differs from the timestamp count.  Failing
+     * here surfaces the mismatch at its origin instead of as a server rejection.
+     */
+    @Test
+    public void sampleStatusFrameRejectsCodeCountMismatch() {
+        assertThrows(IllegalArgumentException.class, () -> frameWithCodes(3, zeroCodes(2)));
+        assertThrows(IllegalArgumentException.class, () -> frameWithCodes(2, zeroCodes(3)));
+        assertThrows(IllegalArgumentException.class, () -> frameWithCodes(2, null));
+    }
+
+    @Test
+    public void generatedAlarmCodesAreAllWithinTheDomain() {
+        List<Integer> codes = DpApplication.generateRandomAlarmStatusCodes(500, new Random(42));
+
+        assertEquals(500, codes.size());
+        for (Integer code : codes) {
+            assertTrue(
+                    code == DpApplication.EPICS_ALARM_NO_ALARM
+                            || code == DpApplication.EPICS_ALARM_MINOR_ALARM
+                            || code == DpApplication.EPICS_ALARM_MAJOR_ALARM
+                            || code == DpApplication.EPICS_ALARM_INVALID_ALARM,
+                    "unexpected alarm status code: " + code);
+        }
+    }
+
+    /*
+     * The distribution is weighted so demo data reads as plausible alarm history rather than
+     * uniform noise.  Asserted loosely -- that NO_ALARM dominates and every code is reachable --
+     * so the test pins the intent without becoming brittle about the exact ratios.
+     */
+    @Test
+    public void generatedAlarmCodesAreWeightedTowardNoAlarm() {
+        List<Integer> codes = DpApplication.generateRandomAlarmStatusCodes(5_000, new Random(1));
+
+        Map<Integer, Integer> counts = new HashMap<>();
+        for (Integer code : codes) {
+            counts.merge(code, 1, Integer::sum);
+        }
+
+        int noAlarmCount = counts.getOrDefault(DpApplication.EPICS_ALARM_NO_ALARM, 0);
+        assertTrue(noAlarmCount > 5_000 / 2,
+                "NO_ALARM should dominate the distribution, saw " + noAlarmCount + " of 5000");
+
+        for (int code : List.of(
+                DpApplication.EPICS_ALARM_NO_ALARM,
+                DpApplication.EPICS_ALARM_MINOR_ALARM,
+                DpApplication.EPICS_ALARM_MAJOR_ALARM,
+                DpApplication.EPICS_ALARM_INVALID_ALARM)) {
+            assertTrue(counts.getOrDefault(code, 0) > 0, "code never generated: " + code);
+        }
+    }
+
+    @Test
+    public void generatedAlarmCodesHandleZeroSampleCount() {
+        assertEquals(0, DpApplication.generateRandomAlarmStatusCodes(0, new Random(1)).size());
     }
 }

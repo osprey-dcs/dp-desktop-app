@@ -119,6 +119,13 @@
                   </HBox>
                </VBox>
                
+               <!-- Sample Status Section -->
+               <VBox spacing="5" styleClass="form-container">
+                  <Label text="Sample Status (demo):" />
+                  <CheckBox fx:id="generateSampleStatusesCheckBox" text="Generate random sample status information (demo purposes)" />
+                  <Label styleClass="app-description" wrapText="true" text="Assigns a random EPICS-style alarm status (NO_ALARM, MINOR_ALARM, MAJOR_ALARM, INVALID_ALARM) to every generated sample of every PV above, on the same timestamps as the data values. Saved in sample status domain &quot;epics_alarm&quot;, layer &quot;demo_generator&quot;. Re-generating over the same PVs and time range replaces the existing statuses rather than adding to them. For demonstrating the Sample Status API only." />
+               </VBox>
+
                <!-- Data Event Subscription Details Section - Component will be added programmatically -->
                <VBox fx:id="subscriptionDetailsPlaceholder" />
             </VBox>

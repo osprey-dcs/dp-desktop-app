@@ -125,6 +125,194 @@ public class DpApplication {
         return (instant == null) ? null : TimestampUtility.getTimestampFromInstant(instant);
     }
 
+    // ------------------- Sample Status (demo support) ---------------------------
+
+    /*
+     * Sample status domain and layer used by the demo sample status generator.
+     *
+     * domain names the contract for interpreting status codes; layer names the producer stream
+     * assigning them.  Together with PV name and timestamp these form the identity key of an
+     * individual sample status: (pvName, timestamp, domain, layer).
+     *
+     * As with EnumColumn, the MLDP stores status codes without validating or interpreting them:
+     * the (domain, code) mapping is a contract between producers and consumers.  The domain
+     * registry that would document this mapping in the archive itself
+     * (saveSampleStatusDomain() / querySampleStatusDomains()) is reserved in the proto but NOT
+     * YET IMPLEMENTED server-side, so for now the mapping below is the only definition of it.
+     */
+    public static final String SAMPLE_STATUS_DEMO_DOMAIN = "epics_alarm";
+    public static final String SAMPLE_STATUS_DEMO_LAYER = "demo_generator";
+    public static final String SAMPLE_STATUS_DEMO_SOURCE = "dp-desktop-app demo sample status generator";
+
+    // epics_alarm domain code mapping.
+    public static final int EPICS_ALARM_NO_ALARM = 0;
+    public static final int EPICS_ALARM_MINOR_ALARM = 1;
+    public static final int EPICS_ALARM_MAJOR_ALARM = 2;
+    public static final int EPICS_ALARM_INVALID_ALARM = 3;
+
+    /*
+     * Cumulative thresholds for the demo alarm distribution: ~85% NO_ALARM, ~10% MINOR_ALARM,
+     * ~4% MAJOR_ALARM, ~1% INVALID_ALARM.  Weighted so generated data reads as plausible alarm
+     * history rather than uniform noise.
+     */
+    private static final double ALARM_THRESHOLD_NO_ALARM = 0.85;
+    private static final double ALARM_THRESHOLD_MINOR_ALARM = 0.95;
+    private static final double ALARM_THRESHOLD_MAJOR_ALARM = 0.99;
+
+    /**
+     * Generates a list of random EPICS-style alarm status codes, one per sample.
+     *
+     * Codes are drawn independently with NO_ALARM dominating; see the threshold constants.  This
+     * is demo data only and models no real alarm behavior (a real alarm history would be highly
+     * autocorrelated rather than independent per sample).
+     *
+     * @throws IllegalArgumentException if sampleCount is negative.  Returning an empty list would
+     *     surface a caller bug later as a count mismatch in buildSampleStatusFrame() instead of
+     *     here, which is the very thing that guard exists to avoid.
+     */
+    static List<Integer> generateRandomAlarmStatusCodes(int sampleCount, Random random) {
+        if (sampleCount < 0) {
+            throw new IllegalArgumentException("negative sample count: " + sampleCount);
+        }
+
+        final List<Integer> statusCodes = new ArrayList<>(sampleCount);
+        for (int i = 0; i < sampleCount; i++) {
+            final double draw = random.nextDouble();
+            if (draw < ALARM_THRESHOLD_NO_ALARM) {
+                statusCodes.add(EPICS_ALARM_NO_ALARM);
+            } else if (draw < ALARM_THRESHOLD_MINOR_ALARM) {
+                statusCodes.add(EPICS_ALARM_MINOR_ALARM);
+            } else if (draw < ALARM_THRESHOLD_MAJOR_ALARM) {
+                statusCodes.add(EPICS_ALARM_MAJOR_ALARM);
+            } else {
+                statusCodes.add(EPICS_ALARM_INVALID_ALARM);
+            }
+        }
+        return statusCodes;
+    }
+
+    /*
+     * Accumulates demo sample status results across every PV and bucket of one generation run.
+     *
+     * A status save failure is recorded here rather than aborting the run.  By the time a save is
+     * attempted the bucket's data is already ingested, and sample status generation is an opt-in
+     * demo extra -- failing the whole ingestion because the demo extra failed would strand data
+     * that is in the archive but unreachable, since the state tracking that enables the Explore
+     * menu is only set on the success path.  Only the first failure is kept; the rest are almost
+     * always the same cause repeated once per bucket.
+     */
+    static final class SampleStatusAccumulator {
+
+        private final Random random;
+        private long savedCount = 0;
+        private String firstError = null;
+
+        SampleStatusAccumulator(Random random) {
+            this.random = random;
+        }
+
+        Random random() {
+            return random;
+        }
+
+        void recordSaved(long count) {
+            savedCount += count;
+        }
+
+        void recordError(String message) {
+            if (firstError == null) {
+                firstError = message;
+            }
+        }
+
+        long savedCount() {
+            return savedCount;
+        }
+
+        boolean hasError() {
+            return firstError != null;
+        }
+
+        String firstError() {
+            return firstError;
+        }
+    }
+
+    /*
+     * Provenance for the modifiedBy field of a demo sample status save.
+     *
+     * The registered provider name is the most useful answer to "who did this", but providerName
+     * is only assigned by registerProvider() and generateAndIngestData() guards on providerId
+     * rather than on it.  Falling through with a null would make AnnotationClient omit the field
+     * entirely, storing the statuses with no attribution at all and no indication that happened,
+     * so an explicit fallback is used instead.
+     */
+    static String sampleStatusModifiedBy(String providerName) {
+        return (providerName == null || providerName.isBlank())
+                ? SAMPLE_STATUS_DEMO_SOURCE
+                : providerName;
+    }
+
+    /**
+     * Builds a dense SampleStatusFrame assigning one status code to every sample on a
+     * SamplingClock time axis.
+     *
+     * The clock parameters are supplied by the caller rather than recomputed here, and that is
+     * the entire point of this helper's signature.  Sample statuses attach to samples by exact
+     * (pvName, timestamp) equality at nanosecond precision, so a status frame's clock must equal
+     * the clock the data was ingested with EXACTLY -- an off-by-one-nanosecond period misses
+     * every sample after the first.  Callers pass the same start/period/count values they used to
+     * build the ingestion request, so the two clocks cannot drift apart.  Misalignment fails
+     * silently: the save succeeds and the statuses are stored, but nothing matches at query time.
+     *
+     * confidence and reasons are deliberately left unset.  Each is all-or-nothing (empty, or
+     * exactly one entry per timestamp) and neither adds anything to an alarm-value demo; an
+     * all-empty reasons list is omitted entirely rather than sent as empty strings.
+     *
+     * @throws IllegalArgumentException if statusCodes does not contain exactly one code per
+     *     timestamp, which the service would otherwise reject.
+     */
+    static SampleStatusFrame buildSampleStatusFrame(
+            String pvName,
+            String domain,
+            String layer,
+            long samplingClockStartSeconds,
+            long samplingClockStartNanos,
+            long samplingClockPeriodNanos,
+            int samplingClockCount,
+            List<Integer> statusCodes
+    ) {
+        if (statusCodes == null || statusCodes.size() != samplingClockCount) {
+            throw new IllegalArgumentException(
+                    "sample status code count " + (statusCodes == null ? "null" : statusCodes.size())
+                            + " does not match sampling clock count " + samplingClockCount
+                            + " for PV " + pvName);
+        }
+
+        final SamplingClock samplingClock = SamplingClock.newBuilder()
+                .setStartTime(Timestamp.newBuilder()
+                        .setEpochSeconds(samplingClockStartSeconds)
+                        .setNanoseconds(samplingClockStartNanos)
+                        .build())
+                .setPeriodNanos(samplingClockPeriodNanos)
+                .setCount(samplingClockCount)
+                .build();
+
+        final SampleStatusColumn statusColumn = SampleStatusColumn.newBuilder()
+                .setPvName(pvName)
+                .addAllStatusCodes(statusCodes)
+                .build();
+
+        return SampleStatusFrame.newBuilder()
+                .setDomain(domain)
+                .setLayer(layer)
+                .setDataTimestamps(DataTimestamps.newBuilder()
+                        .setSamplingClock(samplingClock)
+                        .build())
+                .addStatusColumns(statusColumn)
+                .build();
+    }
+
     /**
      * Builds the protobuf Calculations message from imported data frames, or returns null when
      * there are none so the request builder omits the calculations field.  Returning null for
@@ -466,13 +654,22 @@ public class DpApplication {
         }
     }
 
+    /**
+     * Generates random walk data for each PV and ingests it, one request per bucket.
+     *
+     * When generateSampleStatuses is true, a random EPICS-style alarm status is also generated
+     * for every sample of every PV and saved via the Sample Status API, aligned on exactly the
+     * timestamps the data was ingested with.  This is demonstration data only; see
+     * SAMPLE_STATUS_DEMO_DOMAIN for the code mapping.
+     */
     public ResultStatus generateAndIngestData(
             Instant beginTime,
             Instant endTime,
             ColumnMetadata columnMetadata,
             List<PvDetail> pvDetails,
             int bucketSizeSeconds,
-            List<SubscribeDataEventDetail> subscriptionDetails
+            List<SubscribeDataEventDetail> subscriptionDetails,
+            boolean generateSampleStatuses
     ) {
         if (providerId == null) {
             return new ResultStatus(true, "Provider must be registered before ingesting data");
@@ -525,10 +722,16 @@ public class DpApplication {
 
         try {
             int totalBuckets = 0;
-            
+
+            // accumulates sample status counts and any save failure across PVs and buckets
+            final SampleStatusAccumulator sampleStatusAccumulator =
+                    new SampleStatusAccumulator(new Random());
+
             // Generate and ingest data for each PV
             for (PvDetail pvDetail : pvDetails) {
-                ResultStatus result = generateAndIngestPvData(pvDetail, beginTime, endTime, columnMetadata, bucketSizeSeconds);
+                ResultStatus result = generateAndIngestPvData(
+                        pvDetail, beginTime, endTime, columnMetadata, bucketSizeSeconds,
+                        generateSampleStatuses, sampleStatusAccumulator);
                 logger.debug("generating pv: {} values per second: {}", pvDetail.getPvName(), pvDetail.getValuesPerSecond());
                 if (result.isError) {
                     return result; // Return first error encountered
@@ -547,6 +750,24 @@ public class DpApplication {
             
             String successMessage = "Successfully generated and ingested data for " + pvDetails.size() + 
                 " PVs in " + totalBuckets + " bucket(s)";
+            if (generateSampleStatuses) {
+                /*
+                 * "upserted" rather than "saved": the save is keyed on
+                 * (pvName, timestamp, domain, layer) and fully replaces an existing status, so
+                 * re-generating over the same PVs and time range reports the same count while
+                 * replacing rather than adding.  A sample status save failure is reported here
+                 * alongside the successful ingestion rather than as an overall error, since the
+                 * data itself is in the archive either way.
+                 */
+                successMessage = successMessage
+                        + ", and upserted " + sampleStatusAccumulator.savedCount()
+                        + " sample status(es)";
+                if (sampleStatusAccumulator.hasError()) {
+                    successMessage = successMessage
+                            + " (some sample status saves failed: "
+                            + sampleStatusAccumulator.firstError() + ")";
+                }
+            }
             this.lastOperationResult = successMessage;
             
             return new ResultStatus(false, successMessage);
@@ -556,9 +777,18 @@ public class DpApplication {
         }
     }
     
+    /*
+     * Generates and ingests data for a single PV, one ingestion request per bucket.
+     *
+     * When generateSampleStatuses is true, a demo sample status frame is saved for each bucket
+     * immediately after that bucket's data is ingested, and sampleStatusAccumulator collects the
+     * counts and any save failure.  See the sample status save below for why the frame is built
+     * here rather than batched, and why a save failure does not fail this method.
+     */
     private ResultStatus generateAndIngestPvData(
             PvDetail pvDetail, Instant beginTime, Instant endTime,
-            ColumnMetadata columnMetadata, int bucketSizeSeconds
+            ColumnMetadata columnMetadata, int bucketSizeSeconds,
+            boolean generateSampleStatuses, SampleStatusAccumulator sampleStatusAccumulator
     ) {
         try {
             // Calculate total duration and number of buckets
@@ -651,6 +881,58 @@ public class DpApplication {
 
                 if (apiResult.resultStatus.isError) {
                     return apiResult.resultStatus;
+                }
+
+                /*
+                 * Save demo sample statuses for the samples just ingested.
+                 *
+                 * This is done here, per bucket, rather than by accumulating frames and saving
+                 * once at the end, because a sample status attaches to a sample only by exact
+                 * (pvName, timestamp) equality at nanosecond precision.  Building the frame here
+                 * lets it reuse the very same sampling clock values used to build the ingestion
+                 * request above, so the two clocks cannot drift apart.  Reconstructing the clock
+                 * later would reintroduce that risk, and misalignment fails silently: the save
+                 * succeeds and the statuses are stored, but nothing matches at query time.
+                 *
+                 * Saving per bucket also keeps each request naturally bounded, since the service
+                 * may enforce a configured batch size limit and reject oversized requests.
+                 */
+                if (generateSampleStatuses) {
+                    final List<Integer> statusCodes = generateRandomAlarmStatusCodes(
+                            samplingClockCount, sampleStatusAccumulator.random());
+
+                    final SampleStatusFrame statusFrame = buildSampleStatusFrame(
+                            pvDetail.getPvName(),
+                            SAMPLE_STATUS_DEMO_DOMAIN,
+                            SAMPLE_STATUS_DEMO_LAYER,
+                            samplingClockStartSeconds,
+                            samplingClockStartNanos,
+                            samplingClockPeriodNanos,
+                            samplingClockCount,
+                            statusCodes);
+
+                    final SaveSampleStatusesApiResult statusResult = saveSampleStatuses(
+                            List.of(statusFrame),
+                            SAMPLE_STATUS_DEMO_SOURCE,
+                            sampleStatusModifiedBy(providerName));
+
+                    /*
+                     * A failed status save is recorded and generation continues, rather than
+                     * returning an error.  The bucket's data was ingested successfully just
+                     * above and is in the archive; aborting here would skip the state tracking
+                     * that enables the Explore menu, leaving that data present but unreachable
+                     * from the UI -- a worse outcome than a demo extra silently coming up short,
+                     * which the success message reports.
+                     */
+                    if (statusResult.resultStatus.isError) {
+                        logger.warn("error saving sample statuses for PV {}: {}",
+                                pvDetail.getPvName(), statusResult.resultStatus.msg);
+                        sampleStatusAccumulator.recordError(
+                                "PV " + pvDetail.getPvName() + ": "
+                                        + statusResult.resultStatus.msg);
+                    } else {
+                        sampleStatusAccumulator.recordSaved(statusResult.savedCount);
+                    }
                 }
             }
             
@@ -1007,6 +1289,66 @@ public class DpApplication {
      */
     public GetConfigurationApiResult getConfiguration(String configurationName) {
         return api.annotationClient.getConfiguration(configurationName);
+    }
+
+    /**
+     * Batch upsert of sample statuses.
+     *
+     * Upsert is per individual status keyed by (pvName, timestamp, domain, layer) and is a FULL
+     * REPLACE: re-saving an existing key with empty confidence/reasons clears any previously
+     * stored values, as there is no patch-style partial update of a status.  To cleanly re-label
+     * a time range, delete the range first.
+     *
+     * source and modifiedBy are request-scoped provenance applying to every frame, so frames from
+     * a single producer should be batched per request; mixing producers misattributes provenance.
+     */
+    public SaveSampleStatusesApiResult saveSampleStatuses(
+            List<SampleStatusFrame> frames, String source, String modifiedBy
+    ) {
+        return api.annotationClient.saveSampleStatuses(frames, source, modifiedBy);
+    }
+
+    /**
+     * Unary sample status query with resumable paging.
+     *
+     * Takes Instant at this boundary and converts inward, following the convention of the other
+     * query wrappers here; the underlying client params take protobuf Timestamps.  Conversion
+     * goes through timestampFromInstant() so a null time stays null rather than becoming a
+     * zero-valued Timestamp describing the epoch.
+     *
+     * pvNames, domains and layers are optional filters combined with logical AND, with values
+     * within each combined by OR; an empty or null list matches all values.  An empty pvNames
+     * list is how to enumerate which PVs a (domain, layer) has labeled.
+     *
+     * Note that bucket selection is a TimeRange OVERLAP test and boundary buckets are returned
+     * WHOLE, so a returned bucket may contain statuses outside [beginTime, endTime).  Callers
+     * that count or display individual statuses need to account for this rather than assuming
+     * every returned status falls inside the requested range.
+     *
+     * An empty result is a success with an empty bucket list, not an error.  Pass a prior
+     * result's nextPageToken as pageToken to fetch the next page; an empty nextPageToken on the
+     * result indicates the last page.
+     */
+    public QuerySampleStatusesApiResult querySampleStatuses(
+            Instant beginTime,
+            Instant endTime,
+            List<String> pvNames,
+            List<String> domains,
+            List<String> layers,
+            int limit,
+            String pageToken
+    ) {
+        final AnnotationClient.QuerySampleStatusesParams params =
+                new AnnotationClient.QuerySampleStatusesParams(
+                        timestampFromInstant(beginTime),
+                        timestampFromInstant(endTime),
+                        emptyToNull(pvNames),
+                        emptyToNull(domains),
+                        emptyToNull(layers),
+                        limit,
+                        emptyToNull(pageToken));
+
+        return api.annotationClient.querySampleStatuses(params);
     }
 
     public ResultStatus subscribeDataEvent(

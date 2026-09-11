@@ -24,6 +24,28 @@ public class DataFrameDetails {
         this.dataColumns = dataColumns;
     }
     
+    /**
+     * Converts a protobuf CalculationsDataFrame to a DataFrameDetails.
+     *
+     * As of dp-grpc #132 a CalculationsDataFrame is a name plus a nested common.DataFrame rather
+     * than a flat name/DataTimestamps/DataColumns triple.  DataFrameDetails stays flat because its
+     * other construction path is the Excel import (DataImportResult.DataFrameResult), which the
+     * modernization did not change; this factory is the single place that unwraps the nesting, so
+     * the read sites in AnnotationInfoTableRow and AnnotationBuilderViewModel do not each repeat it.
+     */
+    public static DataFrameDetails fromCalculationsDataFrame(
+            com.ospreydcs.dp.grpc.v1.annotation.Calculations.CalculationsDataFrame frame) {
+
+        if (frame == null) {
+            return null;
+        }
+
+        return new DataFrameDetails(
+                frame.getName(),
+                frame.getFrame().getDataTimestamps().getTimestampList().getTimestampsList(),
+                frame.getFrame().getDataColumnsList());
+    }
+
     // Getters and Setters
     public String getName() {
         return name;

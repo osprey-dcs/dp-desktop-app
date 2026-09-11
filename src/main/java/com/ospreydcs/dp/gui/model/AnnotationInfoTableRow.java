@@ -1,5 +1,7 @@
 package com.ospreydcs.dp.gui.model;
 
+import com.ospreydcs.dp.grpc.v1.annotation.Annotation;
+
 import javafx.beans.property.SimpleStringProperty;
 import javafx.beans.property.StringProperty;
 
@@ -12,7 +14,7 @@ import java.util.stream.Collectors;
  */
 public class AnnotationInfoTableRow {
 
-    private final com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation;
+    private final Annotation annotation;
     
     // Properties for TableView binding
     private final StringProperty id;
@@ -25,14 +27,14 @@ public class AnnotationInfoTableRow {
     private final StringProperty attributes;
     private final StringProperty calculationsDataFrames;
 
-    public AnnotationInfoTableRow(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {
+    public AnnotationInfoTableRow(Annotation annotation) {
         this.annotation = annotation;
         
         // Initialize properties from protobuf object
         this.id = new SimpleStringProperty(annotation != null ? annotation.getId() : "");
         this.owner = new SimpleStringProperty(annotation != null ? annotation.getOwnerId() : "");
         this.name = new SimpleStringProperty(annotation != null ? annotation.getName() : "");
-        this.comment = new SimpleStringProperty(annotation != null ? annotation.getComment() : "");
+        this.comment = new SimpleStringProperty(annotation != null ? annotation.getDescription() : "");
         
         // Format complex fields as comma-separated strings
         this.relatedDatasets = new SimpleStringProperty(formatDatasetIds(annotation));
@@ -44,28 +46,28 @@ public class AnnotationInfoTableRow {
     
     // Formatting methods for complex fields
     
-    private String formatDatasetIds(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {
+    private String formatDatasetIds(Annotation annotation) {
         if (annotation == null || annotation.getDataSetIdsList().isEmpty()) {
             return "";
         }
         return String.join(", ", annotation.getDataSetIdsList());
     }
     
-    private String formatAnnotationIds(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {
+    private String formatAnnotationIds(Annotation annotation) {
         if (annotation == null || annotation.getAnnotationIdsList().isEmpty()) {
             return "";
         }
         return String.join(", ", annotation.getAnnotationIdsList());
     }
     
-    private String formatTags(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {
+    private String formatTags(Annotation annotation) {
         if (annotation == null || annotation.getTagsList().isEmpty()) {
             return "";
         }
         return String.join(", ", annotation.getTagsList());
     }
     
-    private String formatAttributes(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {
+    private String formatAttributes(Annotation annotation) {
         if (annotation == null || annotation.getAttributesList().isEmpty()) {
             return "";
         }
@@ -75,7 +77,7 @@ public class AnnotationInfoTableRow {
             .collect(Collectors.joining(", "));
     }
     
-    private String formatCalculationsDataFrames(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {
+    private String formatCalculationsDataFrames(Annotation annotation) {
         if (annotation == null || 
             annotation.getCalculations() == null ||
             annotation.getCalculations().getCalculationDataFramesList().isEmpty()) {
@@ -118,7 +120,7 @@ public class AnnotationInfoTableRow {
     
     // Access to underlying protobuf object and its lists for hyperlink functionality
     
-    public com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation getAnnotation() { 
+    public Annotation getAnnotation() { 
         return annotation; 
     }
     
@@ -156,12 +158,7 @@ public class AnnotationInfoTableRow {
         for (com.ospreydcs.dp.grpc.v1.annotation.Calculations.CalculationsDataFrame frame : 
              annotation.getCalculations().getCalculationDataFramesList()) {
             if (frameName.equals(frame.getName())) {
-                // Convert to DataFrameDetails
-                return new DataFrameDetails(
-                    frame.getName(),
-                    frame.getDataTimestamps().getTimestampList().getTimestampsList(),
-                    frame.getDataColumnsList()
-                );
+                return DataFrameDetails.fromCalculationsDataFrame(frame);
             }
         }
         

@@ -1,5 +1,6 @@
 package com.ospreydcs.dp.gui;
 
+import com.ospreydcs.dp.grpc.v1.annotation.Annotation;
 import com.ospreydcs.dp.gui.model.DataSetDetail;
 import com.ospreydcs.dp.gui.model.DataFrameDetails;
 import javafx.beans.property.*;
@@ -179,7 +180,7 @@ public class AnnotationBuilderViewModel {
      * Load annotation data from a protobuf Annotation object.
      * Populates the form fields and related data from the loaded annotation.
      */
-    public void loadFromAnnotation(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {
+    public void loadFromAnnotation(Annotation annotation) {
         logger.debug("Loading annotation into builder: {}", annotation.getId());
         
         // Clear existing data first
@@ -188,7 +189,7 @@ public class AnnotationBuilderViewModel {
         // Populate form fields
         setAnnotationId(annotation.getId());
         setAnnotationName(annotation.getName());
-        setComment(annotation.getComment());
+        setComment(annotation.getDescription());
         
 //        // Set event name from event metadata
 //        if (annotation.getEventMetadata() != null &&
@@ -223,12 +224,7 @@ public class AnnotationBuilderViewModel {
             for (com.ospreydcs.dp.grpc.v1.annotation.Calculations.CalculationsDataFrame frame : 
                  annotation.getCalculations().getCalculationDataFramesList()) {
                 
-                DataFrameDetails frameDetail = new DataFrameDetails(
-                    frame.getName(),
-                    frame.getDataTimestamps().getTimestampList().getTimestampsList(),
-                    frame.getDataColumnsList()
-                );
-                calculationsDataFrames.add(frameDetail);
+                calculationsDataFrames.add(DataFrameDetails.fromCalculationsDataFrame(frame));
             }
         }
         

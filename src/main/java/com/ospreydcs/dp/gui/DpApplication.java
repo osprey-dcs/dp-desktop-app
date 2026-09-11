@@ -330,11 +330,15 @@ public class DpApplication {
                     TimestampList.newBuilder().addAllTimestamps(dataFrameDetails.getTimestamps()).build();
             final DataTimestamps frameDataTimestamps =
                     DataTimestamps.newBuilder().setTimestampList(frameTimestampList).build();
+            final DataFrame frame =
+                    DataFrame.newBuilder()
+                            .setDataTimestamps(frameDataTimestamps)
+                            .addAllDataColumns(dataFrameDetails.getDataColumns())
+                            .build();
             final Calculations.CalculationsDataFrame calculationsDataFrame =
                     Calculations.CalculationsDataFrame.newBuilder()
                             .setName(dataFrameDetails.getName())
-                            .setDataTimestamps(frameDataTimestamps)
-                            .addAllDataColumns(dataFrameDetails.getDataColumns())
+                            .setFrame(frame)
                             .build();
             calculationsBuilder.addCalculationDataFrames(calculationsDataFrame);
         }

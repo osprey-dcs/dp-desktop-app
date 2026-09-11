@@ -809,6 +809,26 @@ javafx.application.Platform.runLater(() -> {
 - Status messages should provide immediate user feedback during API operations
 - Use `ApiResultBase.isReject()` to distinguish a *rejected* request from a service failure. The single-record getters (`getConfiguration()`, and the other getters by the same convention) report a missing record as a rejection rather than as an empty successful result, so an existence check must branch on `isReject()` — `isError()` alone cannot tell "does not exist" from "the service is unreachable". Note `REJECT` also covers server-side validation failures, so reading it as not-found is only safe for a request already known to be valid.
 
+**Query criteria combine with AND; values within one criterion combine with OR.** This holds across
+the annotation queries (`queryDataSets`, `queryAnnotations`) as of dp-grpc #132. It replaced an
+older two-bucket scheme that ORed some criteria and ANDed others, with different assignments per
+method — so **two `TagsCriterion` entries used to mean "either tag" and now mean "both tags"**.
+Nothing errors; the result set is simply smaller.
+
+The app is not affected today: `DpApplication.queryDataSets()` / `queryAnnotations()` take single
+`String` parameters from single text fields and pass them through `setIfPresent`, so they send one
+value per criterion and one criterion per type. The trap is prospective — the natural way to add a
+multi-tag search box is a comma-separated field, and "tag A, tag B" reads as "either" to most
+people (and *was* "either" before #132). Implemented naively it silently returns fewer results
+rather than more.
+
+Note also that the dp-service client params can express at most one value per criterion and one
+criterion per type, and expose no `NameCriterion` at all (nor `TagsCriterion` / `AttributesCriterion`
+on `queryDataSets`), even though the proto supports all of them. **Multi-value or name-scoped search
+therefore needs dp-service client work before any UI for it can be built.** `TextCriterion` is a
+collection-level MongoDB text-index search over the record's indexed fields, not a per-field match,
+so it cannot be scoped to a named field at query time.
+
 **Sample Status API wrappers** on `DpApplication` (the client wrappers themselves already exist on
 `AnnotationClient`, added by dp-service #239 — no dp-service work is needed to use them):
 - `saveSampleStatuses(frames, source, modifiedBy)` — batch upsert. Upsert is per individual status

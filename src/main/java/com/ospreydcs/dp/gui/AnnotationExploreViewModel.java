@@ -1,5 +1,6 @@
 package com.ospreydcs.dp.gui;
 
+import com.ospreydcs.dp.grpc.v1.annotation.Annotation;
 import com.ospreydcs.dp.gui.model.AnnotationInfoTableRow;
 import javafx.beans.property.*;
 import javafx.collections.FXCollections;
@@ -82,11 +83,11 @@ public class AnnotationExploreViewModel {
         searchResults.clear();
         
         // Create background task for annotation search
-        Task<java.util.List<com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation>> searchTask = 
-            new Task<java.util.List<com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation>>() {
+        Task<java.util.List<Annotation>> searchTask = 
+            new Task<java.util.List<Annotation>>() {
                 
             @Override
-            protected java.util.List<com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation> call() throws Exception {
+            protected java.util.List<Annotation> call() throws Exception {
                 logger.debug("Background annotation search task started");
                 
                 // Convert empty strings to null for API call
@@ -132,11 +133,11 @@ public class AnnotationExploreViewModel {
         };
         
         searchTask.setOnSucceeded(e -> {
-            java.util.List<com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation> annotations = searchTask.getValue();
+            java.util.List<Annotation> annotations = searchTask.getValue();
             
             javafx.application.Platform.runLater(() -> {
                 // Convert protobuf objects to table row objects
-                for (com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation : annotations) {
+                for (Annotation annotation : annotations) {
                     AnnotationInfoTableRow tableRow = new AnnotationInfoTableRow(annotation);
                     searchResults.add(tableRow);
                 }

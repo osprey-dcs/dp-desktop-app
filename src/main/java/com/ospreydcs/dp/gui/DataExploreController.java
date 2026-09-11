@@ -1,5 +1,6 @@
 package com.ospreydcs.dp.gui;
 
+import com.ospreydcs.dp.grpc.v1.annotation.Annotation;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
@@ -2169,11 +2170,11 @@ public class DataExploreController implements Initializable {
         });
         
         // Query annotation in background task
-        javafx.concurrent.Task<com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation> loadTask = 
-            new javafx.concurrent.Task<com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation>() {
+        javafx.concurrent.Task<Annotation> loadTask = 
+            new javafx.concurrent.Task<Annotation>() {
                 
             @Override
-            protected com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation call() throws Exception {
+            protected Annotation call() throws Exception {
                 logger.debug("Querying annotation by ID: {}", annotationId);
                 
                 com.ospreydcs.dp.client.result.QueryAnnotationsApiResult apiResult = 
@@ -2197,7 +2198,7 @@ public class DataExploreController implements Initializable {
         };
         
         loadTask.setOnSucceeded(e -> {
-            com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation = loadTask.getValue();
+            Annotation annotation = loadTask.getValue();
             javafx.application.Platform.runLater(() -> {
                 annotationBuilderViewModel.loadFromAnnotation(annotation);
                 logger.info("Successfully loaded annotation into builder: {}", annotation.getName());

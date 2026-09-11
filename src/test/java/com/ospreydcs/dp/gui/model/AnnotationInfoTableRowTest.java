@@ -1,9 +1,10 @@
 package com.ospreydcs.dp.gui.model;
 
+import com.ospreydcs.dp.grpc.v1.annotation.Annotation;
 import com.ospreydcs.dp.grpc.v1.annotation.Calculations;
-import com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation;
 import com.ospreydcs.dp.grpc.v1.common.Attribute;
 import com.ospreydcs.dp.grpc.v1.common.DataColumn;
+import com.ospreydcs.dp.grpc.v1.common.DataFrame;
 import com.ospreydcs.dp.grpc.v1.common.DataTimestamps;
 import com.ospreydcs.dp.grpc.v1.common.Timestamp;
 import com.ospreydcs.dp.grpc.v1.common.TimestampList;
@@ -27,9 +28,10 @@ public class AnnotationInfoTableRowTest {
     private static Calculations.CalculationsDataFrame frame(String name) {
         return Calculations.CalculationsDataFrame.newBuilder()
                 .setName(name)
-                .setDataTimestamps(DataTimestamps.newBuilder()
-                        .setTimestampList(TimestampList.newBuilder().addTimestamps(TS)))
-                .addDataColumns(DataColumn.newBuilder().setName(name + "-col"))
+                .setFrame(DataFrame.newBuilder()
+                        .setDataTimestamps(DataTimestamps.newBuilder()
+                                .setTimestampList(TimestampList.newBuilder().addTimestamps(TS)))
+                        .addDataColumns(DataColumn.newBuilder().setName(name + "-col")))
                 .build();
     }
 
@@ -38,7 +40,7 @@ public class AnnotationInfoTableRowTest {
                 .setId("ann-1")
                 .setOwnerId("owner-1")
                 .setName("annotation-1")
-                .setComment("a comment");
+                .setDescription("a comment");
     }
 
     @Test

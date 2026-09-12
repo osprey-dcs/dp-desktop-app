@@ -42,7 +42,7 @@ public class AnnotationInfoTableRowTest {
                 .setId("ann-1")
                 .setOwnerId("owner-1")
                 .setName("annotation-1")
-                .setDescription("a comment");
+                .setDescription("a description");
     }
 
     @Test
@@ -52,7 +52,7 @@ public class AnnotationInfoTableRowTest {
         assertEquals("ann-1", row.getId());
         assertEquals("owner-1", row.getOwner());
         assertEquals("annotation-1", row.getName());
-        assertEquals("a comment", row.getComment());
+        assertEquals("a description", row.getDescription());
     }
 
     @Test
@@ -148,7 +148,7 @@ public class AnnotationInfoTableRowTest {
         assertEquals("", row.getId());
         assertEquals("", row.getOwner());
         assertEquals("", row.getName());
-        assertEquals("", row.getComment());
+        assertEquals("", row.getDescription());
         assertEquals("", row.getRelatedDatasets());
         assertEquals(List.of(), row.getDataSetIdsList());
         assertEquals("", row.getCalculationsId());

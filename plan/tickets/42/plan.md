@@ -280,9 +280,14 @@ path it loses no data, so it stays P3.2 rather than being pulled forward.
 Original criteria: `mvn clean test` green; the Calculations column and the annotation load path
 both correct against the modernized API.
 
-## Phase 3 — adopt the modernized surface
+## Phase 3 — adopt the modernized surface ◐ PARTIAL (2026-09-12)
 
 Elective. Each item is independently schedulable and none blocks the others.
+
+**P3.1, P3.2 and P3.5 are done** — the items that complete the #132 migration rather than add
+capability. **P3.3 and P3.4 were deliberately not done**: per [D4](#d4--no-delete-or-patch-ui-restore-existing-functionality-only)
+they are new capability (new entity fields, new export inputs and UI), not restoration, and belong
+in their own tickets. See "Phase 3 outcome" below.
 
 ### P3.1 — finish the `comment` → `description` rename
 
@@ -353,6 +358,44 @@ evidence of correctness here.
   someone to "fix" it.
 - `QueryAnnotationsParams.eventCriterion` is a **dead field in the client** — never read by the
   request builder, so setting it is silently ignored. The app does not set it; do not start.
+
+### Phase 3 outcome — P3.1, P3.2, P3.5 complete; P3.3, P3.4 deferred by D4
+
+`mvn clean test` green: **154 tests, 0 failures, 0 errors** (151 after Phase 2, plus 3 new binding
+guard tests).
+
+- **P3.1 — done, carried through to user-visible labels.** The rename covers the row-model property,
+  both view models, the `fx:id`s in `annotation-explore.fxml` and `data-explore.fxml`, the reflective
+  `PropertyValueFactory` string, and — by explicit choice — the "Comment:" field label, the "Comment"
+  column header and the "Name / Comment / Event" search label. A repo-wide case-insensitive grep for
+  `comment` across `src/**/*.java` and `src/**/*.fxml` returns nothing but one prose mention in the
+  new test's javadoc.
+- **P3.2 — done.** New `DpApplication.getDataSet()` wrapper; `loadDatasetIntoBuilder` now uses it and
+  branches on `isReject()` for not-found instead of emulating a single-record fetch with
+  `queryDataSets(id, null, null, null)` + `.get(0)`.
+- **P3.5 — done.** `model/CalculationsDetails.java` deleted after confirming every reference to the
+  identifier was inside the file itself (the apparent hits elsewhere are
+  `showCalculationsDetailsDialog`, a different symbol). Its CLAUDE.md section went with it. The
+  `eventCriterion` half needed no action — the app never set it.
+
+**On the guard test, and a correction worth recording.** `AnnotationInfoTableRowBindingTest` asserts
+that every `PropertyValueFactory` string resolves against the row model. The first version asserted
+only non-null, and mutation testing showed that was **worthless**: `PropertyValueFactory` falls back
+from `someProperty()` to `getSome()`, so a half-finished rename still resolves. A probe established
+the real semantics — an unresolvable name returns null, a resolvable one returns the value — so the
+test now asserts each binding's *expected value*. Verified by mutation: renaming the row property
+with no accessor left under the old name fails the test with a message naming
+`setupTableColumns()`. Two earlier mutation attempts passed and were rejected as invalid rather than
+taken as evidence the guard worked.
+
+**Not done, and why.** P3.3 (`modifiedBy` on both saves, `DataSet` tags/attributes/timestamps,
+capturing `SaveAnnotationApiResult.calculationsId`) and P3.4 (inline ad-hoc export, exporting
+calculations, documenting the CSV/XLSX scalar-only restriction) both add capability the app never
+had. D4's restore-only principle governs Phase 3 explicitly, and both items want UI design decisions
+— new Dataset Builder inputs, a changed export precondition — that deserve their own tickets rather
+than riding along on a migration. Note the plan's own warning still stands for whoever picks up
+P3.3: the client params records ship compatibility constructors that omit these fields, so the app
+compiles while writing `null` for all of them. Compiling is not evidence of correctness there.
 
 ## What dp-service still owes this app
 

@@ -1228,7 +1228,7 @@ public class DpApplication {
             String name,
             List<String> dataSetIds,
             List<String> annotationIds,
-            String comment,
+            String description,
             List<String> tags,
             Map<String, String> attributeMap,
             List<DataFrameDetails> calculationsDataFrameDetails
@@ -1244,7 +1244,7 @@ public class DpApplication {
                         name,
                         dataSetIds,
                         annotationIds,
-                        comment,
+                        description,
                         tags,
                         attributeMap,
                         calculations
@@ -1271,7 +1271,7 @@ public class DpApplication {
             String ownerCriterion,
             String dataSetsCriterion,
             String annotationsCriterion,
-            String textCriterion, // search name, comment, event description fields
+            String textCriterion, // search name and description fields
             String tagsCriterion,
             String attributeKeyCriterion,
             String attributeValueCriterion
@@ -1302,6 +1302,21 @@ public class DpApplication {
                 pageResult -> pageResult.nextPageToken,
                 pageResult -> pageResult.annotations,
                 QUERY_RESULT_CAP);
+    }
+
+    /**
+     * Retrieves a single DataSet by id.
+     *
+     * The right RPC for a one-record lookup, in place of emulating one with
+     * queryDataSets(id, null, null, null) plus .get(0): the dedicated getter makes structurally
+     * true what that pattern could only assume.
+     *
+     * A missing record is reported as a rejection rather than an empty result, so callers
+     * distinguishing "not found" from "service unreachable" must branch on
+     * ApiResultBase.isReject() rather than isError().
+     */
+    public GetDataSetApiResult getDataSet(String dataSetId) {
+        return api.annotationClient.getDataSet(dataSetId);
     }
 
     /**

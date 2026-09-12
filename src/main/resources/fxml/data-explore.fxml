@@ -189,10 +189,10 @@
                                     </VBox>
                                 </HBox>
                                 
-                                <!-- Comment Field -->
+                                <!-- Description Field -->
                                 <VBox spacing="5">
-                                    <Label styleClass="control-label" text="Comment:" />
-                                    <TextArea fx:id="annotationCommentField" promptText="Enter annotation comment (optional)" 
+                                    <Label styleClass="control-label" text="Description:" />
+                                    <TextArea fx:id="annotationDescriptionField" promptText="Enter annotation description (optional)" 
                                               prefRowCount="3" wrapText="true" />
                                 </VBox>
                             </VBox>

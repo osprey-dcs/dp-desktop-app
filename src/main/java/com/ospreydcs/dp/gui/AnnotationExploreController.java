@@ -29,7 +29,7 @@ public class AnnotationExploreController implements Initializable {
     @FXML private TextField ownerField;
     @FXML private TextField relatedDatasetsIdField;
     @FXML private TextField relatedAnnotationsIdField;
-    @FXML private TextField nameCommentEventField;
+    @FXML private TextField nameDescriptionEventField;
     @FXML private TextField tagValueField;
     @FXML private TextField attributeKeyField;
     @FXML private TextField attributeValueField;
@@ -45,7 +45,7 @@ public class AnnotationExploreController implements Initializable {
     @FXML private TableColumn<AnnotationInfoTableRow, String> relatedDatasetsColumn;
     @FXML private TableColumn<AnnotationInfoTableRow, String> nameColumn;
     @FXML private TableColumn<AnnotationInfoTableRow, String> relatedAnnotationsColumn;
-    @FXML private TableColumn<AnnotationInfoTableRow, String> commentColumn;
+    @FXML private TableColumn<AnnotationInfoTableRow, String> descriptionColumn;
     @FXML private TableColumn<AnnotationInfoTableRow, String> tagsColumn;
     @FXML private TableColumn<AnnotationInfoTableRow, String> attributesColumn;
     @FXML private TableColumn<AnnotationInfoTableRow, String> calculationsColumn;
@@ -80,7 +80,7 @@ public class AnnotationExploreController implements Initializable {
         ownerField.textProperty().bindBidirectional(viewModel.ownerProperty());
         relatedDatasetsIdField.textProperty().bindBidirectional(viewModel.relatedDatasetsIdProperty());
         relatedAnnotationsIdField.textProperty().bindBidirectional(viewModel.relatedAnnotationsIdProperty());
-        nameCommentEventField.textProperty().bindBidirectional(viewModel.nameCommentEventTextProperty());
+        nameDescriptionEventField.textProperty().bindBidirectional(viewModel.nameDescriptionEventTextProperty());
         tagValueField.textProperty().bindBidirectional(viewModel.tagValueProperty());
         attributeKeyField.textProperty().bindBidirectional(viewModel.attributeKeyProperty());
         attributeValueField.textProperty().bindBidirectional(viewModel.attributeValueProperty());
@@ -102,7 +102,10 @@ public class AnnotationExploreController implements Initializable {
         idColumn.setCellValueFactory(new PropertyValueFactory<>("id"));
         ownerColumn.setCellValueFactory(new PropertyValueFactory<>("owner"));
         nameColumn.setCellValueFactory(new PropertyValueFactory<>("name"));
-        commentColumn.setCellValueFactory(new PropertyValueFactory<>("comment"));
+        // this string resolves to AnnotationInfoTableRow.getDescription() by reflection, so it
+        // must be kept in step with that property by hand -- a mismatch yields a silently blank
+        // column rather than a compile error
+        descriptionColumn.setCellValueFactory(new PropertyValueFactory<>("description"));
         tagsColumn.setCellValueFactory(new PropertyValueFactory<>("tags"));
         attributesColumn.setCellValueFactory(new PropertyValueFactory<>("attributes"));
         

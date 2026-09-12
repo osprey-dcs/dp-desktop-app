@@ -332,9 +332,9 @@ are reserved in the proto but deferred server-side, so the `epics_alarm` code ma
 8. **Form Population**: Protobuf DataSet objects converted to UI-friendly DataBlockDetail objects
 
 ### Annotation Explore Workflow (Implemented)
-1. **Annotation Query Editor**: Search form with 7 optional fields (Annotation ID, Owner ID, Name, Comment, Tag Value, Attribute Key/Value, Dataset ID)
+1. **Annotation Query Editor**: Search form with 7 optional fields (Annotation ID, Owner ID, Name, Description, Tag Value, Attribute Key/Value, Dataset ID)
 2. **Search Execution**: Background task queries annotation metadata with loading indicators and status feedback
-3. **Results Display**: TableView with 10 columns including ID, owner, datasets, name, annotations, comment, tags, attributes, event, calculations
+3. **Results Display**: TableView with 10 columns including ID, owner, datasets, name, annotations, description, tags, attributes, event, calculations
 4. **Interactive Annotation IDs**: Each Annotation ID is a hyperlink that navigates to data-explore view's Annotation Builder tab
 5. **Calculations Column**: shows *presence*, not frame names — a single "View calculations" hyperlink that fetches the frames on click
 6. **Automatic Annotation Loading**: Clicking ID hyperlinks triggers a background `getAnnotation()` and form population
@@ -348,6 +348,19 @@ resolved by the `getCalculations()` fetch the hyperlink triggers, and a multi-fr
 for which frame to open. Resolving names per row would rebuild client-side, as serial round trips
 from a GUI thread, the N+1 fan-out that #132 removed — worse than the server-side version it
 replaced.
+
+**`Annotation.comment` is `description` everywhere, including the UI.** dp-grpc #132 renamed the
+proto field; the app's view-model properties, `fx:id`s, column headers and field labels followed in
+one pass, so the concept has one name end to end.
+
+The hazard in that rename is `AnnotationExploreController.setupTableColumns()`, where every column
+is wired with `new PropertyValueFactory<>("someName")` — a **string** resolved against
+`AnnotationInfoTableRow` by reflection at render time. A stale string yields a **silently blank
+column**, not a compile error, and `ViewLoadSmokeTest` does not catch it either (it proves
+`initialize()` ran, never that a row renders). `AnnotationInfoTableRowBindingTest` now asserts each
+binding string resolves *to its expected value* — note that asserting non-null alone is not enough,
+because `PropertyValueFactory` falls back from `someProperty()` to `getSome()`, so a partial rename
+can still resolve. Renaming a row property means updating that test's table too.
 
 **Loading an annotation for editing MUST go through `getAnnotation()`, never `queryAnnotations()`.**
 `getAnnotation()` is the only method returning Calculations content inline. Because
@@ -457,7 +470,7 @@ raced with the `Platform.runLater` that sets the message.
 7. **State Management**: Preserve dataset details across save operations and tab switches
 
 ### Annotation Builder Workflow (Implemented)
-1. **Annotation Configuration**: Enter annotation name (required), comment, and event name (optional)
+1. **Annotation Configuration**: Enter annotation name (required), description, and event name (optional)
 2. **Target Dataset Management**: Add datasets from Dataset Builder using "Add to Annotation" button
 3. **Dataset Operations**: Remove selected target datasets from annotation
 4. **Tags & Attributes**: Use reusable components for free-form tag and key-value attribute entry
@@ -520,12 +533,6 @@ Represents a dataset in the Annotation Builder:
 - Human-readable toString() format: "ID: [dataset-id] - Dataset name - Description snippet - First data block"
 - Used for annotation targeting and cross-tab data transfer
 
-### CalculationsDetails (`src/main/java/com/ospreydcs/dp/gui/model/CalculationsDetails.java`)
-Container for calculation data imported from Excel files:
-- ID (String, for calculations identification)
-- List of data frames (List<DataFrameDetails>)
-- Used in Annotation Builder for calculations management
-
 ### DataFrameDetails (`src/main/java/com/ospreydcs/dp/gui/model/DataFrameDetails.java`)
 Represents individual calculation frames from Excel import:
 - Name (String, typically sheet name from Excel)
@@ -559,7 +566,7 @@ Wrapper for protobuf DataSet in TableView displays:
 
 ### AnnotationInfoTableRow (`src/main/java/com/ospreydcs/dp/gui/model/AnnotationInfoTableRow.java`)
 Wrapper for protobuf Annotation objects in TableView displays:
-- Annotation ID, owner, name, comment, datasets, tags, attributes, event, calculations presence
+- Annotation ID, owner, name, description, datasets, tags, attributes, event, calculations presence
 - Property binding support for JavaFX TableView integration
 - Formats complex fields (datasets, attributes, calculation frames) as comma-separated strings
 - Exposes `getCalculationsId()` / `hasCalculations()` for the presence-driven Calculations column; it no longer holds frame content, since `queryAnnotations()` does not return any

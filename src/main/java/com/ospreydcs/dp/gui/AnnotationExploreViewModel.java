@@ -25,7 +25,7 @@ public class AnnotationExploreViewModel {
     private final StringProperty owner = new SimpleStringProperty("");
     private final StringProperty relatedDatasetsId = new SimpleStringProperty("");
     private final StringProperty relatedAnnotationsId = new SimpleStringProperty("");
-    private final StringProperty nameCommentEventText = new SimpleStringProperty("");
+    private final StringProperty nameDescriptionEventText = new SimpleStringProperty("");
     private final StringProperty tagValue = new SimpleStringProperty("");
     private final StringProperty attributeKey = new SimpleStringProperty("");
     private final StringProperty attributeValue = new SimpleStringProperty("");
@@ -85,10 +85,10 @@ public class AnnotationExploreViewModel {
         }
         
         logger.debug("Executing annotation search with criteria: annotationId='{}', owner='{}', " +
-                    "relatedDatasetsId='{}', relatedAnnotationsId='{}', nameCommentEventText='{}', " +
+                    "relatedDatasetsId='{}', relatedAnnotationsId='{}', nameDescriptionEventText='{}', " +
                     "tagValue='{}', attributeKey='{}', attributeValue='{}'",
                     annotationId.get(), owner.get(), relatedDatasetsId.get(), relatedAnnotationsId.get(),
-                    nameCommentEventText.get(), tagValue.get(), attributeKey.get(), attributeValue.get());
+                    nameDescriptionEventText.get(), tagValue.get(), attributeKey.get(), attributeValue.get());
         
         searchInProgress.set(true);
         searchStatusMessage.set("Searching for annotations...");
@@ -110,7 +110,7 @@ public class AnnotationExploreViewModel {
                 String ownerCriterion = nullIfEmpty(owner.get());
                 String dataSetsCriterion = nullIfEmpty(relatedDatasetsId.get());
                 String annotationsCriterion = nullIfEmpty(relatedAnnotationsId.get());
-                String textCriterion = nullIfEmpty(nameCommentEventText.get());
+                String textCriterion = nullIfEmpty(nameDescriptionEventText.get());
                 String tagsCriterion = nullIfEmpty(tagValue.get());
                 String attributeKeyCriterion = nullIfEmpty(attributeKey.get());
                 String attributeValueCriterion = nullIfEmpty(attributeValue.get());
@@ -187,7 +187,7 @@ public class AnnotationExploreViewModel {
         owner.set("");
         relatedDatasetsId.set("");
         relatedAnnotationsId.set("");
-        nameCommentEventText.set("");
+        nameDescriptionEventText.set("");
         tagValue.set("");
         attributeKey.set("");
         attributeValue.set("");
@@ -220,9 +220,9 @@ public class AnnotationExploreViewModel {
     public String getRelatedAnnotationsId() { return relatedAnnotationsId.get(); }
     public void setRelatedAnnotationsId(String id) { relatedAnnotationsId.set(id != null ? id : ""); }
     
-    public StringProperty nameCommentEventTextProperty() { return nameCommentEventText; }
-    public String getNameCommentEventText() { return nameCommentEventText.get(); }
-    public void setNameCommentEventText(String text) { nameCommentEventText.set(text != null ? text : ""); }
+    public StringProperty nameDescriptionEventTextProperty() { return nameDescriptionEventText; }
+    public String getNameDescriptionEventText() { return nameDescriptionEventText.get(); }
+    public void setNameDescriptionEventText(String text) { nameDescriptionEventText.set(text != null ? text : ""); }
     
     public StringProperty tagValueProperty() { return tagValue; }
     public String getTagValue() { return tagValue.get(); }

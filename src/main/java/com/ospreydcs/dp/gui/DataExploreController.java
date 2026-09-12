@@ -105,7 +105,7 @@ public class DataExploreController implements Initializable {
     // Annotation Builder FXML components
     @FXML private TextField annotationIdField;
     @FXML private TextField annotationNameField;
-    @FXML private TextArea annotationCommentField;
+    @FXML private TextArea annotationDescriptionField;
     @FXML private ListView<com.ospreydcs.dp.gui.model.DataSetDetail> targetDatasetsList;
     @FXML private Button removeTargetDatasetButton;
     @FXML private Button resetAnnotationButton;
@@ -317,7 +317,7 @@ public class DataExploreController implements Initializable {
         // Annotation Builder bindings
         annotationIdField.textProperty().bindBidirectional(annotationBuilderViewModel.annotationIdProperty());
         annotationNameField.textProperty().bindBidirectional(annotationBuilderViewModel.annotationNameProperty());
-        annotationCommentField.textProperty().bindBidirectional(annotationBuilderViewModel.commentProperty());
+        annotationDescriptionField.textProperty().bindBidirectional(annotationBuilderViewModel.descriptionProperty());
         annotationStatusLabel.textProperty().bind(annotationBuilderViewModel.statusMessageProperty());
         
         // Annotation Button state bindings
@@ -1167,14 +1167,14 @@ public class DataExploreController implements Initializable {
         
         // Step 2: Extract annotation details
         String id = annotationBuilderViewModel.getAnnotationId();
-        String comment = annotationBuilderViewModel.getComment();
+        String description = annotationBuilderViewModel.getDescription();
         var dataSets = new java.util.ArrayList<>(annotationBuilderViewModel.getDataSets());
         var tags = new java.util.ArrayList<>(tagsComponent.getTags());
         var attributes = new java.util.ArrayList<>(attributesComponent.getAttributes());
         var calculations = new java.util.ArrayList<>(calculationsDataFramesList.getItems());
         
-        logger.info("Saving annotation: id={}, name={}, comment={}, dataSets={}, tags={}, attributes={}, calculations={}",
-                   id, name, comment, dataSets.size(), tags.size(), attributes.size(), calculations.size());
+        logger.info("Saving annotation: id={}, name={}, description={}, dataSets={}, tags={}, attributes={}, calculations={}",
+                   id, name, description, dataSets.size(), tags.size(), attributes.size(), calculations.size());
         
         // Step 3: Convert attributes list to Map<String, String>
         Map<String, String> attributeMap = new HashMap<>();
@@ -1196,7 +1196,7 @@ public class DataExploreController implements Initializable {
             .collect(java.util.stream.Collectors.toList());
         
         // Convert empty strings to null for optional fields
-        String commentToSave = (comment != null && !comment.trim().isEmpty()) ? comment.trim() : null;
+        String descriptionToSave = (description != null && !description.trim().isEmpty()) ? description.trim() : null;
         List<String> tagsToSave = tags.isEmpty() ? null : new ArrayList<>(tags);
         Map<String, String> attributesToSave = attributeMap.isEmpty() ? null : attributeMap;
         
@@ -1212,7 +1212,7 @@ public class DataExploreController implements Initializable {
                     name,
                     dataSetIds,
                     null, // annotationIds - not used in current implementation
-                    commentToSave,
+                    descriptionToSave,
                     tagsToSave,
                     attributesToSave,
                     calculations
@@ -2105,20 +2105,33 @@ public class DataExploreController implements Initializable {
         javafx.concurrent.Task<com.ospreydcs.dp.grpc.v1.annotation.DataSet> loadTask = new javafx.concurrent.Task<com.ospreydcs.dp.grpc.v1.annotation.DataSet>() {
             @Override
             protected com.ospreydcs.dp.grpc.v1.annotation.DataSet call() throws Exception {
-                logger.debug("Querying dataset by ID: {}", datasetId);
+                logger.debug("Getting dataset by ID: {}", datasetId);
                 
-                // an id lookup returns at most one record, so paging is not a factor here; this
-                // should become getDataSet(datasetId), which is the right RPC for a single-record
-                // lookup, but that is P3.2 and unlike the annotation path it loses no data today
-                DpApplication.PagedResult<com.ospreydcs.dp.grpc.v1.annotation.DataSet> pagedResult =
-                    dpApplication.queryDataSets(datasetId, null, null, null);
+                // getDataSet() rather than a queryDataSets() + .get(0) emulation: a dedicated
+                // single-record getter makes structurally true what "should be only" could only
+                // assume.  See plan/tickets/42 P3.2.
+                com.ospreydcs.dp.client.result.GetDataSetApiResult apiResult =
+                    dpApplication.getDataSet(datasetId);
                 
-                if (pagedResult.records.isEmpty()) {
+                if (apiResult == null) {
+                    throw new RuntimeException("Dataset get failed - null response from service");
+                }
+                
+                // a missing record comes back as a rejection rather than an empty result, so it is
+                // distinguished from a service failure here rather than reported as one
+                if (apiResult.isReject()) {
                     throw new RuntimeException("Dataset not found: " + datasetId);
                 }
                 
-                // Return the first (and should be only) dataset
-                return pagedResult.records.get(0);
+                if (apiResult.resultStatus.isError) {
+                    throw new RuntimeException("Dataset get failed: " + apiResult.resultStatus.msg);
+                }
+                
+                if (apiResult.dataSet == null) {
+                    throw new RuntimeException("Dataset not found: " + datasetId);
+                }
+                
+                return apiResult.dataSet;
             }
         };
         

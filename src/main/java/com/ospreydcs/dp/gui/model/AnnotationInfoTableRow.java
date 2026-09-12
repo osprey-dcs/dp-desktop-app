@@ -25,7 +25,7 @@ public class AnnotationInfoTableRow {
     private final StringProperty relatedDatasets;
     private final StringProperty name;
     private final StringProperty relatedAnnotations;
-    private final StringProperty comment;
+    private final StringProperty description;
     private final StringProperty tags;
     private final StringProperty attributes;
     private final StringProperty calculationsDataFrames;
@@ -37,7 +37,7 @@ public class AnnotationInfoTableRow {
         this.id = new SimpleStringProperty(annotation != null ? annotation.getId() : "");
         this.owner = new SimpleStringProperty(annotation != null ? annotation.getOwnerId() : "");
         this.name = new SimpleStringProperty(annotation != null ? annotation.getName() : "");
-        this.comment = new SimpleStringProperty(annotation != null ? annotation.getDescription() : "");
+        this.description = new SimpleStringProperty(annotation != null ? annotation.getDescription() : "");
         
         // Format complex fields as comma-separated strings
         this.relatedDatasets = new SimpleStringProperty(formatDatasetIds(annotation));
@@ -114,8 +114,8 @@ public class AnnotationInfoTableRow {
     public StringProperty relatedAnnotationsProperty() { return relatedAnnotations; }
     public String getRelatedAnnotations() { return relatedAnnotations.get(); }
     
-    public StringProperty commentProperty() { return comment; }
-    public String getComment() { return comment.get(); }
+    public StringProperty descriptionProperty() { return description; }
+    public String getDescription() { return description.get(); }
     
     public StringProperty tagsProperty() { return tags; }
     public String getTags() { return tags.get(); }

@@ -20,7 +20,7 @@ public class AnnotationBuilderViewModel {
     // Annotation properties
     private final StringProperty annotationId = new SimpleStringProperty("");
     private final StringProperty annotationName = new SimpleStringProperty("");
-    private final StringProperty comment = new SimpleStringProperty("");
+    private final StringProperty description = new SimpleStringProperty("");
     
     // Target datasets
     private final ObservableList<DataSetDetail> dataSets = FXCollections.observableArrayList();
@@ -66,7 +66,7 @@ public class AnnotationBuilderViewModel {
         });
         
         // Update button states when other properties change
-        comment.addListener((obs, oldVal, newVal) -> updateButtonStates());
+        description.addListener((obs, oldVal, newVal) -> updateButtonStates());
         
         // Listen to tags and attributes changes for button state updates
         tags.addListener((javafx.collections.ListChangeListener<String>) change -> updateButtonStates());
@@ -95,7 +95,7 @@ public class AnnotationBuilderViewModel {
         boolean hasName = annotationName.get() != null && !annotationName.get().trim().isEmpty();
         boolean hasDataSets = !dataSets.isEmpty();
         boolean hasContent = hasName || 
-                            (comment.get() != null && !comment.get().trim().isEmpty()) ||
+                            (description.get() != null && !description.get().trim().isEmpty()) ||
                             !tags.isEmpty() || 
                             !attributes.isEmpty() || 
                             hasDataSets;
@@ -134,7 +134,7 @@ public class AnnotationBuilderViewModel {
     public void resetAnnotation() {
         annotationId.set("");
         annotationName.set("");
-        comment.set("");
+        description.set("");
         clearDataSets();
         tags.clear();
         attributes.clear();
@@ -152,9 +152,9 @@ public class AnnotationBuilderViewModel {
     public String getAnnotationName() { return annotationName.get(); }
     public void setAnnotationName(String name) { annotationName.set(name != null ? name : ""); }
     
-    public StringProperty commentProperty() { return comment; }
-    public String getComment() { return comment.get(); }
-    public void setComment(String comment) { this.comment.set(comment != null ? comment : ""); }
+    public StringProperty descriptionProperty() { return description; }
+    public String getDescription() { return description.get(); }
+    public void setDescription(String description) { this.description.set(description != null ? description : ""); }
     
     public ObservableList<DataSetDetail> getDataSets() { return dataSets; }
     
@@ -189,7 +189,7 @@ public class AnnotationBuilderViewModel {
         // Populate form fields
         setAnnotationId(annotation.getId());
         setAnnotationName(annotation.getName());
-        setComment(annotation.getDescription());
+        setDescription(annotation.getDescription());
         
 //        // Set event name from event metadata
 //        if (annotation.getEventMetadata() != null &&

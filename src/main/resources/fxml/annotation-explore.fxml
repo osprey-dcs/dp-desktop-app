@@ -45,9 +45,9 @@
             <TextField fx:id="relatedAnnotationsIdField" promptText="Enter related annotation ID (optional)" 
                       GridPane.columnIndex="3" GridPane.rowIndex="1" />
             
-            <!-- Row 2: Name/Comment/Event Text and Tag Value -->
-            <Label styleClass="control-label" text="Name / Comment / Event:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
-            <TextField fx:id="nameCommentEventField" promptText="Search in name, comment, or event (optional)" 
+            <!-- Row 2: Name/Description/Event Text and Tag Value -->
+            <Label styleClass="control-label" text="Name / Description / Event:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+            <TextField fx:id="nameDescriptionEventField" promptText="Search in name, description, or event (optional)" 
                       GridPane.columnIndex="1" GridPane.rowIndex="2" />
             
             <Label styleClass="control-label" text="Tag Value:" GridPane.columnIndex="2" GridPane.rowIndex="2" />
@@ -96,7 +96,7 @@
                 <TableColumn fx:id="relatedDatasetsColumn" text="Related Datasets" prefWidth="150" />
                 <TableColumn fx:id="nameColumn" text="Name" prefWidth="120" />
                 <TableColumn fx:id="relatedAnnotationsColumn" text="Related Annotations" prefWidth="150" />
-                <TableColumn fx:id="commentColumn" text="Comment" prefWidth="150" />
+                <TableColumn fx:id="descriptionColumn" text="Description" prefWidth="150" />
                 <TableColumn fx:id="tagsColumn" text="Tags" prefWidth="100" />
                 <TableColumn fx:id="attributesColumn" text="Attributes" prefWidth="120" />
                 <TableColumn fx:id="calculationsColumn" text="Calculations" prefWidth="130" />

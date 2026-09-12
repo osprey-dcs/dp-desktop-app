@@ -25,7 +25,16 @@ public class AnnotationExploreViewModel {
     private final StringProperty owner = new SimpleStringProperty("");
     private final StringProperty relatedDatasetsId = new SimpleStringProperty("");
     private final StringProperty relatedAnnotationsId = new SimpleStringProperty("");
-    private final StringProperty nameDescriptionEventText = new SimpleStringProperty("");
+    /**
+     * Free-text search over the annotation's name and description.
+     *
+     * Named for what it actually searches.  It was "name / description / event" through the
+     * comment -> description rename, but the modernized Annotation has no event field at all
+     * (dp-grpc #132 removed the event metadata), and this value is sent as TextCriterion, a
+     * collection-level text-index search whose indexed fields are name and description.  An event
+     * term entered here matched nothing while the label promised otherwise.
+     */
+    private final StringProperty nameDescriptionText = new SimpleStringProperty("");
     private final StringProperty tagValue = new SimpleStringProperty("");
     private final StringProperty attributeKey = new SimpleStringProperty("");
     private final StringProperty attributeValue = new SimpleStringProperty("");
@@ -85,10 +94,10 @@ public class AnnotationExploreViewModel {
         }
         
         logger.debug("Executing annotation search with criteria: annotationId='{}', owner='{}', " +
-                    "relatedDatasetsId='{}', relatedAnnotationsId='{}', nameDescriptionEventText='{}', " +
+                    "relatedDatasetsId='{}', relatedAnnotationsId='{}', nameDescriptionText='{}', " +
                     "tagValue='{}', attributeKey='{}', attributeValue='{}'",
                     annotationId.get(), owner.get(), relatedDatasetsId.get(), relatedAnnotationsId.get(),
-                    nameDescriptionEventText.get(), tagValue.get(), attributeKey.get(), attributeValue.get());
+                    nameDescriptionText.get(), tagValue.get(), attributeKey.get(), attributeValue.get());
         
         searchInProgress.set(true);
         searchStatusMessage.set("Searching for annotations...");
@@ -110,7 +119,7 @@ public class AnnotationExploreViewModel {
                 String ownerCriterion = nullIfEmpty(owner.get());
                 String dataSetsCriterion = nullIfEmpty(relatedDatasetsId.get());
                 String annotationsCriterion = nullIfEmpty(relatedAnnotationsId.get());
-                String textCriterion = nullIfEmpty(nameDescriptionEventText.get());
+                String textCriterion = nullIfEmpty(nameDescriptionText.get());
                 String tagsCriterion = nullIfEmpty(tagValue.get());
                 String attributeKeyCriterion = nullIfEmpty(attributeKey.get());
                 String attributeValueCriterion = nullIfEmpty(attributeValue.get());
@@ -187,7 +196,7 @@ public class AnnotationExploreViewModel {
         owner.set("");
         relatedDatasetsId.set("");
         relatedAnnotationsId.set("");
-        nameDescriptionEventText.set("");
+        nameDescriptionText.set("");
         tagValue.set("");
         attributeKey.set("");
         attributeValue.set("");
@@ -220,9 +229,9 @@ public class AnnotationExploreViewModel {
     public String getRelatedAnnotationsId() { return relatedAnnotationsId.get(); }
     public void setRelatedAnnotationsId(String id) { relatedAnnotationsId.set(id != null ? id : ""); }
     
-    public StringProperty nameDescriptionEventTextProperty() { return nameDescriptionEventText; }
-    public String getNameDescriptionEventText() { return nameDescriptionEventText.get(); }
-    public void setNameDescriptionEventText(String text) { nameDescriptionEventText.set(text != null ? text : ""); }
+    public StringProperty nameDescriptionTextProperty() { return nameDescriptionText; }
+    public String getNameDescriptionText() { return nameDescriptionText.get(); }
+    public void setNameDescriptionText(String text) { nameDescriptionText.set(text != null ? text : ""); }
     
     public StringProperty tagValueProperty() { return tagValue; }
     public String getTagValue() { return tagValue.get(); }

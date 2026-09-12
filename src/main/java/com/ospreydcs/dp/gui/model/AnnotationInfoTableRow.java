@@ -17,6 +17,30 @@ public class AnnotationInfoTableRow {
     /** Column text for an annotation that has calculations, in place of the frame name list. */
     public static final String CALCULATIONS_PRESENT_LABEL = "View calculations";
 
+    /*
+     * Property names used by the TableView column bindings in
+     * AnnotationExploreController.setupTableColumns().
+     *
+     * PropertyValueFactory resolves a property by STRING via reflection at render time, so a
+     * renamed property with a stale binding string yields a silently blank column -- no compile
+     * error, and ViewLoadSmokeTest does not catch it either, since it never populates a row.  That
+     * is exactly how the comment -> description rename (dp-grpc #132) could have gone wrong.
+     *
+     * Naming them here, beside the properties they refer to, is what makes a rename a compile-time
+     * concern: the controller and AnnotationInfoTableRowBindingTest both reference these constants
+     * rather than repeating the literals, so the test guards the binding the controller actually
+     * uses instead of a copy of it.
+     */
+    public static final String PROPERTY_ID = "id";
+    public static final String PROPERTY_OWNER = "owner";
+    public static final String PROPERTY_NAME = "name";
+    public static final String PROPERTY_DESCRIPTION = "description";
+    public static final String PROPERTY_TAGS = "tags";
+    public static final String PROPERTY_ATTRIBUTES = "attributes";
+    public static final String PROPERTY_RELATED_DATASETS = "relatedDatasets";
+    public static final String PROPERTY_RELATED_ANNOTATIONS = "relatedAnnotations";
+    public static final String PROPERTY_CALCULATIONS_DATA_FRAMES = "calculationsDataFrames";
+
     private final Annotation annotation;
     
     // Properties for TableView binding

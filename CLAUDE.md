@@ -334,7 +334,7 @@ are reserved in the proto but deferred server-side, so the `epics_alarm` code ma
 ### Annotation Explore Workflow (Implemented)
 1. **Annotation Query Editor**: Search form with 7 optional fields (Annotation ID, Owner ID, Name, Description, Tag Value, Attribute Key/Value, Dataset ID)
 2. **Search Execution**: Background task queries annotation metadata with loading indicators and status feedback
-3. **Results Display**: TableView with 10 columns including ID, owner, datasets, name, annotations, description, tags, attributes, event, calculations
+3. **Results Display**: TableView with 9 columns: ID, owner, related datasets, name, related annotations, description, tags, attributes, calculations
 4. **Interactive Annotation IDs**: Each Annotation ID is a hyperlink that navigates to data-explore view's Annotation Builder tab
 5. **Calculations Column**: shows *presence*, not frame names — a single "View calculations" hyperlink that fetches the frames on click
 6. **Automatic Annotation Loading**: Clicking ID hyperlinks triggers a background `getAnnotation()` and form population
@@ -348,6 +348,14 @@ resolved by the `getCalculations()` fetch the hyperlink triggers, and a multi-fr
 for which frame to open. Resolving names per row would rebuild client-side, as serial round trips
 from a GUI thread, the N+1 fan-out that #132 removed — worse than the server-side version it
 replaced.
+
+**There is no event search criterion, and the search field no longer offers one.** The modernized
+`Annotation` has no event field at all — dp-grpc #132 removed the event metadata — and the free-text
+box is sent as `TextCriterion`, a collection-level text-index search whose indexed fields are name
+and description. The field was labelled "Name / Description / Event" through the rename, which
+promised a search that silently matched nothing; it is now "Name / Description"
+(`nameDescriptionField` / `nameDescriptionTextProperty`). Restoring event search needs a proto
+criterion first, not a UI change.
 
 **`Annotation.comment` is `description` everywhere, including the UI.** dp-grpc #132 renamed the
 proto field; the app's view-model properties, `fx:id`s, column headers and field labels followed in
@@ -470,6 +478,19 @@ raced with the `Platform.runLater` that sets the message.
 7. **State Management**: Preserve dataset details across save operations and tab switches
 
 ### Annotation Builder Workflow (Implemented)
+
+**Tags and attributes belong to the components, and `AnnotationBuilderViewModel` holds no
+collections for them** — it holds the injected `TagsListComponent` /
+`AttributesListComponent` references, like `PvMetadataViewModel`. It previously held its own
+`ObservableList`s, and they were write-only: `loadFromAnnotation()` filled them while
+`DataExploreController.onSaveAnnotation()` read the components, so loading an annotation put its
+tags and attributes somewhere the save never looked. Editing any other field and saving then wrote
+them back as absent — silently, because `saveAnnotation()` is a full-replace upsert. That is the
+same failure mode as the calculations loss the `getAnnotation()` load fixes. Holding only the
+component references makes the divergence unrepresentable rather than merely fixed, and `reset`
+clears the components (it previously left the controls populated, carrying the prior annotation's
+metadata into the next save).
+
 1. **Annotation Configuration**: Enter annotation name (required), description, and event name (optional)
 2. **Target Dataset Management**: Add datasets from Dataset Builder using "Add to Annotation" button
 3. **Dataset Operations**: Remove selected target datasets from annotation
@@ -566,9 +587,10 @@ Wrapper for protobuf DataSet in TableView displays:
 
 ### AnnotationInfoTableRow (`src/main/java/com/ospreydcs/dp/gui/model/AnnotationInfoTableRow.java`)
 Wrapper for protobuf Annotation objects in TableView displays:
-- Annotation ID, owner, name, description, datasets, tags, attributes, event, calculations presence
+- Annotation ID, owner, name, description, datasets, tags, attributes, calculations presence (there is no event field — dp-grpc #132 removed the Annotation's event metadata)
 - Property binding support for JavaFX TableView integration
-- Formats complex fields (datasets, attributes, calculation frames) as comma-separated strings
+- Formats the multi-valued fields (datasets, related annotations, tags, attributes) as comma-separated strings; the Calculations field is a *presence label*, not a frame-name list
+- The `PROPERTY_*` constants name the properties the `PropertyValueFactory` column bindings resolve reflectively; `AnnotationExploreController` and `AnnotationInfoTableRowBindingTest` both reference them rather than repeating the literals, so a rename that misses the controller fails to compile instead of silently blanking a column
 - Exposes `getCalculationsId()` / `hasCalculations()` for the presence-driven Calculations column; it no longer holds frame content, since `queryAnnotations()` does not return any
 - Used in annotation-explore view for annotation discovery and navigation
 - Hyperlink support for the Annotation ID column and for the Calculations presence link
@@ -862,7 +884,10 @@ from the server to the client, which is what server paging was introduced to pre
 Both wrappers return `PagedResult<T>` (`records` plus a `truncated` flag) rather than the raw
 `ApiResult`, and **a failed page throws `QueryFailedException` rather than returning what had
 accumulated** — a partial list presented as a complete one is the bug this fixes, not an acceptable
-degradation.
+degradation. For the same reason the `fetchPage` function must signal failure by **throwing, never
+by returning null**: a null page is indistinguishable from an empty one inside the loop, so
+treating it as the end of the query would hand back a partial accumulation with `truncated=false`.
+`accumulatePages()` therefore rejects a null page rather than tolerating it.
 
 **Truncation must reach the user.** The original defect was not incompleteness; it was that the
 views stated a count as though it were a total with nothing indicating otherwise. A silent cap

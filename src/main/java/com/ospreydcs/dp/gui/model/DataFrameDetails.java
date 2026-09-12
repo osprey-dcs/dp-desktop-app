@@ -31,7 +31,8 @@ public class DataFrameDetails {
      * than a flat name/DataTimestamps/DataColumns triple.  DataFrameDetails stays flat because its
      * other construction path is the Excel import (DataImportResult.DataFrameResult), which the
      * modernization did not change; this factory is the single place that unwraps the nesting, so
-     * the read sites in AnnotationInfoTableRow and AnnotationBuilderViewModel do not each repeat it.
+     * the read sites -- AnnotationBuilderViewModel.loadFromAnnotation() and
+     * AnnotationExploreController.openFrameDialog() -- do not each repeat it.
      */
     public static DataFrameDetails fromCalculationsDataFrame(
             com.ospreydcs.dp.grpc.v1.annotation.Calculations.CalculationsDataFrame frame) {

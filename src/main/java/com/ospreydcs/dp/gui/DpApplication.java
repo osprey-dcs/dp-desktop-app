@@ -204,7 +204,12 @@ public class DpApplication {
      * has test coverage in this project.
      *
      * @param fetchPage        invoked with a page token -- null for the first page -- returning
-     *                         that page's records, or null on error
+     *                         that page's records.  It must signal failure by throwing, NOT by
+     *                         returning null: a null page cannot be distinguished from an empty
+     *                         one here, so treating it as the end of the query would present a
+     *                         partial accumulation as a complete result -- the exact bug the
+     *                         QueryFailedException guarantee exists to prevent.  A null return is
+     *                         therefore rejected rather than tolerated.
      * @param nextPageTokenOf  reads the nextPageToken from whatever fetchPage returned; an empty
      *                         or null token ends the query
      * @param recordsOf        reads the record list from whatever fetchPage returned
@@ -223,7 +228,10 @@ public class DpApplication {
         while (true) {
             final R page = fetchPage.apply(pageToken);
             if (page == null) {
-                break;
+                // a caller that returns null instead of throwing would otherwise have its error
+                // silently reported as a complete result; see the fetchPage contract above
+                throw new QueryFailedException(
+                        "Paged query failed - fetchPage returned null for page token: " + pageToken);
             }
 
             final List<T> pageRecords = recordsOf.apply(page);
@@ -249,8 +257,6 @@ public class DpApplication {
                 return new PagedResult<>(accumulated, true);
             }
         }
-
-        return new PagedResult<>(accumulated, false);
     }
 
     // ------------------- Sample Status (demo support) ---------------------------

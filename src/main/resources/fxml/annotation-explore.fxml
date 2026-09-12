@@ -45,9 +45,9 @@
             <TextField fx:id="relatedAnnotationsIdField" promptText="Enter related annotation ID (optional)" 
                       GridPane.columnIndex="3" GridPane.rowIndex="1" />
             
-            <!-- Row 2: Name/Description/Event Text and Tag Value -->
-            <Label styleClass="control-label" text="Name / Description / Event:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
-            <TextField fx:id="nameDescriptionEventField" promptText="Search in name, description, or event (optional)" 
+            <!-- Row 2: Name/Description Text and Tag Value -->
+            <Label styleClass="control-label" text="Name / Description:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+            <TextField fx:id="nameDescriptionField" promptText="Search in name or description (optional)" 
                       GridPane.columnIndex="1" GridPane.rowIndex="2" />
             
             <Label styleClass="control-label" text="Tag Value:" GridPane.columnIndex="2" GridPane.rowIndex="2" />

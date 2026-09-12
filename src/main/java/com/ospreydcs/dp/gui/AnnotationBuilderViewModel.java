@@ -1,6 +1,8 @@
 package com.ospreydcs.dp.gui;
 
 import com.ospreydcs.dp.grpc.v1.annotation.Annotation;
+import com.ospreydcs.dp.gui.component.AttributesListComponent;
+import com.ospreydcs.dp.gui.component.TagsListComponent;
 import com.ospreydcs.dp.gui.model.DataSetDetail;
 import com.ospreydcs.dp.gui.model.DataFrameDetails;
 import javafx.beans.property.*;
@@ -8,6 +10,9 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * ViewModel for the Annotation Builder tab functionality.
@@ -28,9 +33,19 @@ public class AnnotationBuilderViewModel {
     // Calculations data frames
     private final ObservableList<DataFrameDetails> calculationsDataFrames = FXCollections.observableArrayList();
     
-    // Tags and attributes - managed by reusable components
-    private final ObservableList<String> tags = FXCollections.observableArrayList();
-    private final ObservableList<String> attributes = FXCollections.observableArrayList();
+    /*
+     * Tags and attributes live in the injected components, not here.
+     *
+     * This ViewModel deliberately holds NO collections for them.  It used to, and they were write-
+     * only: loadFromAnnotation() populated these lists while DataExploreController.onSaveAnnotation()
+     * read tagsComponent/attributesComponent, so loading an annotation put its tags somewhere the
+     * save never looked.  Editing any other field and saving then wrote them back as absent --
+     * silently, since saveAnnotation() is a full-replace upsert.  Holding only the component
+     * references is the Critical Integration Pattern the other views follow (see PvMetadataViewModel)
+     * and makes that divergence unrepresentable rather than merely fixed.
+     */
+    private TagsListComponent tagsComponent;
+    private AttributesListComponent attributesComponent;
     
     // UI state properties
     private final BooleanProperty hasDataSets = new SimpleBooleanProperty(false);
@@ -47,6 +62,50 @@ public class AnnotationBuilderViewModel {
         
         // Set up listeners to update button states and validation
         setupPropertyListeners();
+    }
+    
+    /**
+     * Injects the tags component, which owns the annotation's tags.
+     *
+     * The component's list is observed here so tag edits still drive button state, which is what
+     * the ViewModel's own removed list was doing.
+     */
+    public void setTagsComponent(TagsListComponent tagsComponent) {
+        this.tagsComponent = tagsComponent;
+        if (tagsComponent != null) {
+            tagsComponent.getTags().addListener(
+                    (javafx.collections.ListChangeListener<String>) change -> updateButtonStates());
+        }
+        updateButtonStates();
+        logger.debug("Tags component injected into AnnotationBuilderViewModel");
+    }
+    
+    /**
+     * Injects the attributes component, which owns the annotation's attributes.  See
+     * setTagsComponent() for why the list is observed.
+     */
+    public void setAttributesComponent(AttributesListComponent attributesComponent) {
+        this.attributesComponent = attributesComponent;
+        if (attributesComponent != null) {
+            attributesComponent.getAttributes().addListener(
+                    (javafx.collections.ListChangeListener<String>) change -> updateButtonStates());
+        }
+        updateButtonStates();
+        logger.debug("Attributes component injected into AnnotationBuilderViewModel");
+    }
+    
+    /**
+     * The annotation's tags, read from the component that owns them.  Empty when no component has
+     * been injected, which is the pre-injection state exercised by ViewLoadSmokeTest.
+     */
+    public List<String> getTags() {
+        return tagsComponent != null ? new ArrayList<>(tagsComponent.getTags()) : new ArrayList<>();
+    }
+    
+    /** The annotation's attributes as "key=value" strings; see getTags(). */
+    public List<String> getAttributes() {
+        return attributesComponent != null
+                ? new ArrayList<>(attributesComponent.getAttributes()) : new ArrayList<>();
     }
     
     private void setupPropertyListeners() {
@@ -68,9 +127,8 @@ public class AnnotationBuilderViewModel {
         // Update button states when other properties change
         description.addListener((obs, oldVal, newVal) -> updateButtonStates());
         
-        // Listen to tags and attributes changes for button state updates
-        tags.addListener((javafx.collections.ListChangeListener<String>) change -> updateButtonStates());
-        attributes.addListener((javafx.collections.ListChangeListener<String>) change -> updateButtonStates());
+        // tag and attribute changes are observed in setTagsComponent() / setAttributesComponent(),
+        // since those lists belong to the components rather than to this ViewModel
     }
     
     private void updateAnnotationValidation() {
@@ -96,8 +154,8 @@ public class AnnotationBuilderViewModel {
         boolean hasDataSets = !dataSets.isEmpty();
         boolean hasContent = hasName || 
                             (description.get() != null && !description.get().trim().isEmpty()) ||
-                            !tags.isEmpty() || 
-                            !attributes.isEmpty() || 
+                            !getTags().isEmpty() ||
+                            !getAttributes().isEmpty() ||
                             hasDataSets;
         
         // Enable buttons based on content and validation state
@@ -136,8 +194,15 @@ public class AnnotationBuilderViewModel {
         annotationName.set("");
         description.set("");
         clearDataSets();
-        tags.clear();
-        attributes.clear();
+        // clear the components, not a local list: reset previously left the tag and attribute
+        // controls populated, so a reset form still carried the prior annotation's metadata into
+        // the next save
+        if (tagsComponent != null) {
+            tagsComponent.clearTags();
+        }
+        if (attributesComponent != null) {
+            attributesComponent.clearAttributes();
+        }
         statusMessage.set("Annotation reset");
         logger.debug("Annotation reset completed");
     }
@@ -159,9 +224,6 @@ public class AnnotationBuilderViewModel {
     public ObservableList<DataSetDetail> getDataSets() { return dataSets; }
     
     public ObservableList<DataFrameDetails> getCalculationsDataFrames() { return calculationsDataFrames; }
-    
-    public ObservableList<String> getTags() { return tags; }
-    public ObservableList<String> getAttributes() { return attributes; }
     
     public BooleanProperty hasDataSetsProperty() { return hasDataSets; }
     public boolean hasDataSets() { return hasDataSets.get(); }
@@ -206,14 +268,31 @@ public class AnnotationBuilderViewModel {
             dataSets.add(datasetDetail);
         }
         
-        // Load tags
-        tags.clear();
-        tags.addAll(annotation.getTagsList());
+        // Load tags and attributes into the components that own them.
+        //
+        // These MUST go to the components rather than to ViewModel lists.  onSaveAnnotation() reads
+        // tagsComponent/attributesComponent, so loading into a ViewModel list would put the loaded
+        // metadata where the save never looks -- and since saveAnnotation() is a full-replace
+        // upsert, editing any unrelated field and saving would then drop the annotation's tags and
+        // attributes silently.  That is the same failure mode as the calculations loss below, and
+        // is why this ViewModel holds no collections for them.
+        if (tagsComponent != null) {
+            tagsComponent.clearTags();
+            for (String tag : annotation.getTagsList()) {
+                tagsComponent.addTag(tag);
+            }
+        } else {
+            logger.warn("No tags component injected - annotation {} tags not loaded", annotation.getId());
+        }
         
-        // Convert protobuf attributes to "key=value" strings
-        attributes.clear();
-        for (com.ospreydcs.dp.grpc.v1.common.Attribute attr : annotation.getAttributesList()) {
-            attributes.add(attr.getName() + "=" + attr.getValue());
+        if (attributesComponent != null) {
+            attributesComponent.clearAttributes();
+            for (com.ospreydcs.dp.grpc.v1.common.Attribute attr : annotation.getAttributesList()) {
+                attributesComponent.addAttribute(attr.getName(), attr.getValue());
+            }
+        } else {
+            logger.warn("No attributes component injected - annotation {} attributes not loaded",
+                        annotation.getId());
         }
         
         // Load calculations data frames.
@@ -236,7 +315,10 @@ public class AnnotationBuilderViewModel {
         }
         
         statusMessage.set("Annotation loaded: " + annotation.getName());
-        logger.info("Successfully loaded annotation: {} with {} datasets, {} tags, {} attributes, {} calculations", 
-                   annotation.getName(), dataSets.size(), tags.size(), attributes.size(), calculationsDataFrames.size());
+        // tag and attribute counts are read back from the components, so the log reports what was
+        // actually loaded into the form rather than what the annotation carried
+        logger.info("Successfully loaded annotation: {} with {} datasets, {} tags, {} attributes, {} calculations",
+                   annotation.getName(), dataSets.size(), getTags().size(), getAttributes().size(),
+                   calculationsDataFrames.size());
     }
 }

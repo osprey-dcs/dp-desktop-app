@@ -184,6 +184,49 @@ public class DpApplicationPagingTest {
     }
 
     /**
+     * A null page must abort rather than be read as the end of the query.
+     *
+     * Distinct from a failure that throws: a fetchPage returning null cannot be distinguished from
+     * an empty page inside the loop, so ending the query there would report a partial accumulation
+     * as complete (truncated=false) -- the silent-wrong-total bug, reached by a different route.
+     * The contract requires throwing, and this asserts a null return is rejected rather than
+     * quietly tolerated.
+     */
+    @Test
+    public void aNullPageAbortsRatherThanEndingTheQuery() {
+        DpApplication.QueryFailedException thrown = assertThrows(
+                DpApplication.QueryFailedException.class,
+                () -> DpApplication.accumulatePages(
+                        pageToken -> {
+                            if (pageToken == null) {
+                                return new Page(List.of("r0"), "1");
+                            }
+                            return null;
+                        },
+                        Page::nextPageToken,
+                        Page::records,
+                        100));
+
+        assertTrue(thrown.getMessage().contains("null"),
+                "the failure must name the null page, not just fail: " + thrown.getMessage());
+    }
+
+    /**
+     * A null FIRST page aborts too, so an immediately-failing query never looks like an empty
+     * result set -- "no annotations found" and "the query failed" must not be the same outcome.
+     */
+    @Test
+    public void aNullFirstPageAbortsRatherThanYieldingAnEmptyResult() {
+        assertThrows(
+                DpApplication.QueryFailedException.class,
+                () -> DpApplication.accumulatePages(
+                        pageToken -> null,
+                        Page::nextPageToken,
+                        Page::records,
+                        100));
+    }
+
+    /**
      * A failure partway through must abort the whole accumulation rather than return what had been
      * collected: a partial list presented as a complete one is the exact bug this work fixes.
      */

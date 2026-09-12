@@ -29,7 +29,7 @@ public class AnnotationExploreController implements Initializable {
     @FXML private TextField ownerField;
     @FXML private TextField relatedDatasetsIdField;
     @FXML private TextField relatedAnnotationsIdField;
-    @FXML private TextField nameDescriptionEventField;
+    @FXML private TextField nameDescriptionField;
     @FXML private TextField tagValueField;
     @FXML private TextField attributeKeyField;
     @FXML private TextField attributeValueField;
@@ -80,7 +80,7 @@ public class AnnotationExploreController implements Initializable {
         ownerField.textProperty().bindBidirectional(viewModel.ownerProperty());
         relatedDatasetsIdField.textProperty().bindBidirectional(viewModel.relatedDatasetsIdProperty());
         relatedAnnotationsIdField.textProperty().bindBidirectional(viewModel.relatedAnnotationsIdProperty());
-        nameDescriptionEventField.textProperty().bindBidirectional(viewModel.nameDescriptionEventTextProperty());
+        nameDescriptionField.textProperty().bindBidirectional(viewModel.nameDescriptionTextProperty());
         tagValueField.textProperty().bindBidirectional(viewModel.tagValueProperty());
         attributeKeyField.textProperty().bindBidirectional(viewModel.attributeKeyProperty());
         attributeValueField.textProperty().bindBidirectional(viewModel.attributeValueProperty());
@@ -98,16 +98,19 @@ public class AnnotationExploreController implements Initializable {
     }
     
     private void setupTableColumns() {
-        // Set up basic text columns
-        idColumn.setCellValueFactory(new PropertyValueFactory<>("id"));
-        ownerColumn.setCellValueFactory(new PropertyValueFactory<>("owner"));
-        nameColumn.setCellValueFactory(new PropertyValueFactory<>("name"));
-        // this string resolves to AnnotationInfoTableRow.getDescription() by reflection, so it
-        // must be kept in step with that property by hand -- a mismatch yields a silently blank
-        // column rather than a compile error
-        descriptionColumn.setCellValueFactory(new PropertyValueFactory<>("description"));
-        tagsColumn.setCellValueFactory(new PropertyValueFactory<>("tags"));
-        attributesColumn.setCellValueFactory(new PropertyValueFactory<>("attributes"));
+        // Set up basic text columns.
+        //
+        // The bound names come from AnnotationInfoTableRow constants rather than inline literals:
+        // PropertyValueFactory resolves them reflectively at render time, so a renamed row property
+        // with a stale literal here produces a silently blank column.  Referencing the constants
+        // makes that a compile error, and lets AnnotationInfoTableRowBindingTest assert the
+        // bindings this method actually uses.
+        idColumn.setCellValueFactory(new PropertyValueFactory<>(AnnotationInfoTableRow.PROPERTY_ID));
+        ownerColumn.setCellValueFactory(new PropertyValueFactory<>(AnnotationInfoTableRow.PROPERTY_OWNER));
+        nameColumn.setCellValueFactory(new PropertyValueFactory<>(AnnotationInfoTableRow.PROPERTY_NAME));
+        descriptionColumn.setCellValueFactory(new PropertyValueFactory<>(AnnotationInfoTableRow.PROPERTY_DESCRIPTION));
+        tagsColumn.setCellValueFactory(new PropertyValueFactory<>(AnnotationInfoTableRow.PROPERTY_TAGS));
+        attributesColumn.setCellValueFactory(new PropertyValueFactory<>(AnnotationInfoTableRow.PROPERTY_ATTRIBUTES));
         
         // Set up hyperlink columns
         setupAnnotationIdColumn();
@@ -123,17 +126,20 @@ public class AnnotationExploreController implements Initializable {
     }
     
     private void setupRelatedDatasetsColumn() {
-        relatedDatasetsColumn.setCellValueFactory(new PropertyValueFactory<>("relatedDatasets"));
+        relatedDatasetsColumn.setCellValueFactory(
+                new PropertyValueFactory<>(AnnotationInfoTableRow.PROPERTY_RELATED_DATASETS));
         relatedDatasetsColumn.setCellFactory(column -> new DatasetIdsTableCell());
     }
     
     private void setupRelatedAnnotationsColumn() {
-        relatedAnnotationsColumn.setCellValueFactory(new PropertyValueFactory<>("relatedAnnotations"));
+        relatedAnnotationsColumn.setCellValueFactory(
+                new PropertyValueFactory<>(AnnotationInfoTableRow.PROPERTY_RELATED_ANNOTATIONS));
         relatedAnnotationsColumn.setCellFactory(column -> new AnnotationIdsTableCell());
     }
     
     private void setupCalculationsColumn() {
-        calculationsColumn.setCellValueFactory(new PropertyValueFactory<>("calculationsDataFrames"));
+        calculationsColumn.setCellValueFactory(
+                new PropertyValueFactory<>(AnnotationInfoTableRow.PROPERTY_CALCULATIONS_DATA_FRAMES));
         calculationsColumn.setCellFactory(column -> new CalculationsDataFrameTableCell());
     }
     

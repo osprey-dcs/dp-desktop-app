@@ -21,8 +21,13 @@ import static org.junit.jupiter.api.Assertions.assertNull;
  *
  * That is exactly how the comment -> description rename (dp-grpc #132, plan/tickets/42 P3.1) could
  * have gone wrong, so the property names are asserted here rather than left to inspection.  If a
- * property is renamed, this test fails and names the string in the controller that must move with
- * it.
+ * property is renamed, this test fails and names the binding that must move with it.
+ *
+ * The names come from the AnnotationInfoTableRow.PROPERTY_* constants the controller itself passes
+ * to PropertyValueFactory, NOT from literals duplicated here.  An independent copy would not guard
+ * anything: reverting the controller to "comment" would leave a test full of correct-looking
+ * strings passing.  Sharing the constants means a rename that misses the controller fails to
+ * compile, and one that misses the row property fails here.
  */
 public class AnnotationInfoTableRowBindingTest {
 
@@ -37,15 +42,16 @@ public class AnnotationInfoTableRowBindingTest {
      * this a real guard.
      */
     private static final List<String[]> BOUND_PROPERTIES = List.of(
-            new String[]{"id", "ann-1"},
-            new String[]{"owner", "owner-1"},
-            new String[]{"name", "annotation-1"},
-            new String[]{"description", "a description"},
-            new String[]{"tags", "alpha"},
-            new String[]{"attributes", ""},
-            new String[]{"relatedDatasets", "ds-1"},
-            new String[]{"relatedAnnotations", "ann-2"},
-            new String[]{"calculationsDataFrames", AnnotationInfoTableRow.CALCULATIONS_PRESENT_LABEL});
+            new String[]{AnnotationInfoTableRow.PROPERTY_ID, "ann-1"},
+            new String[]{AnnotationInfoTableRow.PROPERTY_OWNER, "owner-1"},
+            new String[]{AnnotationInfoTableRow.PROPERTY_NAME, "annotation-1"},
+            new String[]{AnnotationInfoTableRow.PROPERTY_DESCRIPTION, "a description"},
+            new String[]{AnnotationInfoTableRow.PROPERTY_TAGS, "alpha"},
+            new String[]{AnnotationInfoTableRow.PROPERTY_ATTRIBUTES, ""},
+            new String[]{AnnotationInfoTableRow.PROPERTY_RELATED_DATASETS, "ds-1"},
+            new String[]{AnnotationInfoTableRow.PROPERTY_RELATED_ANNOTATIONS, "ann-2"},
+            new String[]{AnnotationInfoTableRow.PROPERTY_CALCULATIONS_DATA_FRAMES,
+                    AnnotationInfoTableRow.CALCULATIONS_PRESENT_LABEL});
 
     private static AnnotationInfoTableRow sampleRow() {
         return new AnnotationInfoTableRow(Annotation.newBuilder()
@@ -113,7 +119,7 @@ public class AnnotationInfoTableRowBindingTest {
                 .build());
 
         final PropertyValueFactory<AnnotationInfoTableRow, String> factory =
-                new PropertyValueFactory<>("description");
+                new PropertyValueFactory<>(AnnotationInfoTableRow.PROPERTY_DESCRIPTION);
 
         assertEquals("a description", factory.call(
                 new javafx.scene.control.TableColumn.CellDataFeatures<>(null, null, row)).getValue());

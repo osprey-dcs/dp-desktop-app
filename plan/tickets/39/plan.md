@@ -189,6 +189,27 @@ abstract method with an empty shared body.
 
 Do these instead, in order. They are what actually makes views five and six cheap.
 
+**T2a — extract the multi-value hyperlink `TableCell` into `gui/component/`. DONE.**
+Shipped as `HyperlinkListTableCell` with `forValues()` / `forSingleValue()` factories; 206 lines
+removed from the three controllers, 198 tests green. Two defects surfaced during the extraction that
+this inventory did not capture — both pre-existing in every copy, and neither visible from the
+line-count framing:
+
+1. **Emptiness was decided by the cell's display string**, so a row whose joined string was blank
+   but whose value list was not rendered no links at all. It is now decided by the list itself.
+2. **A recycled cell read a stale `TableRow`.** A virtualized table sets a cell's new index and item
+   immediately but repoints its `TableRow` in a later pass, so every hand-written copy could render
+   the *previous* row's links against the new row's index — a link navigating somewhere unrelated to
+   the row it sits on, with no error. `resolveRow()` resolves by index and falls back to the row only
+   when the index is out of range; `HyperlinkListTableCellTest` pins it by driving `updateIndex()`
+   and was mutation-checked against the pre-fix behavior.
+
+A third hazard was designed out rather than fixed: recovering values by splitting the display string
+would break on any value *containing* a comma. The component reads the row's list accessor, so the
+item string's formatting is irrelevant.
+
+Original analysis follows.
+
 **T2a — extract the multi-value hyperlink `TableCell` into `gui/component/`.** Three near-identical
 ~40-line copies exist: `PvNamesTableCell` (`ProviderExploreController.java:152-201`),
 `DatasetIdsTableCell` and `AnnotationIdsTableCell` (`AnnotationExploreController.java:187-278`),

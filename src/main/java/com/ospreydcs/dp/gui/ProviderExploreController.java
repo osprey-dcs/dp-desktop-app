@@ -1,14 +1,12 @@
 package com.ospreydcs.dp.gui;
 
+import com.ospreydcs.dp.gui.component.HyperlinkListTableCell;
 import com.ospreydcs.dp.gui.component.QueryPvsComponent;
 import com.ospreydcs.dp.gui.model.ProviderInfoTableRow;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
-import javafx.geometry.Insets;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
-import javafx.scene.layout.HBox;
-import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import org.apache.logging.log4j.LogManager;
@@ -77,7 +75,9 @@ public class ProviderExploreController implements Initializable {
         
         // Set up PV Names column with hyperlinks
         pvNamesColumn.setCellValueFactory(new PropertyValueFactory<>("pvNames"));
-        pvNamesColumn.setCellFactory(column -> new PvNamesTableCell());
+        pvNamesColumn.setCellFactory(HyperlinkListTableCell.forValues(
+                ProviderInfoTableRow::getPvNamesList,
+                (row, pvName) -> viewModel.addPvNameToQuery(pvName)));
         
         // Set table items to ViewModel results
         resultsTable.setItems(viewModel.getProviderResults());
@@ -148,58 +148,6 @@ public class ProviderExploreController implements Initializable {
         viewModel.executeSearch();
     }
 
-    // Custom TableCell for PV Names column with hyperlinks
-    private class PvNamesTableCell extends TableCell<ProviderInfoTableRow, String> {
-        private HBox content;
-
-        public PvNamesTableCell() {
-            super();
-            content = new HBox();
-            content.setSpacing(5);
-            content.setPadding(new Insets(2, 5, 2, 5));
-        }
-
-        @Override
-        protected void updateItem(String item, boolean empty) {
-            super.updateItem(item, empty);
-            
-            if (empty || item == null || item.trim().isEmpty()) {
-                setGraphic(null);
-                setText(null);
-            } else {
-                content.getChildren().clear();
-                
-                // Get the table row to access individual PV names
-                ProviderInfoTableRow tableRow = getTableRow().getItem();
-                if (tableRow != null) {
-                    boolean first = true;
-                    for (String pvName : tableRow.getPvNamesList()) {
-                        if (!first) {
-                            Label separator = new Label(", ");
-                            separator.getStyleClass().add("text-muted");
-                            content.getChildren().add(separator);
-                        }
-                        
-                        Hyperlink pvLink = new Hyperlink(pvName);
-                        pvLink.getStyleClass().addAll("hyperlink-small");
-                        pvLink.setOnAction(e -> {
-                            viewModel.addPvNameToQuery(pvName);
-                        });
-                        
-                        content.getChildren().add(pvLink);
-                        first = false;
-                    }
-                    
-                    // Ensure content can grow
-                    HBox.setHgrow(content, Priority.ALWAYS);
-                }
-                
-                setGraphic(content);
-                setText(null);
-            }
-        }
-    }
-    
     /**
      * Execute provider search with a specific provider ID.
      * Used for navigation from other views (like pv-explore).

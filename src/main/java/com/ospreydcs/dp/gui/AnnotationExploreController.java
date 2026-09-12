@@ -2,6 +2,7 @@ package com.ospreydcs.dp.gui;
 
 import com.ospreydcs.dp.client.result.GetCalculationsApiResult;
 import com.ospreydcs.dp.grpc.v1.annotation.Calculations;
+import com.ospreydcs.dp.gui.component.HyperlinkListTableCell;
 import com.ospreydcs.dp.gui.model.AnnotationInfoTableRow;
 import com.ospreydcs.dp.gui.model.DataFrameDetails;
 import javafx.fxml.FXML;
@@ -10,9 +11,7 @@ import javafx.geometry.Insets;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.HBox;
-import javafx.scene.layout.Priority;
 import javafx.stage.Stage;
-import javafx.util.Callback;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -122,19 +121,25 @@ public class AnnotationExploreController implements Initializable {
     }
     
     private void setupAnnotationIdColumn() {
-        idColumn.setCellFactory(column -> new AnnotationIdTableCell());
+        idColumn.setCellFactory(HyperlinkListTableCell.forSingleValue(
+                AnnotationInfoTableRow::getId,
+                (row, id) -> navigateToAnnotationBuilder(id)));
     }
     
     private void setupRelatedDatasetsColumn() {
         relatedDatasetsColumn.setCellValueFactory(
                 new PropertyValueFactory<>(AnnotationInfoTableRow.PROPERTY_RELATED_DATASETS));
-        relatedDatasetsColumn.setCellFactory(column -> new DatasetIdsTableCell());
+        relatedDatasetsColumn.setCellFactory(HyperlinkListTableCell.forValues(
+                AnnotationInfoTableRow::getDataSetIdsList,
+                (row, datasetId) -> navigateToDatasetBuilder(datasetId)));
     }
     
     private void setupRelatedAnnotationsColumn() {
         relatedAnnotationsColumn.setCellValueFactory(
                 new PropertyValueFactory<>(AnnotationInfoTableRow.PROPERTY_RELATED_ANNOTATIONS));
-        relatedAnnotationsColumn.setCellFactory(column -> new AnnotationIdsTableCell());
+        relatedAnnotationsColumn.setCellFactory(HyperlinkListTableCell.forValues(
+                AnnotationInfoTableRow::getAnnotationIdsList,
+                (row, annotationId) -> navigateToAnnotationBuilder(annotationId)));
     }
     
     private void setupCalculationsColumn() {
@@ -158,124 +163,6 @@ public class AnnotationExploreController implements Initializable {
     }
     
     // Custom TableCell implementations for hyperlinks
-    
-    /**
-     * TableCell for Annotation ID column with hyperlink to Annotation Builder.
-     */
-    private class AnnotationIdTableCell extends TableCell<AnnotationInfoTableRow, String> {
-        @Override
-        protected void updateItem(String item, boolean empty) {
-            super.updateItem(item, empty);
-            
-            if (empty || item == null || item.trim().isEmpty()) {
-                setGraphic(null);
-                setText(null);
-            } else {
-                Hyperlink annotationLink = new Hyperlink(item);
-                annotationLink.getStyleClass().addAll("hyperlink-small");
-                annotationLink.setOnAction(e -> navigateToAnnotationBuilder(item));
-                
-                setGraphic(annotationLink);
-                setText(null);
-            }
-        }
-    }
-    
-    /**
-     * TableCell for Related Datasets column with hyperlinks to Dataset Builder.
-     */
-    private class DatasetIdsTableCell extends TableCell<AnnotationInfoTableRow, String> {
-        private HBox content;
-
-        public DatasetIdsTableCell() {
-            super();
-            content = new HBox();
-            content.setSpacing(5);
-            content.setPadding(new Insets(2, 5, 2, 5));
-        }
-
-        @Override
-        protected void updateItem(String item, boolean empty) {
-            super.updateItem(item, empty);
-            
-            if (empty || item == null || item.trim().isEmpty()) {
-                setGraphic(null);
-                setText(null);
-            } else {
-                content.getChildren().clear();
-                
-                AnnotationInfoTableRow tableRow = getTableRow().getItem();
-                if (tableRow != null) {
-                    boolean first = true;
-                    for (String datasetId : tableRow.getDataSetIdsList()) {
-                        if (!first) {
-                            Label separator = new Label(", ");
-                            separator.getStyleClass().add("text-muted");
-                            content.getChildren().add(separator);
-                        }
-                        
-                        Hyperlink datasetLink = new Hyperlink(datasetId);
-                        datasetLink.getStyleClass().addAll("hyperlink-small");
-                        datasetLink.setOnAction(e -> navigateToDatasetBuilder(datasetId));
-                        
-                        content.getChildren().add(datasetLink);
-                        first = false;
-                    }
-                }
-                
-                setGraphic(content);
-                setText(null);
-            }
-        }
-    }
-    
-    /**
-     * TableCell for Related Annotations column with hyperlinks to Annotation Builder.
-     */
-    private class AnnotationIdsTableCell extends TableCell<AnnotationInfoTableRow, String> {
-        private HBox content;
-
-        public AnnotationIdsTableCell() {
-            super();
-            content = new HBox();
-            content.setSpacing(5);
-            content.setPadding(new Insets(2, 5, 2, 5));
-        }
-
-        @Override
-        protected void updateItem(String item, boolean empty) {
-            super.updateItem(item, empty);
-            
-            if (empty || item == null || item.trim().isEmpty()) {
-                setGraphic(null);
-                setText(null);
-            } else {
-                content.getChildren().clear();
-                
-                AnnotationInfoTableRow tableRow = getTableRow().getItem();
-                if (tableRow != null) {
-                    boolean first = true;
-                    for (String annotationId : tableRow.getAnnotationIdsList()) {
-                        if (!first) {
-                            Label separator = new Label(", ");
-                            separator.getStyleClass().add("text-muted");
-                            content.getChildren().add(separator);
-                        }
-                        
-                        Hyperlink annotationLink = new Hyperlink(annotationId);
-                        annotationLink.getStyleClass().addAll("hyperlink-small");
-                        annotationLink.setOnAction(e -> navigateToAnnotationBuilder(annotationId));
-                        
-                        content.getChildren().add(annotationLink);
-                        first = false;
-                    }
-                }
-                
-                setGraphic(content);
-                setText(null);
-            }
-        }
-    }
     
     /**
      * TableCell for Calculations Data Frames column with hyperlinks to dialog.

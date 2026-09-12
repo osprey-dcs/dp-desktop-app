@@ -1059,6 +1059,35 @@ When tags/attributes don't appear in the database:
 - Lifecycle method: `clearColumnMetadata()`
 - Values apply uniformly to every column in the DataFrame(s) produced by the containing view
 
+**HyperlinkListTableCell** (`src/main/java/com/ospreydcs/dp/gui/component/HyperlinkListTableCell.java`)
+- Renders a row's multi-valued field as a comma-separated run of `Hyperlink`s, one per value
+- Replaces four hand-written cells: provider PV names (`ProviderExploreController`), an annotation's
+  related datasets and related annotations plus its ID column (`AnnotationExploreController`), and
+  the PV-name / provider-name cells (`PvExploreController`)
+- Two factories: `forValues(valuesExtractor, onClick)` for a list, `forSingleValue(valueExtractor,
+  onClick)` for one link per row — the single-value case is the same widget with a one-element list
+- `onClick` receives **the row and the clicked value**, because some links are labelled with one
+  field and navigate by another: a provider-name link navigates by the row's provider *id*
+- `AnnotationExploreController.CalculationsDataFrameTableCell` deliberately does **not** use it — it
+  renders a *presence* link, not a value list (see the Calculations column note above)
+
+**Values come from the row's list accessor, never from the cell's display string.** The cell item is
+the already-joined ", " string, and re-splitting it to recover the values breaks on any value
+*containing* a comma — silently, producing extra links that are each mislabelled and each navigate
+to an id that does not exist. Emptiness is likewise decided by the extracted list, not by the item
+string: the hand-written cells returned early on a blank item, so a row whose display string was
+empty but whose list was not rendered no links at all.
+
+**The cell's index is authoritative, not its `TableRow`.** When a virtualized table recycles a cell
+it sets the new index and delivers the new item immediately but repoints the cell's `TableRow` in a
+*later* pass. Every cell this replaced read `getTableRow().getItem()` directly, so during that window
+it rendered the **previous** row's links while holding the new row's index — no error, nothing
+visibly wrong, until a link navigates somewhere unrelated to the row it appears on. `resolveRow()`
+resolves by index against `getTableView().getItems()` and falls back to the `TableRow` only when the
+index is out of range. `HyperlinkListTableCellTest` pins this by driving `updateIndex()`, which is
+what the table itself does to recycle a cell; the guard was mutation-checked against the pre-fix
+behavior.
+
 **QueryPvsComponent** (`src/main/java/com/ospreydcs/dp/gui/component/QueryPvsComponent.java`)
 - Reusable component for PV list management with individual remove buttons
 - Displays current PV selection with custom ListCell containing trash can buttons (🗑️)

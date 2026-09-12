@@ -692,6 +692,28 @@ injected afterward via setters.
 Post-injection behavior (button handlers calling `DpApplication`, background tasks, navigation) is
 not covered — that needs an injection seam and robot-driven interaction testing.
 
+**Calculations import fixture** (`CalculationsWorkbookFixture`, added by #43): generates the
+multi-sheet XLSX used to exercise Annotation Builder → Import Calculations by hand, and through it
+the Calculations presence column, the fetch-on-click, and the multi-frame chooser.
+
+It is committed as code rather than as a binary because `DataImportUtility` rejects malformed input
+**silently** — a blank header cell skips the whole sheet, a row whose cell count differs from the
+header's skips that row, and an unsupported cell type skips the row — each with a log line and no
+error. A hand-built workbook can therefore lose a frame, a column or a row and still look like it
+imported, which during manual verification presents as "the feature lost my data" when the file was
+at fault. `CalculationsWorkbookFixtureTest` round-trips the generated workbook through the real
+`DataImportUtility` and asserts every sheet becomes a frame, every row survives, and all three
+`DataValue` types (numeric, string, boolean) come back — so the fixture's validity is checked, not
+assumed.
+
+Deliberately multi-sheet: a single-frame annotation opens the frame dialog directly, so a one-sheet
+file would never reach the multi-frame chooser that P2.1 added. Timestamps derive from a fixed base
+instant rather than `now()`, so regenerating yields the same file. Regenerate with:
+
+```bash
+mvn -q test-compile exec:java -Dexec.classpathScope=test   -Dexec.mainClass=com.ospreydcs.dp.gui.testutil.CalculationsWorkbookFixture   -Dexec.args="<output>.xlsx"
+```
+
 **Live integration test** (`AnnotationApiLiveIT`, added by #43): exercises the Annotation API
 end to end against a real in-process ecosystem and a real MongoDB — the `getAnnotation()` vs
 `queryAnnotations()` calculations asymmetry, the load-edit-save round trip that must preserve tags

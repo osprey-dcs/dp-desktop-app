@@ -3,14 +3,15 @@
 - **Ticket**: [osprey-dcs/dp-desktop-app#39](https://github.com/osprey-dcs/dp-desktop-app/issues/39)
 - **Sub-issue**: [#36](https://github.com/osprey-dcs/dp-desktop-app/issues/36) — see [`plan/tickets/36/plan.md`](../36/plan.md)
 - **Status**: scoped 2026-09-12 against dp-desktop-app `889b5c3`, dp-grpc `6dfff3f`, dp-service `89bb822` (`main`), with the installed `dp-service-1.16.0.jar` (2026-09-11). Every upstream claim below was verified by reading the sibling source, not by reading the tickets.
+- **Updated 2026-09-12 (later same day)**: dp-service #244 is **CLOSED** (PR #270, `6d2f5a9`) and the jar is reinstalled (dp-service `6d2f5a9`, dp-grpc `76dba79`). **All six tasks are now unblocked.** `mvn clean test` is green against the new jar (188 tests, 0 failures, 0 skipped). Task 6's notes below were re-verified against the shipped wrapper rather than the resolver they were originally written from — every behavior they assert is now stated in the wrapper's own javadoc.
 - **Baseline**: `mvn clean compile` and `mvn clean test` are both green on `889b5c3`. Unlike #42, this ticket starts from a working build; nothing here is non-deferrable.
 
 ## Triage summary
 
 The ticket is well-scoped and its architecture is sound. Triage changed four things:
 
-1. **Two of the three named upstream prerequisites have already landed.** Only dp-service #244
-   remains, and it blocks task 6 alone.
+1. **All three named upstream prerequisites have landed.** dp-service #244 closed after this plan
+   was written; nothing in this ticket waits on upstream any longer.
 2. **Task 2 (explore-view base extraction) should not be done as described.** Measured, it buys
    ~3% line reduction and imposes a lifecycle contract one existing view already violates. It is
    replaced below with three higher-value, lower-risk refactors.
@@ -28,7 +29,7 @@ Nothing changes the ticket's overall shape or its task decomposition beyond task
 |---|---|---|
 | dp-service [#243](https://github.com/osprey-dcs/dp-service/issues/243) — client wrappers for PV metadata / configuration | required | **CLOSED** (PR #247). All six wrappers + result classes present in the installed jar. |
 | dp-service [#245](https://github.com/osprey-dcs/dp-service/issues/245) — empty criteria = match-all | required | **CLOSED** (PR, dp-grpc #147). All three queries now bounded by `DEFAULT_QUERY_LIMIT = 100`. |
-| dp-service [#244](https://github.com/osprey-dcs/dp-service/issues/244) — `QueryClient.querySamples` | required | **OPEN, no plan document.** The only live blocker. |
+| dp-service [#244](https://github.com/osprey-dcs/dp-service/issues/244) — `QueryClient.querySamples` | required | **CLOSED** (PR #270). Shipped as **four** V2 wrappers, not one: `querySamples` / `querySamplesStream` / `queryBuckets` / `queryBucketsStream`, plus `QuerySamplesParams` / `QueryBucketsParams` and `QuerySamplesApiResult`. Present in the installed jar. |
 | dp-service [#235](https://github.com/osprey-dcs/dp-service/issues/235) — reject-vs-error | "related" | Resolved during #243 triage: both getters already classify not-found as `REJECT`. Nothing to wait for. |
 
 Verification, rather than trusting the issue state:
@@ -41,20 +42,22 @@ Verification, rather than trusting the issue state:
   `:382`, `:720`, `:987`, `:1245`, `:1503`.
 - `QueryClient` has **no** V2 method (only `queryTable`, `queryPvStats`, `queryProviders`).
 
-**#244 is a hard blocker for task 6, not a convention.** `DpApplication` reaches gRPC exclusively
-through `ApiClient`'s typed clients (`api.queryClient.*` / `api.annotationClient.*`, ~28 call
-sites) and never touches a stub or channel. There is no in-repo workaround that does not fork that
-architecture.
+**~~#244 is a hard blocker for task 6, not a convention.~~ Resolved.** The reasoning stood: this app
+reaches gRPC exclusively through `ApiClient`'s typed clients (`api.queryClient.*` /
+`api.annotationClient.*`, ~28 call sites) and never touches a stub or channel, so there was no
+in-repo workaround. The wrapper now exists, so task 6 proceeds through the normal
+`DpApplication` → `api.queryClient.querySamples()` path with no architectural exception.
 
 ### Consequence for sequencing
 
 The ticket's stated order — "1 ‖ 3, then 2, then 4/5, then 6" — is now:
 
-> **3 ‖ 4 ‖ 5 ‖ 36 can all start immediately.** Only task 6 waits on #244.
+> **3 ‖ 4 ‖ 5 ‖ 6 ‖ 36 can all start immediately.** Nothing waits on upstream.
 
-Tasks 4 and 5 were gated on #243/#245, which have landed. That is a substantial unblocking: four of
-the six tasks plus the sub-issue can proceed in parallel today, and #244 can be written
-concurrently rather than on the critical path.
+Tasks 4 and 5 were gated on #243/#245 and task 6 on #244; all three have landed. **Every task in
+this ticket is now unblocked**, and #36 is complete (PR #44). The remaining sequencing constraint is
+internal only: T2a/T2b should precede tasks 3-5 so the new views are written in the settled
+vocabulary (see below).
 
 ## Corrections to the ticket bodies
 
@@ -75,7 +78,13 @@ The flag is not merely defaulted-on; it does nothing. #244's wrapper doc should 
 app must not plan any feature on `DataColumn.metadata` from `querySamples`. Provenance/tags/attributes
 for a PV come from `queryPvMetadata` (task 4) or from `queryBuckets`.
 
-**Action**: comment on dp-service #244 with this correction before it is implemented.
+**Action**: ~~comment on dp-service #244 with this correction before it is implemented.~~
+**Done, and accepted upstream.** The correction was posted to #244 and the shipped wrapper
+incorporates it: `excludeColumnMetadata` is *deliberately not exposed* on `QuerySamplesParams`,
+whose javadoc states the flag "is inert here". `QueryBucketsParams` does expose it, and documents
+that it is functional there. The remaining C1 conclusion stands unchanged for this app: **plan no
+feature on `DataColumn.metadata` from `querySamples`** — take PV provenance/tags/attributes from
+`queryPvMetadata` (task 4) or from `queryBuckets`.
 
 ### C2 — three different page-token behaviors, not one
 
@@ -91,6 +100,11 @@ The field names are shared; the **error semantics are not**:
 A shared paging helper must not assume one of these. In practice the app always round-trips a token
 it was just handed, so the divergence is latent rather than active — but a retry-on-error path, or
 any future "resume this query" feature, would hit it. Document it at the helper.
+
+**Confirmed upstream.** The shipped `QuerySamplesParams` javadoc now states the divergence itself:
+"A malformed token *is* rejected here, unlike the annotation metadata queries, which silently reset
+to the first page." So this is a documented contract difference, not an implementation accident that
+might be normalized later — the helper has to accommodate it permanently.
 
 ### C3 — `queryProviders` cannot be paged, so "one paging pattern" cannot cover all views
 
@@ -302,7 +316,7 @@ Unblocked by #243/#245. `#36` is planned separately and is independent — see
 - Configuration load-for-edit uses the existing `getConfiguration()`; the overwrite-warning path it
   feeds is already built (`MachineConfigurationViewModel.java:347-404`).
 
-### Task 6 — V2 migration (blocked on #244)
+### Task 6 — V2 migration (unblocked; #244 shipped)
 
 The single decode point is `DataExploreViewModel.processQueryTableResponse()` (`:320-382`), fed by
 `executeIncrementalQuery()` (`:248-318`). The ticket's plan to reshape at that point and leave the
@@ -354,6 +368,31 @@ Verified server behavior that shapes this task:
   metadata mode.
 - Do **not** hardcode 10,000 / 100,000 / 4 MB; all three are env-overridable.
 
+**Decisions the shipped wrapper adds** (it exposes more than the plan assumed, so these are choices
+task 6 must make rather than behaviors it inherits):
+
+- **Use the unary `querySamples()`, not `querySamplesStream()`.** The wrapper offers both. Unary is
+  the right one here for two reasons. First, the existing decode point already drives a paging loop
+  and the ticket keeps incremental display, which needs the resume token the streaming call does not
+  return (`nextPageToken` is always empty on a stream — completion is signaled by the stream ending).
+  Second, `querySamplesStream()` accumulates the **entire** result into one `ColumnTable` before
+  returning, which reinstates exactly the unbounded client-side read that paging exists to prevent —
+  the same failure the `QUERY_RESULT_CAP` guard addresses for the annotation queries.
+- **Leave `useSerializedColumns` false.** On the streaming method it is actively unsafe across pages:
+  serialized columns cannot be merged, so a multi-page stream returns per-page column *fragments*
+  against a fully concatenated timestamp axis — a well-formed table whose columns do not line up with
+  it. The wrapper flags this (`serializedColumnsFragmented`), and a consumer that ignores the flag
+  gets silently misaligned data rather than an error. If it is ever enabled for the unary path as an
+  optimization, that flag must be checked before the table is read.
+- **The params record carries `sampleStatusSelector`**, which is the natural join between task 6 and
+  task 3's sample-status work. Note it is accepted **only** by the sample-oriented methods — the
+  bucket methods reject it, and `QueryBucketsParams` therefore omits the field entirely.
+- **`pageToken` must not be carried across queries.** A token encodes a position only; the server's
+  kind check separates bucket tokens from sample tokens but nothing binds a token to the `QuerySpec`
+  that produced it, so replaying one against a changed spec yields a well-formed but **semantically
+  wrong** result rather than an error. The paging loop must discard its token whenever any query
+  parameter changes — not merely on a new search, but on an edited time range or PV list.
+
 **Cost the ticket understates — the modal PV selector.** The Query Editor's PV list is a flat
 `ObservableList<String>` (`DataExploreViewModel.java:30`) wired into six places: global-state
 restore (`:96-98`), `populateFromDataBlock` (`:451-453`), `QueryPvsComponent` (`:99-105`),
@@ -386,8 +425,8 @@ Beyond that:
 - `AnnotationApiLiveIT` is the model for live coverage — it skips on a socket probe when MongoDB is
   unreachable, so CI stays green while a developer with a database gets it from a plain `mvn test`.
   `*IT` is already in the surefire `<includes>` (`pom.xml:269-275`). Worth adding: a
-  `querySamples` round trip once #244 lands (paging across a real multi-page result, and the
-  missing-value encoding), and the #36 activation-collision case.
+  `querySamples` round trip (paging across a real multi-page result, and the missing-value
+  encoding) — **now writable, since #244 has landed** — and the #36 activation-collision case.
 
 ## Out of scope
 

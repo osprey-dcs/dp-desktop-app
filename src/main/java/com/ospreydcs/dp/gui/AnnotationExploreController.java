@@ -1,5 +1,7 @@
 package com.ospreydcs.dp.gui;
 
+import com.ospreydcs.dp.client.result.GetCalculationsApiResult;
+import com.ospreydcs.dp.grpc.v1.annotation.Calculations;
 import com.ospreydcs.dp.gui.model.AnnotationInfoTableRow;
 import com.ospreydcs.dp.gui.model.DataFrameDetails;
 import javafx.fxml.FXML;
@@ -15,6 +17,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.URL;
+import java.util.List;
 import java.util.ResourceBundle;
 
 public class AnnotationExploreController implements Initializable {
@@ -289,22 +292,14 @@ public class AnnotationExploreController implements Initializable {
                 content.getChildren().clear();
                 
                 AnnotationInfoTableRow tableRow = getTableRow().getItem();
-                if (tableRow != null) {
-                    boolean first = true;
-                    for (String frameName : tableRow.getCalculationsDataFrameNames()) {
-                        if (!first) {
-                            Label separator = new Label(", ");
-                            separator.getStyleClass().add("text-muted");
-                            content.getChildren().add(separator);
-                        }
-                        
-                        Hyperlink frameLink = new Hyperlink(frameName);
-                        frameLink.getStyleClass().addAll("hyperlink-small");
-                        frameLink.setOnAction(e -> openCalculationFrameDetails(frameName, tableRow));
-                        
-                        content.getChildren().add(frameLink);
-                        first = false;
-                    }
+                if (tableRow != null && tableRow.hasCalculations()) {
+                    // one link per row rather than one per frame: queryAnnotations() no longer
+                    // returns frame names, so they are resolved by the fetch this link triggers
+                    Hyperlink calculationsLink = new Hyperlink(item);
+                    calculationsLink.getStyleClass().addAll("hyperlink-small");
+                    calculationsLink.setOnAction(e -> openCalculations(tableRow));
+                    
+                    content.getChildren().add(calculationsLink);
                 }
                 
                 setGraphic(content);
@@ -333,31 +328,124 @@ public class AnnotationExploreController implements Initializable {
         }
     }
     
-    private void openCalculationFrameDetails(String frameName, AnnotationInfoTableRow tableRow) {
-        logger.info("Opening calculation frame details dialog for frame: {}", frameName);
+    /**
+     * Fetches this annotation's calculations and opens a frame from them.
+     *
+     * The fetch happens here, on user action, rather than per row at query time: queryAnnotations()
+     * returns calculationsId without content as of dp-grpc #132, and resolving names per row would
+     * rebuild client-side the N+1 fan-out that change removed.  One request per click, none per
+     * row.  See plan/tickets/42 D1.
+     */
+    private void openCalculations(AnnotationInfoTableRow tableRow) {
+        final String calculationsId = tableRow.getCalculationsId();
+        logger.info("Fetching calculations {} for annotation {}", calculationsId, tableRow.getId());
+        
+        if (dpApplication == null) {
+            logger.warn("Cannot fetch calculations - DpApplication not set");
+            return;
+        }
+        
+        // fetch off the FX thread: this is a service round trip, not a local lookup as it was when
+        // the content arrived denormalized in the query result
+        javafx.concurrent.Task<Calculations> fetchTask = new javafx.concurrent.Task<Calculations>() {
+            @Override
+            protected Calculations call() throws Exception {
+                final GetCalculationsApiResult apiResult = dpApplication.getCalculations(calculationsId);
+                
+                if (apiResult == null) {
+                    throw new RuntimeException("null response from service");
+                }
+                
+                // a missing record is a rejection rather than an empty result, so it is
+                // distinguished from a service failure rather than reported as one
+                if (apiResult.isReject()) {
+                    throw new RuntimeException("calculations not found: " + calculationsId);
+                }
+                
+                if (apiResult.resultStatus.isError) {
+                    throw new RuntimeException(apiResult.resultStatus.msg);
+                }
+                
+                if (apiResult.calculations == null) {
+                    throw new RuntimeException("calculations not found: " + calculationsId);
+                }
+                
+                return apiResult.calculations;
+            }
+        };
+        
+        fetchTask.setOnSucceeded(e -> showCalculationsFrames(fetchTask.getValue()));
+        
+        fetchTask.setOnFailed(e -> {
+            final Throwable exception = fetchTask.getException();
+            logger.error("Failed to fetch calculations {}", calculationsId, exception);
+            
+            Alert alert = new Alert(Alert.AlertType.ERROR);
+            alert.setTitle("Error");
+            alert.setHeaderText("Failed to load calculations");
+            alert.setContentText("An error occurred: "
+                    + (exception != null ? exception.getMessage() : "unknown error"));
+            alert.showAndWait();
+        });
+        
+        Thread fetchThread = new Thread(fetchTask);
+        fetchThread.setDaemon(true);
+        fetchThread.start();
+    }
+    
+    /**
+     * Opens the frame detail dialog for fetched calculations, prompting for a frame first when
+     * there is more than one.  The frame names are only known at this point -- they are what the
+     * fetch resolved.
+     */
+    private void showCalculationsFrames(Calculations calculations) {
+        final List<Calculations.CalculationsDataFrame> frames =
+                calculations.getCalculationDataFramesList();
+        
+        if (frames.isEmpty()) {
+            logger.warn("Calculations {} contains no data frames", calculations.getId());
+            
+            Alert alert = new Alert(Alert.AlertType.WARNING);
+            alert.setTitle("No Data Frames");
+            alert.setHeaderText("Calculations: " + calculations.getId());
+            alert.setContentText("This annotation's calculations contain no data frames.");
+            alert.showAndWait();
+            return;
+        }
+        
+        if (frames.size() == 1) {
+            openFrameDialog(frames.get(0));
+            return;
+        }
+        
+        // more than one frame, so let the user pick which to open
+        final List<String> frameNames = frames.stream()
+                .map(Calculations.CalculationsDataFrame::getName)
+                .collect(java.util.stream.Collectors.toList());
+        
+        ChoiceDialog<String> chooser = new ChoiceDialog<>(frameNames.get(0), frameNames);
+        chooser.setTitle("Calculation Data Frames");
+        chooser.setHeaderText(frames.size() + " data frames");
+        chooser.setContentText("Select a frame to view:");
+        
+        chooser.showAndWait().ifPresent(selectedName -> frames.stream()
+                .filter(frame -> selectedName.equals(frame.getName()))
+                .findFirst()
+                .ifPresent(this::openFrameDialog));
+    }
+    
+    private void openFrameDialog(Calculations.CalculationsDataFrame frame) {
+        logger.info("Opening calculation frame details dialog for frame: {}", frame.getName());
         
         try {
-            // Get the DataFrameDetails object from the annotation
-            DataFrameDetails frameDetails = tableRow.getCalculationDataFrameByName(frameName);
-            
-            if (frameDetails != null) {
-                // Use the reusable dialog component
-                com.ospreydcs.dp.gui.component.CalculationFrameDetailsDialogController.showDialog(frameDetails, primaryStage);
-            } else {
-                logger.warn("Calculation frame not found: {}", frameName);
-                
-                // Show error message
-                Alert alert = new Alert(Alert.AlertType.WARNING);
-                alert.setTitle("Frame Not Found");
-                alert.setHeaderText("Calculation Frame: " + frameName);
-                alert.setContentText("The requested calculation frame could not be found in the annotation data.");
-                alert.showAndWait();
-            }
+            // the dialog consumes DataFrameDetails rather than protobuf, so it is unaffected by
+            // the #132 nesting change
+            com.ospreydcs.dp.gui.component.CalculationFrameDetailsDialogController.showDialog(
+                    DataFrameDetails.fromCalculationsDataFrame(frame), primaryStage);
             
         } catch (Exception e) {
             logger.error("Error opening calculation frame details dialog", e);
             
-            // Show error message  
             Alert alert = new Alert(Alert.AlertType.ERROR);
             alert.setTitle("Error");
             alert.setHeaderText("Failed to open calculation frame details");

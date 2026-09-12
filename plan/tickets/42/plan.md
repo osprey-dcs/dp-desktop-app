@@ -138,7 +138,7 @@ Original criteria: `mvn clean test` green. No behavior change intended; the exis
 (`AnnotationInfoTableRowTest`, `DpApplicationParamsTest`, `DatasetInfoTableRowTest`) are the guard,
 and `ViewLoadSmokeTest` catches FXML fallout.
 
-## Phase 2 — silent behavior repairs
+## Phase 2 — silent behavior repairs ✅ COMPLETE (2026-09-11)
 
 These compile clean and are wrong at runtime. **This phase is the actual point of the ticket**;
 Phase 1 only makes the app build again.
@@ -230,6 +230,55 @@ changes. It also resolves P2.1 for the builder path in the same edit.
 Note the same full-replace hazard applies to any field the builder cannot repopulate. `getAnnotation`
 fixes calculations, which is the destructive case; a broader audit of builder-vs-record field
 coverage is worth doing but is not a prerequisite.
+
+### Phase 2 exit criteria — met
+
+`mvn clean test` green: **151 tests, 0 failures, 0 errors**, `BUILD SUCCESS` (138 before, plus 12
+new paging tests and a net +1 from reworking the row-model calculations tests).
+
+All three items landed as scoped:
+
+- **P2.1** — the Calculations column is presence-driven per D1. `AnnotationInfoTableRow` exposes
+  `getCalculationsId()` / `hasCalculations()` and no longer holds frame content;
+  `getCalculationsDataFrameNames()` and `getCalculationDataFrameByName()` are gone, verified with a
+  repo-wide grep. The cell factory renders one "View calculations" link per row, and
+  `AnnotationExploreController.openCalculations()` fetches via `getCalculations()` on a background
+  task. The column header changed from "Calculations Data Frames" to "Calculations".
+- **P2.2** — `DpApplication.accumulatePages()` plus `QUERY_RESULT_CAP = 5000` and
+  `PagedResult<T>`; both query wrappers return `PagedResult` and both explore view models consume
+  it.
+- **P2.3** — `loadAnnotationIntoBuilder` now calls the new `DpApplication.getAnnotation()` wrapper
+  and branches on `isReject()` for not-found, so the builder holds complete state and re-saving no
+  longer destroys stored Calculations.
+
+Three things worth recording that the written scope did not anticipate:
+
+1. **The multi-frame case needed a decision D1 did not settle.** D1 said names resolve on open, but
+   with one link per row there is nothing to name *which* frame to open. A single-frame fetch opens
+   its dialog directly; a multi-frame fetch prompts with a `ChoiceDialog` of the names the fetch
+   just resolved. This keeps every frame reachable, which is what the old per-frame links provided.
+
+2. **Both views had a *second* count display that D2 did not account for.** Fixing only the status
+   message would have left `resultCountLabel` reading "5000 results" beside a status line saying the
+   result was capped — the same wrong-total bug D2 exists to remove, just relocated. In
+   annotation-explore that label is driven by a `searchResults` list listener, so truncation is
+   carried in a `lastResultTruncated` field set before the results are added and reset before both
+   `clear()` calls (otherwise an emptied list inherits the previous search's truncation). In
+   dataset-explore the label was a raw `resultCountProperty().asString().concat(...)` binding in the
+   controller, replaced with a `resultCountMessage` property so the formatting lives with the data.
+
+3. **A failed page has to abort the whole accumulation.** `accumulatePages()` throws
+   `QueryFailedException` rather than breaking the loop and returning what it had — returning a
+   partial list as a complete one is the same failure shape as the wrong-total bug. Covered by
+   `aFailedPageAbortsTheAccumulation`.
+
+**Deferred deliberately:** the dataset load path (`loadDatasetIntoBuilder`) still uses
+`queryDataSets` + `.get(0)` rather than `getDataSet()`. It was adapted to the `PagedResult` shape
+because it no longer compiled otherwise, with a comment pointing at P3.2. Unlike the annotation
+path it loses no data, so it stays P3.2 rather than being pulled forward.
+
+Original criteria: `mvn clean test` green; the Calculations column and the annotation load path
+both correct against the modernized API.
 
 ## Phase 3 — adopt the modernized surface
 

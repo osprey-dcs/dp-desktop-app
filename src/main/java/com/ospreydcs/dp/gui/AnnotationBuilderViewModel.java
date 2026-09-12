@@ -216,7 +216,14 @@ public class AnnotationBuilderViewModel {
             attributes.add(attr.getName() + "=" + attr.getValue());
         }
         
-        // Load calculations data frames
+        // Load calculations data frames.
+        //
+        // This reads embedded Calculations content, which is only populated by getAnnotation() --
+        // queryAnnotations() returns calculationsId alone as of dp-grpc #132.  The caller
+        // (DataExploreController.loadAnnotationIntoBuilder) must therefore keep loading through
+        // getAnnotation(): loading through a query result would leave this list empty, and since
+        // saveAnnotation() is a full-replace upsert, the next save would destroy the stored
+        // calculations without an error.  See plan/tickets/42 P2.3.
         calculationsDataFrames.clear();
         if (annotation.getCalculations() != null && 
             !annotation.getCalculations().getCalculationDataFramesList().isEmpty()) {

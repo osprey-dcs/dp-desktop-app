@@ -334,12 +334,28 @@ are reserved in the proto but deferred server-side, so the `epics_alarm` code ma
 ### Annotation Explore Workflow (Implemented)
 1. **Annotation Query Editor**: Search form with 7 optional fields (Annotation ID, Owner ID, Name, Comment, Tag Value, Attribute Key/Value, Dataset ID)
 2. **Search Execution**: Background task queries annotation metadata with loading indicators and status feedback
-3. **Results Display**: TableView with 10 columns including ID, owner, datasets, name, annotations, comment, tags, attributes, event, calculations data frames
+3. **Results Display**: TableView with 10 columns including ID, owner, datasets, name, annotations, comment, tags, attributes, event, calculations
 4. **Interactive Annotation IDs**: Each Annotation ID is a hyperlink that navigates to data-explore view's Annotation Builder tab
-5. **Interactive Calculation Frames**: Each calculation frame name is a hyperlink opening detailed calculation frame dialog
-6. **Automatic Annotation Loading**: Clicking ID hyperlinks triggers background annotation query and form population
+5. **Calculations Column**: shows *presence*, not frame names — a single "View calculations" hyperlink that fetches the frames on click
+6. **Automatic Annotation Loading**: Clicking ID hyperlinks triggers a background `getAnnotation()` and form population
 7. **Cross-View Navigation**: Seamless navigation to Annotation Builder with all annotation details loaded
-8. **API Integration**: Uses `DpApplication.queryAnnotations()` for search and annotation loading with nested protobuf handling
+8. **API Integration**: `DpApplication.queryAnnotations()` for search, `getCalculations()` to open calculations, `getAnnotation()` to load into the builder
+
+**The Calculations column cannot list frame names.** `queryAnnotations()` returns `calculationsId`
+without Calculations content as of dp-grpc #132 — the denormalization was removed deliberately.
+Presence comes from `calculationsId` alone (`AnnotationInfoTableRow.hasCalculations()`); names are
+resolved by the `getCalculations()` fetch the hyperlink triggers, and a multi-frame result prompts
+for which frame to open. Resolving names per row would rebuild client-side, as serial round trips
+from a GUI thread, the N+1 fan-out that #132 removed — worse than the server-side version it
+replaced.
+
+**Loading an annotation for editing MUST go through `getAnnotation()`, never `queryAnnotations()`.**
+`getAnnotation()` is the only method returning Calculations content inline. Because
+`saveAnnotation()` is a full-replace upsert, loading through a query result would populate the
+builder with no calculations, and saving any unrelated edit would then destroy the stored
+Calculations — no error, no warning, and nothing in the UI indicating a loss. The comment at
+`AnnotationBuilderViewModel.loadFromAnnotation()` guards this, since the read there looks like an
+ordinary embedded-content read and is only safe because of who calls it.
 
 ### Data Event Explore Workflow (Implemented)
 1. **Data Event Subscriptions Management**: Left panel ListView displaying active subscriptions with custom ListCell format
@@ -543,12 +559,12 @@ Wrapper for protobuf DataSet in TableView displays:
 
 ### AnnotationInfoTableRow (`src/main/java/com/ospreydcs/dp/gui/model/AnnotationInfoTableRow.java`)
 Wrapper for protobuf Annotation objects in TableView displays:
-- Annotation ID, owner, name, comment, datasets, tags, attributes, event, calculation frames
+- Annotation ID, owner, name, comment, datasets, tags, attributes, event, calculations presence
 - Property binding support for JavaFX TableView integration
 - Formats complex fields (datasets, attributes, calculation frames) as comma-separated strings
-- Provides `getCalculationDataFrameByName()` method to convert protobuf frames to DataFrameDetails
+- Exposes `getCalculationsId()` / `hasCalculations()` for the presence-driven Calculations column; it no longer holds frame content, since `queryAnnotations()` does not return any
 - Used in annotation-explore view for annotation discovery and navigation
-- Hyperlink support for Annotation ID and calculation frame columns
+- Hyperlink support for the Annotation ID column and for the Calculations presence link
 
 ### DataEventSubscription (`src/main/java/com/ospreydcs/dp/gui/model/DataEventSubscription.java`)
 Wrapper for data event subscription management in data-event-explore view:
@@ -828,6 +844,32 @@ on `queryDataSets`), even though the proto supports all of them. **Multi-value o
 therefore needs dp-service client work before any UI for it can be built.** `TextCriterion` is a
 collection-level MongoDB text-index search over the record's indexed fields, not a per-field match,
 so it cannot be scoped to a named field at query time.
+
+**`queryDataSets()` / `queryAnnotations()` page transparently, up to a cap.** Both became paged in
+dp-grpc #132, and **an unset `limit` means the server's default page size, not "everything"**.
+`DpApplication` follows `nextPageToken` internally via the static `accumulatePages()` helper, so
+the explore views still receive one complete list and need no paging UI. Accumulation stops at
+`DpApplication.QUERY_RESULT_CAP` (5000) — without a bound this would just move the unbounded read
+from the server to the client, which is what server paging was introduced to prevent.
+
+Both wrappers return `PagedResult<T>` (`records` plus a `truncated` flag) rather than the raw
+`ApiResult`, and **a failed page throws `QueryFailedException` rather than returning what had
+accumulated** — a partial list presented as a complete one is the bug this fixes, not an acceptable
+degradation.
+
+**Truncation must reach the user.** The original defect was not incompleteness; it was that the
+views stated a count as though it were a total with nothing indicating otherwise. A silent cap
+reproduces that at a higher threshold. Both views therefore have *two* labels to keep honest — the
+status message (`PagedResult.describeCount()`) and the separate result-count label, which in
+annotation-explore is driven by a `searchResults` list listener and in dataset-explore by a
+`resultCountMessage` property. A count label bound directly to `records.size()` would read "5000
+results" beside a status message saying the result was capped.
+
+`accumulatePages()` is static and takes its pages through functions so the loop is unit-testable
+without a service ecosystem (`DpApplicationPagingTest`), the same reasoning as `emptyToNull()` and
+`timestampFromInstant()`. The edge cases worth keeping covered: a cap reached exactly on a page
+boundary *with* a next page (truncated) versus a result that exactly fills the cap with no next
+page (not truncated), and a server returning a token alongside an empty page.
 
 **Sample Status API wrappers** on `DpApplication` (the client wrappers themselves already exist on
 `AnnotationClient`, added by dp-service #239 — no dp-service work is needed to use them):

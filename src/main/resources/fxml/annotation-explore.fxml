@@ -99,7 +99,7 @@
                 <TableColumn fx:id="commentColumn" text="Comment" prefWidth="150" />
                 <TableColumn fx:id="tagsColumn" text="Tags" prefWidth="100" />
                 <TableColumn fx:id="attributesColumn" text="Attributes" prefWidth="120" />
-                <TableColumn fx:id="calculationsColumn" text="Calculations Data Frames" prefWidth="180" />
+                <TableColumn fx:id="calculationsColumn" text="Calculations" prefWidth="130" />
             </columns>
             <placeholder>
                 <Label text="No annotation search results to display. Use the Annotation Query Editor above to search for annotations." />

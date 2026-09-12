@@ -2107,23 +2107,18 @@ public class DataExploreController implements Initializable {
             protected com.ospreydcs.dp.grpc.v1.annotation.DataSet call() throws Exception {
                 logger.debug("Querying dataset by ID: {}", datasetId);
                 
-                com.ospreydcs.dp.client.result.QueryDataSetsApiResult apiResult = 
+                // an id lookup returns at most one record, so paging is not a factor here; this
+                // should become getDataSet(datasetId), which is the right RPC for a single-record
+                // lookup, but that is P3.2 and unlike the annotation path it loses no data today
+                DpApplication.PagedResult<com.ospreydcs.dp.grpc.v1.annotation.DataSet> pagedResult =
                     dpApplication.queryDataSets(datasetId, null, null, null);
                 
-                if (apiResult == null) {
-                    throw new RuntimeException("Dataset query failed - null response from service");
-                }
-                
-                if (apiResult.resultStatus.isError) {
-                    throw new RuntimeException("Dataset query failed: " + apiResult.resultStatus.msg);
-                }
-                
-                if (apiResult.dataSets == null || apiResult.dataSets.isEmpty()) {
+                if (pagedResult.records.isEmpty()) {
                     throw new RuntimeException("Dataset not found: " + datasetId);
                 }
                 
                 // Return the first (and should be only) dataset
-                return apiResult.dataSets.get(0);
+                return pagedResult.records.get(0);
             }
         };
         
@@ -2175,25 +2170,35 @@ public class DataExploreController implements Initializable {
                 
             @Override
             protected Annotation call() throws Exception {
-                logger.debug("Querying annotation by ID: {}", annotationId);
+                logger.debug("Getting annotation by ID: {}", annotationId);
                 
-                com.ospreydcs.dp.client.result.QueryAnnotationsApiResult apiResult = 
-                    dpApplication.queryAnnotations(annotationId, null, null, null, null, null, null, null);
+                // getAnnotation() rather than queryAnnotations(), because it is the only method
+                // that returns Calculations content inline.  Loading through queryAnnotations()
+                // would populate the builder with no calculations, and saveAnnotation() is a
+                // full-replace upsert -- so editing any unrelated field and saving would destroy
+                // the stored Calculations silently.  See plan/tickets/42 P2.3.
+                com.ospreydcs.dp.client.result.GetAnnotationApiResult apiResult =
+                    dpApplication.getAnnotation(annotationId);
                 
                 if (apiResult == null) {
-                    throw new RuntimeException("Annotation query failed - null response from service");
+                    throw new RuntimeException("Annotation get failed - null response from service");
                 }
                 
-                if (apiResult.resultStatus.isError) {
-                    throw new RuntimeException("Annotation query failed: " + apiResult.resultStatus.msg);
-                }
-                
-                if (apiResult.annotations == null || apiResult.annotations.isEmpty()) {
+                // a missing record comes back as a rejection rather than an empty result, so it is
+                // distinguished from a service failure here rather than reported as one
+                if (apiResult.isReject()) {
                     throw new RuntimeException("Annotation not found: " + annotationId);
                 }
                 
-                // Return the first (and should be only) annotation
-                return apiResult.annotations.get(0);
+                if (apiResult.resultStatus.isError) {
+                    throw new RuntimeException("Annotation get failed: " + apiResult.resultStatus.msg);
+                }
+                
+                if (apiResult.annotation == null) {
+                    throw new RuntimeException("Annotation not found: " + annotationId);
+                }
+                
+                return apiResult.annotation;
             }
         };
         

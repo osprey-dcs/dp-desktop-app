@@ -692,6 +692,27 @@ injected afterward via setters.
 Post-injection behavior (button handlers calling `DpApplication`, background tasks, navigation) is
 not covered — that needs an injection seam and robot-driven interaction testing.
 
+**Live integration test** (`AnnotationApiLiveIT`, added by #43): exercises the Annotation API
+end to end against a real in-process ecosystem and a real MongoDB — the `getAnnotation()` vs
+`queryAnnotations()` calculations asymmetry, the load-edit-save round trip that must preserve tags
+and attributes, `getCalculations()` frame-name resolution, `isReject()` on missing records, and
+transparent paging over 120 real datasets. None of it is reachable without a database.
+
+It **skips rather than fails** when MongoDB is unreachable (a JUnit assumption on a socket probe
+against the configured `MongoClient.dbHost`/`dbPort`), so CI — which has no database — stays green
+while a developer running MongoDB gets the coverage automatically from a plain `mvn test`.
+
+`*IT` is therefore added to the surefire `<includes>` in `pom.xml`. Note that declaring `<includes>`
+**replaces** surefire's defaults, so the four default patterns are restated there; dropping them
+would silently stop running every unit test. An integration test the build never invokes cannot
+fail — it just rots until someone runs it by hand, which is the same trap that made the first
+version of the reflective-binding guard worthless.
+
+The test writes to the configured database (`dp-demo`), namespacing every record with a per-run
+stamp and deleting them in `@AfterAll`. Cleanup is best-effort by design: a cleanup failure must
+not redden the build, and leftover stamped records are inert and identifiable. To run it alone:
+`mvn test -Dtest=AnnotationApiLiveIT`. To watch it skip: `mvn test -Ddp.MongoClient.dbPort=1`.
+
 ## MongoDB Integration
 - Default database: `dp-demo`
 - Managed through `InprocessServiceEcosystem`

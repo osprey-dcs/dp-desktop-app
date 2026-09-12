@@ -243,11 +243,17 @@ public class PvExploreController implements Initializable {
     // FXML action handlers
     @FXML
     private void onSearch() {
+        /*
+         * The "Add Selected" button state is kept current by the single listener registered in
+         * bindUIToViewModel(), which watches the same ObservableList this table is backed by --
+         * resultsTable.setItems(viewModel.getSearchResults()) makes them one instance.
+         *
+         * Nothing is registered here.  A listener added on each click would never be removed, so
+         * every search would leave another permanently-retained copy doing work the existing one
+         * already does; it would also be attached AFTER searchPvMetadata() starts its background
+         * task, so it could not see the results of the search that registered it.
+         */
         viewModel.searchPvMetadata();
-        // Update add selected button state after search completes
-        resultsTable.getItems().addListener((javafx.collections.ListChangeListener<PvInfoTableRow>) change -> {
-            updateAddSelectedButtonState();
-        });
     }
 
     @FXML

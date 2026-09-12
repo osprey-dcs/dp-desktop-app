@@ -43,6 +43,9 @@ public class PvExploreController implements Initializable {
     @FXML private TableColumn<PvInfoTableRow, Integer> numBucketsColumn;
     @FXML private Button addSelectedButton;
     @FXML private Label resultsStatusLabel;
+    @FXML private Label searchStatusLabel;
+    @FXML private Label resultCountLabel;
+    @FXML private ProgressIndicator searchProgressIndicator;
 
     // Dependencies
     private PvExploreViewModel viewModel;
@@ -119,11 +122,14 @@ public class PvExploreController implements Initializable {
         // Bind search UI to view model
         pvSearchTextField.textProperty().bindBidirectional(viewModel.pvSearchTextProperty());
         nameListRadio.selectedProperty().bindBidirectional(viewModel.searchByNameListProperty());
-        searchButton.disableProperty().bind(viewModel.isSearchingProperty());
+        searchButton.disableProperty().bind(viewModel.searchInProgressProperty());
         
         // Bind results table
         resultsTable.setItems(viewModel.getSearchResults());
         resultsStatusLabel.textProperty().bind(viewModel.statusMessageProperty());
+        searchStatusLabel.textProperty().bind(viewModel.searchStatusMessageProperty());
+        resultCountLabel.textProperty().bind(viewModel.resultCountMessageProperty());
+        searchProgressIndicator.visibleProperty().bind(viewModel.searchInProgressProperty());
         
         // Set up listeners for checkbox changes to enable/disable "Add Selected" button
         viewModel.getSearchResults().addListener((javafx.collections.ListChangeListener<PvInfoTableRow>) change -> {

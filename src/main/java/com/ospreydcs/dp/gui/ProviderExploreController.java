@@ -134,10 +134,10 @@ public class ProviderExploreController implements Initializable {
         resultsStatusLabel.textProperty().bind(viewModel.statusMessageProperty());
         
         // Bind result count
-        resultCountLabel.textProperty().bind(viewModel.resultCountProperty().asString().concat(" provider(s)"));
+        resultCountLabel.textProperty().bind(viewModel.resultCountMessageProperty());
         
         // Bind progress indicator
-        searchProgressIndicator.visibleProperty().bind(viewModel.isSearchingProperty());
+        searchProgressIndicator.visibleProperty().bind(viewModel.searchInProgressProperty());
         
         logger.debug("UI bound to ViewModel");
     }

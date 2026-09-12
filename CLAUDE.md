@@ -310,6 +310,11 @@ are reserved in the proto but deferred server-side, so the `epics_alarm` code ma
 9. **Provider Navigation**: Provider Name hyperlinks navigate to provider-explore view with automatic search
 10. **State Synchronization**: PV additions/removals automatically sync with global application state
 
+**pv-explore gained a search status row in T2b.** It previously had only `resultsStatusLabel`, so
+search progress and the result summary competed for one label and the search state was overwritten by
+the result. The view now carries `searchStatusLabel`, `resultCountLabel` and `searchProgressIndicator`
+like the other three.
+
 **The "Add Selected" button state is driven by exactly one listener, registered in
 `bindUIToViewModel()`.** `resultsTable.setItems(viewModel.getSearchResults())` makes the table's
 item list and the ViewModel's `searchResults` the same `ObservableList` instance, so a listener
@@ -319,6 +324,35 @@ permanently-retained copy re-doing work the first listener already did. That cop
 *after* `searchPvMetadata()` started its background task, so it could never observe the results of
 the search that registered it — the visible behavior was correct only because the
 `bindUIToViewModel()` listener was doing the job all along.
+
+**The four explore views share one search vocabulary** (normalized by #39 T2b). A fifth or sixth
+explore view should use these names rather than inventing a fourth spelling:
+
+| Concept | Property | Bound to |
+|---|---|---|
+| status beside the search controls | `searchStatusMessage` | `searchStatusLabel` |
+| status beside the results table | `statusMessage` | `resultsStatusLabel` |
+| result count as displayed | `resultCountMessage` | `resultCountLabel` |
+| a search is running | `searchInProgress` | progress indicator + disabled search button |
+
+`statusMessage` keeps the app-wide name rather than being folded into `searchStatusMessage`: eleven
+other view models expose `statusMessageProperty()`, and four controllers forward it to
+`MainViewModel.updateStatus()` to drive the application status bar. The two status properties are
+**two distinct labels**, not two spellings of one — every explore FXML declares both.
+
+`resultCountMessage` is a `String` in all four views, never an `IntegerProperty`. A count label bound
+to a bare int cannot say "first N of more", so it would read "5000 results" beside a status message
+saying the query was capped — the exact dishonesty transparent paging exists to prevent.
+
+**Search results are returned from `call()` and published in `setOnSucceeded`, never from a
+`Platform.runLater` inside the task.** `setOnSucceeded` and `setOnFailed` already run on the FX
+thread. Publishing from inside `call()` via `runLater` does not order anything — it *queues* the
+update behind whatever is already pending, including the handler's own `searchInProgress` reset. That
+was a live defect (D-2): Provider and Dataset mutated their result lists from a queued block and then
+read the count in `setOnSucceeded`, which runs first, so the completion log always reported the
+pre-search count. `ExploreViewModelSearchTest` pins the ordering by observing state from a listener on
+`searchInProgress` at the moment it clears — asserting on the final table contents instead would pass
+against both the fixed and broken versions.
 
 ### Provider Explore Workflow (Implemented)
 1. **Query PVs Component**: Reusable component on left side for PV selection management (same as pv-explore)

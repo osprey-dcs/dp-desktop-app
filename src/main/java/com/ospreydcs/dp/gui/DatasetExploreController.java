@@ -132,7 +132,7 @@ public class DatasetExploreController implements Initializable {
         resultCountLabel.textProperty().bind(viewModel.resultCountMessageProperty());
         
         // Bind progress indicator
-        searchProgressIndicator.visibleProperty().bind(viewModel.isSearchingProperty());
+        searchProgressIndicator.visibleProperty().bind(viewModel.searchInProgressProperty());
         
         logger.debug("UI bound to ViewModel");
     }

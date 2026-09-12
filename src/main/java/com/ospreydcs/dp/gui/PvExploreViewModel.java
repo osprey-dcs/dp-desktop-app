@@ -25,7 +25,7 @@ public class PvExploreViewModel {
     // PV Query Editor properties
     private final StringProperty pvSearchText = new SimpleStringProperty("");
     private final BooleanProperty searchByNameList = new SimpleBooleanProperty(true); // true = name list, false = pattern
-    private final BooleanProperty isSearching = new SimpleBooleanProperty(false);
+    private final BooleanProperty searchInProgress = new SimpleBooleanProperty(false);
 
     // PV Query Results properties
     private final ObservableList<PvInfoTableRow> searchResults = FXCollections.observableArrayList();
@@ -33,6 +33,13 @@ public class PvExploreViewModel {
 
     // Status properties
     private final StringProperty statusMessage = new SimpleStringProperty("Ready");
+    /**
+     * Status shown beside the search controls, as in the other three explore views.  This view had
+     * only the results-area statusMessage, so its search progress and its result count competed for
+     * one label and the search state was overwritten by the result summary.
+     */
+    private final StringProperty searchStatusMessage = new SimpleStringProperty("");
+    private final StringProperty resultCountMessage = new SimpleStringProperty("0 PV(s)");
 
     // Dependencies
     private DpApplication dpApplication;
@@ -62,10 +69,12 @@ public class PvExploreViewModel {
     // Property getters
     public StringProperty pvSearchTextProperty() { return pvSearchText; }
     public BooleanProperty searchByNameListProperty() { return searchByNameList; }
-    public BooleanProperty isSearchingProperty() { return isSearching; }
+    public BooleanProperty searchInProgressProperty() { return searchInProgress; }
     public ObservableList<PvInfoTableRow> getSearchResults() { return searchResults; }
     public ObservableList<PvInfoTableRow> getSelectedSearchResults() { return selectedSearchResults; }
     public StringProperty statusMessageProperty() { return statusMessage; }
+    public StringProperty searchStatusMessageProperty() { return searchStatusMessage; }
+    public StringProperty resultCountMessageProperty() { return resultCountMessage; }
 
     // Business logic methods
     public void searchPvMetadata() {
@@ -80,8 +89,9 @@ public class PvExploreViewModel {
             return;
         }
 
-        isSearching.set(true);
-        statusMessage.set("Searching for PV metadata...");
+        searchInProgress.set(true);
+        searchStatusMessage.set("Searching for PV metadata...");
+        resultCountMessage.set("0 PV(s)");
         logger.info("Starting PV metadata search");
 
         // Create background task for search
@@ -100,15 +110,15 @@ public class PvExploreViewModel {
         };
 
         searchTask.setOnSucceeded(e -> {
-            QueryPvStatsApiResult apiResult = searchTask.getValue();
-            handlePvMetadataSearchResult(apiResult);
-            isSearching.set(false);
+            handlePvMetadataSearchResult(searchTask.getValue());
+            searchInProgress.set(false);
         });
 
         searchTask.setOnFailed(e -> {
             logger.error("PV metadata search failed", searchTask.getException());
+            searchStatusMessage.set("Search failed");
             statusMessage.set("PV search failed: " + searchTask.getException().getMessage());
-            isSearching.set(false);
+            searchInProgress.set(false);
         });
 
         Thread searchThread = new Thread(searchTask);
@@ -116,54 +126,62 @@ public class PvExploreViewModel {
         searchThread.start();
     }
 
+    /**
+     * Publishes the search result.  Called from setOnSucceeded, which already runs on the FX thread:
+     * the earlier version wrapped each of its six outcomes in its own Platform.runLater, which
+     * queued work behind the caller's searchInProgress reset rather than ordering it, so the flag
+     * cleared before the results or the error message appeared.
+     */
     private void handlePvMetadataSearchResult(QueryPvStatsApiResult apiResult) {
         if (apiResult == null) {
-            javafx.application.Platform.runLater(() -> {
-                statusMessage.set("Search failed - null response from service");
-            });
+            failSearch("Search failed - null response from service");
             return;
         }
 
         if (apiResult.resultStatus.isError) {
-            javafx.application.Platform.runLater(() -> {
-                statusMessage.set("Search failed: " + apiResult.resultStatus.toString());
-            });
+            failSearch("Search failed: " + apiResult.resultStatus.toString());
             return;
         }
 
         QueryPvStatsResponse response = apiResult.queryPvStatsResponse;
         if (response == null) {
-            javafx.application.Platform.runLater(() -> {
-                statusMessage.set("Search failed - null response from service");
-            });
+            failSearch("Search failed - null response from service");
             return;
         }
 
         if (response.hasExceptionalResult()) {
-            javafx.application.Platform.runLater(() -> {
-                statusMessage.set("Search failed: " + response.getExceptionalResult().getMessage());
-            });
+            failSearch("Search failed: " + response.getExceptionalResult().getMessage());
             return;
         }
 
-        if (response.hasStatsResult()) {
-            List<PvInfoTableRow> tableRows = new ArrayList<>();
-            for (QueryPvStatsResponse.StatsResult.PvStats pvInfo : response.getStatsResult().getPvStatsList()) {
-                tableRows.add(new PvInfoTableRow(pvInfo));
-            }
-
-            // Update UI on JavaFX Application Thread
-            javafx.application.Platform.runLater(() -> {
-                searchResults.setAll(tableRows);
-                statusMessage.set("Found " + tableRows.size() + " matching PV(s)");
-            });
-            logger.info("PV metadata search returned {} results", tableRows.size());
-        } else {
-            javafx.application.Platform.runLater(() -> {
-                searchResults.clear();
-                statusMessage.set("Search completed but no results found");
-            });
+        if (!response.hasStatsResult()) {
+            searchResults.clear();
+            resultCountMessage.set("0 PV(s)");
+            searchStatusMessage.set("Search completed");
+            statusMessage.set("Search completed but no results found");
+            return;
         }
+
+        List<PvInfoTableRow> tableRows = new ArrayList<>();
+        for (QueryPvStatsResponse.StatsResult.PvStats pvInfo : response.getStatsResult().getPvStatsList()) {
+            tableRows.add(new PvInfoTableRow(pvInfo));
+        }
+
+        searchResults.setAll(tableRows);
+        resultCountMessage.set(tableRows.size() + " PV(s)");
+        searchStatusMessage.set("Search completed");
+        statusMessage.set("Found " + tableRows.size() + " matching PV(s)");
+        logger.info("PV metadata search returned {} results", tableRows.size());
+    }
+
+    /**
+     * Reports a failed search without clearing the previous results, matching the other three views:
+     * a failure says nothing about what was already displayed.
+     */
+    private void failSearch(String message) {
+        searchStatusMessage.set("Search failed");
+        statusMessage.set(message);
+        logger.warn("PV metadata search unsuccessful: {}", message);
     }
 
     public void addSelectedResultsToPvList() {

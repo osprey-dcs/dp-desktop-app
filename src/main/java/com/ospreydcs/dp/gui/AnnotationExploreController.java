@@ -89,6 +89,7 @@ public class AnnotationExploreController implements Initializable {
         searchProgressIndicator.visibleProperty().bind(viewModel.searchInProgressProperty());
         searchButton.disableProperty().bind(viewModel.searchInProgressProperty());
         resultCountLabel.textProperty().bind(viewModel.resultCountMessageProperty());
+        resultsStatusLabel.textProperty().bind(viewModel.statusMessageProperty());
         
         // Bind table data
         resultsTable.setItems(viewModel.getSearchResults());

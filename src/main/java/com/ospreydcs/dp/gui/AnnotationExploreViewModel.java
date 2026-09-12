@@ -46,7 +46,12 @@ public class AnnotationExploreViewModel {
     private final BooleanProperty searchInProgress = new SimpleBooleanProperty(false);
     private final StringProperty searchStatusMessage = new SimpleStringProperty("Ready to search for annotations");
     private final StringProperty resultCountMessage = new SimpleStringProperty("0 results");
-    private final BooleanProperty hasResults = new SimpleBooleanProperty(false);
+    /**
+     * Status shown beside the results table, as in the other three explore views.  This view had
+     * only searchStatusMessage, which is why annotation-explore.fxml declared a resultsStatusLabel
+     * that nothing ever bound -- it rendered its static FXML text forever.
+     */
+    private final StringProperty statusMessage = new SimpleStringProperty("Ready");
     
     /**
      * Whether the most recent search stopped at the query cap.  Read by the searchResults listener
@@ -61,7 +66,6 @@ public class AnnotationExploreViewModel {
         // Set up listeners for search results
         searchResults.addListener((javafx.collections.ListChangeListener<AnnotationInfoTableRow>) change -> {
             int count = searchResults.size();
-            hasResults.set(count > 0);
             // "first N of more" rather than a bare count when the query was capped: a count
             // presented as a total when it is not is exactly the bug transparent paging fixes, and
             // this label sits beside the status message that already says so
@@ -115,14 +119,14 @@ public class AnnotationExploreViewModel {
                 logger.debug("Background annotation search task started");
                 
                 // Convert empty strings to null for API call
-                String idCriterion = nullIfEmpty(annotationId.get());
-                String ownerCriterion = nullIfEmpty(owner.get());
-                String dataSetsCriterion = nullIfEmpty(relatedDatasetsId.get());
-                String annotationsCriterion = nullIfEmpty(relatedAnnotationsId.get());
-                String textCriterion = nullIfEmpty(nameDescriptionText.get());
-                String tagsCriterion = nullIfEmpty(tagValue.get());
-                String attributeKeyCriterion = nullIfEmpty(attributeKey.get());
-                String attributeValueCriterion = nullIfEmpty(attributeValue.get());
+                String idCriterion = trimmedOrNull(annotationId.get());
+                String ownerCriterion = trimmedOrNull(owner.get());
+                String dataSetsCriterion = trimmedOrNull(relatedDatasetsId.get());
+                String annotationsCriterion = trimmedOrNull(relatedAnnotationsId.get());
+                String textCriterion = trimmedOrNull(nameDescriptionText.get());
+                String tagsCriterion = trimmedOrNull(tagValue.get());
+                String attributeKeyCriterion = trimmedOrNull(attributeKey.get());
+                String attributeValueCriterion = trimmedOrNull(attributeValue.get());
                 
                 // Call DpApplication.queryAnnotations(), which follows nextPageToken internally
                 // and reports whether it stopped at the cap.  A failed page throws rather than
@@ -145,38 +149,36 @@ public class AnnotationExploreViewModel {
             }
         };
         
+        // setOnSucceeded / setOnFailed already run on the FX thread, so neither handler wraps its
+        // work in Platform.runLater.  Queueing there did not order anything -- it deferred the whole
+        // update behind whatever was already on the queue.
         searchTask.setOnSucceeded(e -> {
             DpApplication.PagedResult<Annotation> pagedResult = searchTask.getValue();
-            
-            javafx.application.Platform.runLater(() -> {
-                // set before adding, so the searchResults listener formatting the count label sees
-                // the truncation state of the batch it is reacting to
-                lastResultTruncated = pagedResult.truncated;
-                
-                // Convert protobuf objects to table row objects
-                for (Annotation annotation : pagedResult.records) {
-                    AnnotationInfoTableRow tableRow = new AnnotationInfoTableRow(annotation);
-                    searchResults.add(tableRow);
-                }
-                
-                searchInProgress.set(false);
-                // report the count as a total only when the query was not capped, so a truncated
-                // result is never presented as a complete one
-                searchStatusMessage.set("Search completed - " + pagedResult.describeCount("annotation"));
-                logger.info("Annotation search completed - {} annotations displayed (truncated={})",
-                            pagedResult.records.size(), pagedResult.truncated);
-            });
+
+            // set before adding, so the searchResults listener formatting the count label sees
+            // the truncation state of the batch it is reacting to
+            lastResultTruncated = pagedResult.truncated;
+
+            // Convert protobuf objects to table row objects
+            for (Annotation annotation : pagedResult.records) {
+                searchResults.add(new AnnotationInfoTableRow(annotation));
+            }
+
+            // report the count as a total only when the query was not capped, so a truncated
+            // result is never presented as a complete one
+            searchStatusMessage.set("Search completed - " + pagedResult.describeCount("annotation"));
+            statusMessage.set(capitalize(pagedResult.describeCount("annotation")));
+            searchInProgress.set(false);
+            logger.info("Annotation search completed - {} annotations displayed (truncated={})",
+                        pagedResult.records.size(), pagedResult.truncated);
         });
-        
+
         searchTask.setOnFailed(e -> {
             Throwable exception = searchTask.getException();
-            String errorMessage = "Search failed: " + exception.getMessage();
             logger.error("Annotation search failed", exception);
-            
-            javafx.application.Platform.runLater(() -> {
-                searchInProgress.set(false);
-                searchStatusMessage.set(errorMessage);
-            });
+            searchStatusMessage.set("Search failed: " + exception.getMessage());
+            statusMessage.set("Search failed: " + exception.getMessage());
+            searchInProgress.set(false);
         });
         
         // Run the background task
@@ -185,6 +187,19 @@ public class AnnotationExploreViewModel {
         searchThread.start();
     }
     
+    /**
+     * Trims then omits: DpApplication.emptyToNull() deliberately does not trim, but a
+     * whitespace-only search field must be omitted from the request rather than sent as a criterion
+     * that matches nothing.
+     */
+    private static String trimmedOrNull(String value) {
+        return value == null ? null : DpApplication.emptyToNull(value.trim());
+    }
+
+    private static String capitalize(String text) {
+        return text.isEmpty() ? text : Character.toUpperCase(text.charAt(0)) + text.substring(1);
+    }
+
     /**
      * Clear all search criteria and results.
      */
@@ -205,11 +220,9 @@ public class AnnotationExploreViewModel {
         lastResultTruncated = false;
         searchResults.clear();
         searchStatusMessage.set("Search cleared");
+        statusMessage.set("Ready");
     }
     
-    private String nullIfEmpty(String value) {
-        return (value != null && !value.trim().isEmpty()) ? value.trim() : null;
-    }
     
     // Property getters for data binding
     
@@ -254,8 +267,7 @@ public class AnnotationExploreViewModel {
     public String getSearchStatusMessage() { return searchStatusMessage.get(); }
     
     public StringProperty resultCountMessageProperty() { return resultCountMessage; }
+    public StringProperty statusMessageProperty() { return statusMessage; }
     public String getResultCountMessage() { return resultCountMessage.get(); }
     
-    public BooleanProperty hasResultsProperty() { return hasResults; }
-    public boolean hasResults() { return hasResults.get(); }
 }

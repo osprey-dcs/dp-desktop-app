@@ -60,7 +60,19 @@
                         <RadioButton fx:id="namePatternRadio" text="PV name pattern" toggleGroup="$searchModeToggle" />
                      </children>
                   </HBox>
-                  
+
+                  <!-- Search status, matching the other explore views: search-area state here,
+                       results-area state beside the results table -->
+                  <HBox spacing="10.0" alignment="CENTER_LEFT"
+                        GridPane.columnIndex="1" GridPane.rowIndex="2" GridPane.columnSpan="2">
+                     <children>
+                        <ProgressIndicator fx:id="searchProgressIndicator" visible="false"
+                                          prefHeight="20.0" prefWidth="20.0" />
+                        <Label fx:id="searchStatusLabel" styleClass="text-info" />
+                        <Label fx:id="resultCountLabel" styleClass="text-success" />
+                     </children>
+                  </HBox>
+
                </GridPane>
             </children>
             <padding>

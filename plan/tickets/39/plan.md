@@ -218,6 +218,44 @@ plus Pv's two cell factories (`PvExploreController.java:112-157`). One parameter
 duplication in the four views, needs no inheritance, and both new views want it immediately** —
 configuration rows list tags/attributes, sample-status rows link PV + timestamp.
 
+**T2b — normalize naming and pick one threading model. DONE**, with one deliberate deviation from
+what this section proposed. 204 tests green.
+
+**Deviation: `statusMessage` was kept, not renamed to `searchStatusMessage`.** This section compared
+only the four explore views and read Provider's and Dataset's having *both* properties as duplication.
+It is not: every explore FXML declares **two** labels — `searchStatusLabel` beside the search controls
+and `resultsStatusLabel` beside the results table — so the two properties are two distinct UI slots.
+Renaming `statusMessage` would also have broken a wider convention this section did not measure:
+eleven other view models expose `statusMessageProperty()`, and four controllers forward it to
+`MainViewModel.updateStatus()` to drive the application status bar. Renaming it in four of fifteen
+view models would have made those four the inconsistent ones.
+
+**Settled vocabulary**: `searchStatusMessage` (search area), `statusMessage` (results area),
+`resultCountMessage` (always a `String`), `searchInProgress`. Changes made:
+
+- Pv gained `searchStatusMessage` and `resultCountMessage` plus a search-status row in its FXML; it
+  had one label doing both jobs, so search progress was overwritten by the result summary.
+- Annotation gained `statusMessage` — which is **why** `annotation-explore.fxml:88` declared a
+  `resultsStatusLabel` that nothing bound (D-3): there was no property to bind it to. Now bound.
+- Provider's `IntegerProperty resultCount` was replaced by `resultCountMessage`. It was bound as
+  `.asString().concat(" provider(s)")`, which **cannot express truncation**.
+- Dataset's `IntegerProperty resultCount` was deleted outright — nothing bound it, and it duplicated
+  `resultCountMessage` with a value that could disagree.
+- `isSearching` → `searchInProgress` in Pv, Provider and Dataset.
+
+**Threading**: all four now return the result from `call()` and publish it in `setOnSucceeded`, which
+already runs on the FX thread. Pv's six redundant `Platform.runLater` blocks and Annotation's one
+redundant wrapper are gone; Provider and Dataset no longer publish from inside `call()`. **This is the
+D-2 fix** — see below. No `Platform.runLater` remains in any of the four search paths.
+
+**D-3 partly cleared**: the unreachable `cancel()` in Provider and Dataset is deleted.
+`DataExploreViewModel.cancel()` is genuinely wired to a Cancel button and stays. `primaryStage` is
+deliberately **left** in the three controllers: it is part of the uniform injection contract
+`MainController` calls on every controller, and removing it from three would break that symmetry for
+no gain.
+
+Original proposal follows.
+
 **T2b — normalize naming and pick one threading model.** Settle on `searchStatusMessage`,
 `resultCountMessage`, `searchInProgress`, and the return-from-`call()` model (the Annotation shape,
 minus its redundant `runLater`). This costs nothing structurally and is what makes a later shared
@@ -255,21 +293,33 @@ Fix these as part of T2b rather than building on them. All verified by reading t
   background task, so it could never observe the results of the search that registered it. The
   `:170` listener was doing the work in every case. Deleted, with the reasoning recorded in
   CLAUDE.md so it is not re-added.
-- **D-2 — stale-read races.** `ProviderExploreViewModel.java:100-104` and
-  `DatasetExploreViewModel.java:99-103` read state set by a `Platform.runLater` queued from the
-  worker, with no ordering guarantee. Currently cosmetic (log lines only), but it is the pattern,
-  not the symptom, that the new views must not copy. Fixed by T2b's threading model.
-- **D-3 — dead code** (~50 lines): `cancel()` in Provider/Dataset (no callers on these view
-  models); `primaryStage` assigned-never-read in Provider/Dataset/Pv;
-  `AnnotationExploreViewModel.hasResults` (set at `:64`, never bound);
-  `resultsStatusLabel` declared in `annotation-explore.fxml:88` and in the controller at `:53` but
-  **never bound**, so it is a permanently-static "Ready"; and
-  `DatasetExploreViewModel.navigateToDatasetBuilder` (`:165-172`), a TODO stub duplicating the
-  controller's working method at `DatasetExploreController.java:107`.
-- **D-4 — `emptyToNull` is ignored by three of four views.** `DpApplication.emptyToNull()` exists
-  and is tested (`DpApplicationParamsTest`), yet Provider (`:119-123`) and Dataset (`:118-121`)
-  hand-roll inline ternaries and Annotation has its own `nullIfEmpty` (`:210-212`). Collapse onto
-  the tested helper.
+- **D-2 — stale-read races in the search completion handlers. FIXED in T2b.** Provider
+  (`ProviderExploreViewModel.java:100-104`) and Dataset (`DatasetExploreViewModel.java:99-103`)
+  published their result rows from a `Platform.runLater` inside `call()`, then read the count in
+  `setOnSucceeded` — which runs on the FX thread *first*, before the queued block — so the completion
+  log always reported the pre-search count. Triage called this cosmetic because only a log line read
+  the stale value; that was true but incidental. The ordering itself was the defect: any observer of
+  `searchInProgress` (the progress indicator, the disabled search button) saw the flag clear while the
+  table was still empty. Both now publish in `setOnSucceeded` with no `runLater`.
+  `ExploreViewModelSearchTest` observes state from a listener on the flag at the instant it clears,
+  and was mutation-checked against the old ordering (fails with `expected: <3> but was: <0>`).
+
+- **D-3 — dead code. FIXED in T2b**, except one item deliberately kept. Removed: `cancel()` in
+  Provider/Dataset (no callers); `AnnotationExploreViewModel.hasResults` (maintained by the results
+  listener, bound by nothing); `DatasetExploreViewModel.navigateToDatasetBuilder`, a TODO stub
+  shadowed by the controller's working method at `DatasetExploreController.java:107`, which is what
+  the hyperlink actually calls. `annotation-explore.fxml:88`'s unbound `resultsStatusLabel` is now
+  **bound** rather than deleted — the reason nothing bound it was that the view model had no
+  results-area `statusMessage`, which T2b added. **`primaryStage` is deliberately kept** in
+  Provider/Dataset/Pv: it is part of the uniform injection contract `MainController` invokes on every
+  controller, and removing it from three of them would break that symmetry for no gain.
+- **D-4 — `emptyToNull` is ignored by three of four views. FIXED in T2b.** Provider and Dataset now
+  call `DpApplication.emptyToNull()` and Annotation's private `nullIfEmpty` is gone. **Note the
+  behavioral difference that made this more than a mechanical swap**: `emptyToNull()` does *not*
+  trim, while all three hand-rolled versions did. Calling it directly on an untrimmed field would
+  send a whitespace-only value as a live criterion rather than omitting it — the opposite of the
+  intent. Each call site trims explicitly, and Annotation keeps a two-line `trimmedOrNull()` wrapper
+  documenting why.
 - **D-5 — two of four views cannot report truncation, and neither is fixable here.** Dataset and
   Annotation use `PagedResult`; Pv and Provider do not. Verified: **neither underlying request has
   paging fields at all** — `QueryPvStatsRequest` (`query.proto:819-827`) carries only the PV name

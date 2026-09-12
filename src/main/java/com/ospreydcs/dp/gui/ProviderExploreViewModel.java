@@ -26,8 +26,8 @@ public class ProviderExploreViewModel {
     
     // Results properties
     private final ObservableList<ProviderInfoTableRow> providerResults = FXCollections.observableArrayList();
-    private final IntegerProperty resultCount = new SimpleIntegerProperty(0);
-    private final BooleanProperty isSearching = new SimpleBooleanProperty(false);
+    private final StringProperty resultCountMessage = new SimpleStringProperty("0 provider(s)");
+    private final BooleanProperty searchInProgress = new SimpleBooleanProperty(false);
     
     // Status properties
     private final StringProperty statusMessage = new SimpleStringProperty("Ready to search for providers");
@@ -67,8 +67,8 @@ public class ProviderExploreViewModel {
     
     // Property getters for results
     public ObservableList<ProviderInfoTableRow> getProviderResults() { return providerResults; }
-    public IntegerProperty resultCountProperty() { return resultCount; }
-    public BooleanProperty isSearchingProperty() { return isSearching; }
+    public StringProperty resultCountMessageProperty() { return resultCountMessage; }
+    public BooleanProperty searchInProgressProperty() { return searchInProgress; }
     
     // Property getters for status
     public StringProperty statusMessageProperty() { return statusMessage; }
@@ -83,30 +83,33 @@ public class ProviderExploreViewModel {
             return;
         }
 
-        isSearching.set(true);
+        searchInProgress.set(true);
         searchStatusMessage.set("Searching providers...");
         providerResults.clear();
-        resultCount.set(0);
+        resultCountMessage.set("0 provider(s)");
 
-        // Create background task for search
-        Task<Void> searchTask = new Task<Void>() {
+        // The task RETURNS its results rather than publishing them from call(): setOnSucceeded
+        // already runs on the FX thread, so the handler can touch providerResults directly.  The
+        // earlier version mutated the list from inside call() via Platform.runLater and then logged
+        // the count in setOnSucceeded -- which ran BEFORE that queued block, so it always logged the
+        // pre-search count.
+        Task<List<QueryProvidersResponse.ProvidersResult.ProviderInfo>> searchTask =
+                new Task<List<QueryProvidersResponse.ProvidersResult.ProviderInfo>>() {
             @Override
-            protected Void call() throws Exception {
-                executeProviderSearch();
-                return null;
+            protected List<QueryProvidersResponse.ProvidersResult.ProviderInfo> call() throws Exception {
+                return executeProviderSearch();
             }
         };
 
         searchTask.setOnSucceeded(e -> {
-            isSearching.set(false);
-            searchStatusMessage.set("Search completed");
-            logger.info("Provider search completed with {} results", resultCount.get());
+            processSearchResults(searchTask.getValue());
+            searchInProgress.set(false);
         });
 
         searchTask.setOnFailed(e -> {
             logger.error("Provider search failed", searchTask.getException());
             searchStatusMessage.set("Search failed: " + searchTask.getException().getMessage());
-            isSearching.set(false);
+            searchInProgress.set(false);
         });
 
         Thread searchThread = new Thread(searchTask);
@@ -114,13 +117,16 @@ public class ProviderExploreViewModel {
         searchThread.start();
     }
 
-    private void executeProviderSearch() throws Exception {
+    private List<QueryProvidersResponse.ProvidersResult.ProviderInfo> executeProviderSearch()
+            throws Exception {
         // Get form values (convert empty strings to null for API)
-        String providerIdParam = providerId.get().trim().isEmpty() ? null : providerId.get().trim();
-        String nameDescParam = nameDescription.get().trim().isEmpty() ? null : nameDescription.get().trim();
-        String tagValueParam = tagValue.get().trim().isEmpty() ? null : tagValue.get().trim();
-        String attributeKeyParam = attributeKey.get().trim().isEmpty() ? null : attributeKey.get().trim();
-        String attributeValueParam = attributeValue.get().trim().isEmpty() ? null : attributeValue.get().trim();
+        // DpApplication.emptyToNull() does NOT trim, so trim first: a whitespace-only field must be
+        // omitted from the request, not sent as a criterion matching nothing.
+        String providerIdParam = DpApplication.emptyToNull(providerId.get().trim());
+        String nameDescParam = DpApplication.emptyToNull(nameDescription.get().trim());
+        String tagValueParam = DpApplication.emptyToNull(tagValue.get().trim());
+        String attributeKeyParam = DpApplication.emptyToNull(attributeKey.get().trim());
+        String attributeValueParam = DpApplication.emptyToNull(attributeValue.get().trim());
         
         logger.debug("Searching providers with parameters: providerId={}, nameDescription={}, tagValue={}, attributeKey={}, attributeValue={}", 
             providerIdParam, nameDescParam, tagValueParam, attributeKeyParam, attributeValueParam);
@@ -136,26 +142,29 @@ public class ProviderExploreViewModel {
             throw new RuntimeException("Provider search failed: " + apiResult.resultStatus.msg);
         }
         
-        if (apiResult.providerInfos != null) {
-            processSearchResults(apiResult.providerInfos);
-        }
+        // queryProviders() is unbounded and unpaged -- QueryProvidersRequest has no limit or
+        // pageToken fields (dp-service #265), so unlike the dataset and annotation searches there is
+        // no truncation to report here.
+        return apiResult.providerInfos != null ? apiResult.providerInfos : List.of();
     }
 
+    /**
+     * Publishes the search results.  Called from setOnSucceeded, which already runs on the FX
+     * thread, so no Platform.runLater is needed or wanted -- queueing here would let the caller's
+     * searchInProgress reset run before the results appear.
+     */
     private void processSearchResults(List<QueryProvidersResponse.ProvidersResult.ProviderInfo> providers) {
-        // Create table rows from provider info on JavaFX thread
-        javafx.application.Platform.runLater(() -> {
-            providerResults.clear();
-            
-            for (QueryProvidersResponse.ProvidersResult.ProviderInfo providerInfo : providers) {
-                ProviderInfoTableRow tableRow = new ProviderInfoTableRow(providerInfo);
-                providerResults.add(tableRow);
-            }
-            
-            resultCount.set(providerResults.size());
-            statusMessage.set(String.format("Found %d provider(s)", providerResults.size()));
-            
-            logger.debug("Processed {} provider search results", providerResults.size());
-        });
+        providerResults.clear();
+
+        for (QueryProvidersResponse.ProvidersResult.ProviderInfo providerInfo : providers) {
+            providerResults.add(new ProviderInfoTableRow(providerInfo));
+        }
+
+        resultCountMessage.set(providerResults.size() + " provider(s)");
+        searchStatusMessage.set("Search completed");
+        statusMessage.set(String.format("Found %d provider(s)", providerResults.size()));
+
+        logger.info("Provider search completed with {} results", providerResults.size());
     }
 
     /**
@@ -166,11 +175,6 @@ public class ProviderExploreViewModel {
             queryPvsComponent.addPvName(pvName);
             logger.debug("Added PV '{}' to query from provider results", pvName);
         }
-    }
-
-    public void cancel() {
-        logger.info("Provider search cancelled by user");
-        statusMessage.set("Operation cancelled");
     }
 
     public void updateStatus(String message) {

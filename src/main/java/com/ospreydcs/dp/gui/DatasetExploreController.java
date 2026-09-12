@@ -127,7 +127,9 @@ public class DatasetExploreController implements Initializable {
         resultsStatusLabel.textProperty().bind(viewModel.statusMessageProperty());
         
         // Bind result count
-        resultCountLabel.textProperty().bind(viewModel.resultCountProperty().asString().concat(" dataset(s)"));
+        // bound to the formatted message rather than to the raw count, so a capped result reads
+        // "first N dataset(s)" instead of stating a wrong total
+        resultCountLabel.textProperty().bind(viewModel.resultCountMessageProperty());
         
         // Bind progress indicator
         searchProgressIndicator.visibleProperty().bind(viewModel.isSearchingProperty());

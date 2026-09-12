@@ -332,14 +332,51 @@ are reserved in the proto but deferred server-side, so the `epics_alarm` code ma
 8. **Form Population**: Protobuf DataSet objects converted to UI-friendly DataBlockDetail objects
 
 ### Annotation Explore Workflow (Implemented)
-1. **Annotation Query Editor**: Search form with 7 optional fields (Annotation ID, Owner ID, Name, Comment, Tag Value, Attribute Key/Value, Dataset ID)
+1. **Annotation Query Editor**: Search form with 7 optional fields (Annotation ID, Owner ID, Name, Description, Tag Value, Attribute Key/Value, Dataset ID)
 2. **Search Execution**: Background task queries annotation metadata with loading indicators and status feedback
-3. **Results Display**: TableView with 10 columns including ID, owner, datasets, name, annotations, comment, tags, attributes, event, calculations data frames
+3. **Results Display**: TableView with 9 columns: ID, owner, related datasets, name, related annotations, description, tags, attributes, calculations
 4. **Interactive Annotation IDs**: Each Annotation ID is a hyperlink that navigates to data-explore view's Annotation Builder tab
-5. **Interactive Calculation Frames**: Each calculation frame name is a hyperlink opening detailed calculation frame dialog
-6. **Automatic Annotation Loading**: Clicking ID hyperlinks triggers background annotation query and form population
+5. **Calculations Column**: shows *presence*, not frame names — a single "View calculations" hyperlink that fetches the frames on click
+6. **Automatic Annotation Loading**: Clicking ID hyperlinks triggers a background `getAnnotation()` and form population
 7. **Cross-View Navigation**: Seamless navigation to Annotation Builder with all annotation details loaded
-8. **API Integration**: Uses `DpApplication.queryAnnotations()` for search and annotation loading with nested protobuf handling
+8. **API Integration**: `DpApplication.queryAnnotations()` for search, `getCalculations()` to open calculations, `getAnnotation()` to load into the builder
+
+**The Calculations column cannot list frame names.** `queryAnnotations()` returns `calculationsId`
+without Calculations content as of dp-grpc #132 — the denormalization was removed deliberately.
+Presence comes from `calculationsId` alone (`AnnotationInfoTableRow.hasCalculations()`); names are
+resolved by the `getCalculations()` fetch the hyperlink triggers, and a multi-frame result prompts
+for which frame to open. Resolving names per row would rebuild client-side, as serial round trips
+from a GUI thread, the N+1 fan-out that #132 removed — worse than the server-side version it
+replaced.
+
+**There is no event search criterion, and the search field no longer offers one.** The modernized
+`Annotation` has no event field at all — dp-grpc #132 removed the event metadata — and the free-text
+box is sent as `TextCriterion`, a collection-level text-index search whose indexed fields are name
+and description. The field was labelled "Name / Description / Event" through the rename, which
+promised a search that silently matched nothing; it is now "Name / Description"
+(`nameDescriptionField` / `nameDescriptionTextProperty`). Restoring event search needs a proto
+criterion first, not a UI change.
+
+**`Annotation.comment` is `description` everywhere, including the UI.** dp-grpc #132 renamed the
+proto field; the app's view-model properties, `fx:id`s, column headers and field labels followed in
+one pass, so the concept has one name end to end.
+
+The hazard in that rename is `AnnotationExploreController.setupTableColumns()`, where every column
+is wired with `new PropertyValueFactory<>("someName")` — a **string** resolved against
+`AnnotationInfoTableRow` by reflection at render time. A stale string yields a **silently blank
+column**, not a compile error, and `ViewLoadSmokeTest` does not catch it either (it proves
+`initialize()` ran, never that a row renders). `AnnotationInfoTableRowBindingTest` now asserts each
+binding string resolves *to its expected value* — note that asserting non-null alone is not enough,
+because `PropertyValueFactory` falls back from `someProperty()` to `getSome()`, so a partial rename
+can still resolve. Renaming a row property means updating that test's table too.
+
+**Loading an annotation for editing MUST go through `getAnnotation()`, never `queryAnnotations()`.**
+`getAnnotation()` is the only method returning Calculations content inline. Because
+`saveAnnotation()` is a full-replace upsert, loading through a query result would populate the
+builder with no calculations, and saving any unrelated edit would then destroy the stored
+Calculations — no error, no warning, and nothing in the UI indicating a loss. The comment at
+`AnnotationBuilderViewModel.loadFromAnnotation()` guards this, since the read there looks like an
+ordinary embedded-content read and is only safe because of who calls it.
 
 ### Data Event Explore Workflow (Implemented)
 1. **Data Event Subscriptions Management**: Left panel ListView displaying active subscriptions with custom ListCell format
@@ -441,7 +478,20 @@ raced with the `Platform.runLater` that sets the message.
 7. **State Management**: Preserve dataset details across save operations and tab switches
 
 ### Annotation Builder Workflow (Implemented)
-1. **Annotation Configuration**: Enter annotation name (required), comment, and event name (optional)
+
+**Tags and attributes belong to the components, and `AnnotationBuilderViewModel` holds no
+collections for them** — it holds the injected `TagsListComponent` /
+`AttributesListComponent` references, like `PvMetadataViewModel`. It previously held its own
+`ObservableList`s, and they were write-only: `loadFromAnnotation()` filled them while
+`DataExploreController.onSaveAnnotation()` read the components, so loading an annotation put its
+tags and attributes somewhere the save never looked. Editing any other field and saving then wrote
+them back as absent — silently, because `saveAnnotation()` is a full-replace upsert. That is the
+same failure mode as the calculations loss the `getAnnotation()` load fixes. Holding only the
+component references makes the divergence unrepresentable rather than merely fixed, and `reset`
+clears the components (it previously left the controls populated, carrying the prior annotation's
+metadata into the next save).
+
+1. **Annotation Configuration**: Enter annotation name (required), description, and event name (optional)
 2. **Target Dataset Management**: Add datasets from Dataset Builder using "Add to Annotation" button
 3. **Dataset Operations**: Remove selected target datasets from annotation
 4. **Tags & Attributes**: Use reusable components for free-form tag and key-value attribute entry
@@ -504,12 +554,6 @@ Represents a dataset in the Annotation Builder:
 - Human-readable toString() format: "ID: [dataset-id] - Dataset name - Description snippet - First data block"
 - Used for annotation targeting and cross-tab data transfer
 
-### CalculationsDetails (`src/main/java/com/ospreydcs/dp/gui/model/CalculationsDetails.java`)
-Container for calculation data imported from Excel files:
-- ID (String, for calculations identification)
-- List of data frames (List<DataFrameDetails>)
-- Used in Annotation Builder for calculations management
-
 ### DataFrameDetails (`src/main/java/com/ospreydcs/dp/gui/model/DataFrameDetails.java`)
 Represents individual calculation frames from Excel import:
 - Name (String, typically sheet name from Excel)
@@ -543,12 +587,13 @@ Wrapper for protobuf DataSet in TableView displays:
 
 ### AnnotationInfoTableRow (`src/main/java/com/ospreydcs/dp/gui/model/AnnotationInfoTableRow.java`)
 Wrapper for protobuf Annotation objects in TableView displays:
-- Annotation ID, owner, name, comment, datasets, tags, attributes, event, calculation frames
+- Annotation ID, owner, name, description, datasets, tags, attributes, calculations presence (there is no event field — dp-grpc #132 removed the Annotation's event metadata)
 - Property binding support for JavaFX TableView integration
-- Formats complex fields (datasets, attributes, calculation frames) as comma-separated strings
-- Provides `getCalculationDataFrameByName()` method to convert protobuf frames to DataFrameDetails
+- Formats the multi-valued fields (datasets, related annotations, tags, attributes) as comma-separated strings; the Calculations field is a *presence label*, not a frame-name list
+- The `PROPERTY_*` constants name the properties the `PropertyValueFactory` column bindings resolve reflectively; `AnnotationExploreController` and `AnnotationInfoTableRowBindingTest` both reference them rather than repeating the literals, so a rename that misses the controller fails to compile instead of silently blanking a column
+- Exposes `getCalculationsId()` / `hasCalculations()` for the presence-driven Calculations column; it no longer holds frame content, since `queryAnnotations()` does not return any
 - Used in annotation-explore view for annotation discovery and navigation
-- Hyperlink support for Annotation ID and calculation frame columns
+- Hyperlink support for the Annotation ID column and for the Calculations presence link
 
 ### DataEventSubscription (`src/main/java/com/ospreydcs/dp/gui/model/DataEventSubscription.java`)
 Wrapper for data event subscription management in data-event-explore view:
@@ -646,6 +691,49 @@ injected afterward via setters.
 
 Post-injection behavior (button handlers calling `DpApplication`, background tasks, navigation) is
 not covered — that needs an injection seam and robot-driven interaction testing.
+
+**Calculations import fixture** (`CalculationsWorkbookFixture`, added by #43): generates the
+multi-sheet XLSX used to exercise Annotation Builder → Import Calculations by hand, and through it
+the Calculations presence column, the fetch-on-click, and the multi-frame chooser.
+
+It is committed as code rather than as a binary because `DataImportUtility` rejects malformed input
+**silently** — a blank header cell skips the whole sheet, a row whose cell count differs from the
+header's skips that row, and an unsupported cell type skips the row — each with a log line and no
+error. A hand-built workbook can therefore lose a frame, a column or a row and still look like it
+imported, which during manual verification presents as "the feature lost my data" when the file was
+at fault. `CalculationsWorkbookFixtureTest` round-trips the generated workbook through the real
+`DataImportUtility` and asserts every sheet becomes a frame, every row survives, and all three
+`DataValue` types (numeric, string, boolean) come back — so the fixture's validity is checked, not
+assumed.
+
+Deliberately multi-sheet: a single-frame annotation opens the frame dialog directly, so a one-sheet
+file would never reach the multi-frame chooser that P2.1 added. Timestamps derive from a fixed base
+instant rather than `now()`, so regenerating yields the same file. Regenerate with:
+
+```bash
+mvn -q test-compile exec:java -Dexec.classpathScope=test   -Dexec.mainClass=com.ospreydcs.dp.gui.testutil.CalculationsWorkbookFixture   -Dexec.args="<output>.xlsx"
+```
+
+**Live integration test** (`AnnotationApiLiveIT`, added by #43): exercises the Annotation API
+end to end against a real in-process ecosystem and a real MongoDB — the `getAnnotation()` vs
+`queryAnnotations()` calculations asymmetry, the load-edit-save round trip that must preserve tags
+and attributes, `getCalculations()` frame-name resolution, `isReject()` on missing records, and
+transparent paging over 120 real datasets. None of it is reachable without a database.
+
+It **skips rather than fails** when MongoDB is unreachable (a JUnit assumption on a socket probe
+against the configured `MongoClient.dbHost`/`dbPort`), so CI — which has no database — stays green
+while a developer running MongoDB gets the coverage automatically from a plain `mvn test`.
+
+`*IT` is therefore added to the surefire `<includes>` in `pom.xml`. Note that declaring `<includes>`
+**replaces** surefire's defaults, so the four default patterns are restated there; dropping them
+would silently stop running every unit test. An integration test the build never invokes cannot
+fail — it just rots until someone runs it by hand, which is the same trap that made the first
+version of the reflective-binding guard worthless.
+
+The test writes to the configured database (`dp-demo`), namespacing every record with a per-run
+stamp and deleting them in `@AfterAll`. Cleanup is best-effort by design: a cleanup failure must
+not redden the build, and leftover stamped records are inert and identifiable. To run it alone:
+`mvn test -Dtest=AnnotationApiLiveIT`. To watch it skip: `mvn test -Ddp.MongoClient.dbPort=1`.
 
 ## MongoDB Integration
 - Default database: `dp-demo`
@@ -808,6 +896,55 @@ javafx.application.Platform.runLater(() -> {
 - Handle null responses and exceptional results from gRPC services
 - Status messages should provide immediate user feedback during API operations
 - Use `ApiResultBase.isReject()` to distinguish a *rejected* request from a service failure. The single-record getters (`getConfiguration()`, and the other getters by the same convention) report a missing record as a rejection rather than as an empty successful result, so an existence check must branch on `isReject()` — `isError()` alone cannot tell "does not exist" from "the service is unreachable". Note `REJECT` also covers server-side validation failures, so reading it as not-found is only safe for a request already known to be valid.
+
+**Query criteria combine with AND; values within one criterion combine with OR.** This holds across
+the annotation queries (`queryDataSets`, `queryAnnotations`) as of dp-grpc #132. It replaced an
+older two-bucket scheme that ORed some criteria and ANDed others, with different assignments per
+method — so **two `TagsCriterion` entries used to mean "either tag" and now mean "both tags"**.
+Nothing errors; the result set is simply smaller.
+
+The app is not affected today: `DpApplication.queryDataSets()` / `queryAnnotations()` take single
+`String` parameters from single text fields and pass them through `setIfPresent`, so they send one
+value per criterion and one criterion per type. The trap is prospective — the natural way to add a
+multi-tag search box is a comma-separated field, and "tag A, tag B" reads as "either" to most
+people (and *was* "either" before #132). Implemented naively it silently returns fewer results
+rather than more.
+
+Note also that the dp-service client params can express at most one value per criterion and one
+criterion per type, and expose no `NameCriterion` at all (nor `TagsCriterion` / `AttributesCriterion`
+on `queryDataSets`), even though the proto supports all of them. **Multi-value or name-scoped search
+therefore needs dp-service client work before any UI for it can be built.** `TextCriterion` is a
+collection-level MongoDB text-index search over the record's indexed fields, not a per-field match,
+so it cannot be scoped to a named field at query time.
+
+**`queryDataSets()` / `queryAnnotations()` page transparently, up to a cap.** Both became paged in
+dp-grpc #132, and **an unset `limit` means the server's default page size, not "everything"**.
+`DpApplication` follows `nextPageToken` internally via the static `accumulatePages()` helper, so
+the explore views still receive one complete list and need no paging UI. Accumulation stops at
+`DpApplication.QUERY_RESULT_CAP` (5000) — without a bound this would just move the unbounded read
+from the server to the client, which is what server paging was introduced to prevent.
+
+Both wrappers return `PagedResult<T>` (`records` plus a `truncated` flag) rather than the raw
+`ApiResult`, and **a failed page throws `QueryFailedException` rather than returning what had
+accumulated** — a partial list presented as a complete one is the bug this fixes, not an acceptable
+degradation. For the same reason the `fetchPage` function must signal failure by **throwing, never
+by returning null**: a null page is indistinguishable from an empty one inside the loop, so
+treating it as the end of the query would hand back a partial accumulation with `truncated=false`.
+`accumulatePages()` therefore rejects a null page rather than tolerating it.
+
+**Truncation must reach the user.** The original defect was not incompleteness; it was that the
+views stated a count as though it were a total with nothing indicating otherwise. A silent cap
+reproduces that at a higher threshold. Both views therefore have *two* labels to keep honest — the
+status message (`PagedResult.describeCount()`) and the separate result-count label, which in
+annotation-explore is driven by a `searchResults` list listener and in dataset-explore by a
+`resultCountMessage` property. A count label bound directly to `records.size()` would read "5000
+results" beside a status message saying the result was capped.
+
+`accumulatePages()` is static and takes its pages through functions so the loop is unit-testable
+without a service ecosystem (`DpApplicationPagingTest`), the same reasoning as `emptyToNull()` and
+`timestampFromInstant()`. The edge cases worth keeping covered: a cap reached exactly on a page
+boundary *with* a next page (truncated) versus a result that exactly fills the cap with no next
+page (not truncated), and a server returning a token alongside an empty page.
 
 **Sample Status API wrappers** on `DpApplication` (the client wrappers themselves already exist on
 `AnnotationClient`, added by dp-service #239 — no dp-service work is needed to use them):

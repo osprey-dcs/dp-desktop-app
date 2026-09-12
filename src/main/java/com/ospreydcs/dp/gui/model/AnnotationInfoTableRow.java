@@ -1,5 +1,7 @@
 package com.ospreydcs.dp.gui.model;
 
+import com.ospreydcs.dp.grpc.v1.annotation.Annotation;
+
 import javafx.beans.property.SimpleStringProperty;
 import javafx.beans.property.StringProperty;
 
@@ -12,7 +14,34 @@ import java.util.stream.Collectors;
  */
 public class AnnotationInfoTableRow {
 
-    private final com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation;
+    /** Column text for an annotation that has calculations, in place of the frame name list. */
+    public static final String CALCULATIONS_PRESENT_LABEL = "View calculations";
+
+    /*
+     * Property names used by the TableView column bindings in
+     * AnnotationExploreController.setupTableColumns().
+     *
+     * PropertyValueFactory resolves a property by STRING via reflection at render time, so a
+     * renamed property with a stale binding string yields a silently blank column -- no compile
+     * error, and ViewLoadSmokeTest does not catch it either, since it never populates a row.  That
+     * is exactly how the comment -> description rename (dp-grpc #132) could have gone wrong.
+     *
+     * Naming them here, beside the properties they refer to, is what makes a rename a compile-time
+     * concern: the controller and AnnotationInfoTableRowBindingTest both reference these constants
+     * rather than repeating the literals, so the test guards the binding the controller actually
+     * uses instead of a copy of it.
+     */
+    public static final String PROPERTY_ID = "id";
+    public static final String PROPERTY_OWNER = "owner";
+    public static final String PROPERTY_NAME = "name";
+    public static final String PROPERTY_DESCRIPTION = "description";
+    public static final String PROPERTY_TAGS = "tags";
+    public static final String PROPERTY_ATTRIBUTES = "attributes";
+    public static final String PROPERTY_RELATED_DATASETS = "relatedDatasets";
+    public static final String PROPERTY_RELATED_ANNOTATIONS = "relatedAnnotations";
+    public static final String PROPERTY_CALCULATIONS_DATA_FRAMES = "calculationsDataFrames";
+
+    private final Annotation annotation;
     
     // Properties for TableView binding
     private final StringProperty id;
@@ -20,19 +49,19 @@ public class AnnotationInfoTableRow {
     private final StringProperty relatedDatasets;
     private final StringProperty name;
     private final StringProperty relatedAnnotations;
-    private final StringProperty comment;
+    private final StringProperty description;
     private final StringProperty tags;
     private final StringProperty attributes;
     private final StringProperty calculationsDataFrames;
 
-    public AnnotationInfoTableRow(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {
+    public AnnotationInfoTableRow(Annotation annotation) {
         this.annotation = annotation;
         
         // Initialize properties from protobuf object
         this.id = new SimpleStringProperty(annotation != null ? annotation.getId() : "");
         this.owner = new SimpleStringProperty(annotation != null ? annotation.getOwnerId() : "");
         this.name = new SimpleStringProperty(annotation != null ? annotation.getName() : "");
-        this.comment = new SimpleStringProperty(annotation != null ? annotation.getComment() : "");
+        this.description = new SimpleStringProperty(annotation != null ? annotation.getDescription() : "");
         
         // Format complex fields as comma-separated strings
         this.relatedDatasets = new SimpleStringProperty(formatDatasetIds(annotation));
@@ -44,28 +73,28 @@ public class AnnotationInfoTableRow {
     
     // Formatting methods for complex fields
     
-    private String formatDatasetIds(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {
+    private String formatDatasetIds(Annotation annotation) {
         if (annotation == null || annotation.getDataSetIdsList().isEmpty()) {
             return "";
         }
         return String.join(", ", annotation.getDataSetIdsList());
     }
     
-    private String formatAnnotationIds(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {
+    private String formatAnnotationIds(Annotation annotation) {
         if (annotation == null || annotation.getAnnotationIdsList().isEmpty()) {
             return "";
         }
         return String.join(", ", annotation.getAnnotationIdsList());
     }
     
-    private String formatTags(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {
+    private String formatTags(Annotation annotation) {
         if (annotation == null || annotation.getTagsList().isEmpty()) {
             return "";
         }
         return String.join(", ", annotation.getTagsList());
     }
     
-    private String formatAttributes(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {
+    private String formatAttributes(Annotation annotation) {
         if (annotation == null || annotation.getAttributesList().isEmpty()) {
             return "";
         }
@@ -75,16 +104,21 @@ public class AnnotationInfoTableRow {
             .collect(Collectors.joining(", "));
     }
     
-    private String formatCalculationsDataFrames(com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation) {
-        if (annotation == null || 
-            annotation.getCalculations() == null ||
-            annotation.getCalculations().getCalculationDataFramesList().isEmpty()) {
+    /**
+     * Formats the Calculations column as a presence indicator rather than a list of frame names.
+     *
+     * As of dp-grpc #132, queryAnnotations() returns calculationsId without Calculations content,
+     * so frame names are not available here and cannot be obtained without a fetch per row -- the
+     * N+1 fan-out the API change exists to remove.  calculationsId is enough to say whether an
+     * annotation has calculations at all; the names are resolved when the user opens them.  See
+     * plan/tickets/42 D1.
+     */
+    private String formatCalculationsDataFrames(Annotation annotation) {
+        if (annotation == null || annotation.getCalculationsId().isEmpty()) {
             return "";
         }
         
-        return annotation.getCalculations().getCalculationDataFramesList().stream()
-            .map(frame -> frame.getName())
-            .collect(Collectors.joining(", "));
+        return CALCULATIONS_PRESENT_LABEL;
     }
     
     // Property getters for TableView binding
@@ -104,8 +138,8 @@ public class AnnotationInfoTableRow {
     public StringProperty relatedAnnotationsProperty() { return relatedAnnotations; }
     public String getRelatedAnnotations() { return relatedAnnotations.get(); }
     
-    public StringProperty commentProperty() { return comment; }
-    public String getComment() { return comment.get(); }
+    public StringProperty descriptionProperty() { return description; }
+    public String getDescription() { return description.get(); }
     
     public StringProperty tagsProperty() { return tags; }
     public String getTags() { return tags.get(); }
@@ -118,7 +152,7 @@ public class AnnotationInfoTableRow {
     
     // Access to underlying protobuf object and its lists for hyperlink functionality
     
-    public com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation getAnnotation() { 
+    public Annotation getAnnotation() { 
         return annotation; 
     }
     
@@ -130,42 +164,22 @@ public class AnnotationInfoTableRow {
         return annotation != null ? annotation.getAnnotationIdsList() : List.of();
     }
     
-    public List<String> getCalculationsDataFrameNames() {
-        if (annotation == null || 
-            annotation.getCalculations() == null ||
-            annotation.getCalculations().getCalculationDataFramesList().isEmpty()) {
-            return List.of();
-        }
-        
-        return annotation.getCalculations().getCalculationDataFramesList().stream()
-            .map(frame -> frame.getName())
-            .collect(Collectors.toList());
+    /**
+     * The id of this annotation's Calculations, or "" when it has none.
+     *
+     * This is what queryAnnotations() returns in place of the Calculations content it used to
+     * denormalize.  Pass it to DpApplication.getCalculations() to fetch the frames on demand.
+     */
+    public String getCalculationsId() {
+        return annotation != null ? annotation.getCalculationsId() : "";
     }
     
     /**
-     * Gets a specific calculation data frame by name and converts it to DataFrameDetails.
-     * Returns null if the frame is not found.
+     * Whether this annotation has calculations, determined from calculationsId alone so it holds
+     * for rows obtained from queryAnnotations(), which does not return calculations content.
      */
-    public DataFrameDetails getCalculationDataFrameByName(String frameName) {
-        if (annotation == null || 
-            annotation.getCalculations() == null ||
-            annotation.getCalculations().getCalculationDataFramesList().isEmpty()) {
-            return null;
-        }
-        
-        for (com.ospreydcs.dp.grpc.v1.annotation.Calculations.CalculationsDataFrame frame : 
-             annotation.getCalculations().getCalculationDataFramesList()) {
-            if (frameName.equals(frame.getName())) {
-                // Convert to DataFrameDetails
-                return new DataFrameDetails(
-                    frame.getName(),
-                    frame.getDataTimestamps().getTimestampList().getTimestampsList(),
-                    frame.getDataColumnsList()
-                );
-            }
-        }
-        
-        return null;
+    public boolean hasCalculations() {
+        return !getCalculationsId().isEmpty();
     }
     
     @Override

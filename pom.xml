@@ -256,6 +256,23 @@
                          Without it, adding jacoco later would silently drop the agent and
                          produce empty coverage reports with no error. -->
                     <argLine>@{argLine} -Duser.timezone=UTC</argLine>
+                    <!-- Declaring <includes> REPLACES surefire's defaults, so the default
+                         patterns are restated here rather than inherited; omitting them would
+                         silently stop running every existing unit test.
+                         *IT is added because surefire's defaults do not match it, and an
+                         integration test the build never invokes cannot fail - it just rots
+                         until someone runs it by hand and finds it broken.
+                         Running it in the normal build is safe because AnnotationApiLiveIT
+                         SKIPS (JUnit assumption) when MongoDB is unreachable, so CI - which has
+                         no database - stays green while a developer with MongoDB running gets
+                         the coverage automatically. -->
+                    <includes>
+                        <include>**/Test*.java</include>
+                        <include>**/*Test.java</include>
+                        <include>**/*Tests.java</include>
+                        <include>**/*TestCase.java</include>
+                        <include>**/*IT.java</include>
+                    </includes>
                 </configuration>
             </plugin>
 

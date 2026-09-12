@@ -1,5 +1,6 @@
 package com.ospreydcs.dp.gui;
 
+import com.ospreydcs.dp.grpc.v1.annotation.Annotation;
 import com.ospreydcs.dp.gui.model.AnnotationInfoTableRow;
 import javafx.beans.property.*;
 import javafx.collections.FXCollections;
@@ -24,7 +25,16 @@ public class AnnotationExploreViewModel {
     private final StringProperty owner = new SimpleStringProperty("");
     private final StringProperty relatedDatasetsId = new SimpleStringProperty("");
     private final StringProperty relatedAnnotationsId = new SimpleStringProperty("");
-    private final StringProperty nameCommentEventText = new SimpleStringProperty("");
+    /**
+     * Free-text search over the annotation's name and description.
+     *
+     * Named for what it actually searches.  It was "name / description / event" through the
+     * comment -> description rename, but the modernized Annotation has no event field at all
+     * (dp-grpc #132 removed the event metadata), and this value is sent as TextCriterion, a
+     * collection-level text-index search whose indexed fields are name and description.  An event
+     * term entered here matched nothing while the label promised otherwise.
+     */
+    private final StringProperty nameDescriptionText = new SimpleStringProperty("");
     private final StringProperty tagValue = new SimpleStringProperty("");
     private final StringProperty attributeKey = new SimpleStringProperty("");
     private final StringProperty attributeValue = new SimpleStringProperty("");
@@ -37,6 +47,13 @@ public class AnnotationExploreViewModel {
     private final StringProperty searchStatusMessage = new SimpleStringProperty("Ready to search for annotations");
     private final StringProperty resultCountMessage = new SimpleStringProperty("0 results");
     private final BooleanProperty hasResults = new SimpleBooleanProperty(false);
+    
+    /**
+     * Whether the most recent search stopped at the query cap.  Read by the searchResults listener
+     * that formats the count label, and set before the results are added so the listener sees the
+     * value belonging to the batch it is reacting to.  FX thread only.
+     */
+    private boolean lastResultTruncated = false;
 
     public AnnotationExploreViewModel() {
         logger.debug("AnnotationExploreViewModel initialized");
@@ -45,14 +62,19 @@ public class AnnotationExploreViewModel {
         searchResults.addListener((javafx.collections.ListChangeListener<AnnotationInfoTableRow>) change -> {
             int count = searchResults.size();
             hasResults.set(count > 0);
-            if (count == 0) {
+            // "first N of more" rather than a bare count when the query was capped: a count
+            // presented as a total when it is not is exactly the bug transparent paging fixes, and
+            // this label sits beside the status message that already says so
+            if (lastResultTruncated) {
+                resultCountMessage.set("first " + count + " results");
+            } else if (count == 0) {
                 resultCountMessage.set("0 results");
             } else if (count == 1) {
                 resultCountMessage.set("1 result");
             } else {
                 resultCountMessage.set(count + " results");
             }
-            logger.debug("Search results updated: {} annotations", count);
+            logger.debug("Search results updated: {} annotations (truncated={})", count, lastResultTruncated);
         });
     }
     
@@ -72,21 +94,24 @@ public class AnnotationExploreViewModel {
         }
         
         logger.debug("Executing annotation search with criteria: annotationId='{}', owner='{}', " +
-                    "relatedDatasetsId='{}', relatedAnnotationsId='{}', nameCommentEventText='{}', " +
+                    "relatedDatasetsId='{}', relatedAnnotationsId='{}', nameDescriptionText='{}', " +
                     "tagValue='{}', attributeKey='{}', attributeValue='{}'",
                     annotationId.get(), owner.get(), relatedDatasetsId.get(), relatedAnnotationsId.get(),
-                    nameCommentEventText.get(), tagValue.get(), attributeKey.get(), attributeValue.get());
+                    nameDescriptionText.get(), tagValue.get(), attributeKey.get(), attributeValue.get());
         
         searchInProgress.set(true);
         searchStatusMessage.set("Searching for annotations...");
+        // reset before clearing, so the emptied list is not labelled with the previous search's
+        // truncation state
+        lastResultTruncated = false;
         searchResults.clear();
         
         // Create background task for annotation search
-        Task<java.util.List<com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation>> searchTask = 
-            new Task<java.util.List<com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation>>() {
+        Task<DpApplication.PagedResult<Annotation>> searchTask =
+            new Task<DpApplication.PagedResult<Annotation>>() {
                 
             @Override
-            protected java.util.List<com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation> call() throws Exception {
+            protected DpApplication.PagedResult<Annotation> call() throws Exception {
                 logger.debug("Background annotation search task started");
                 
                 // Convert empty strings to null for API call
@@ -94,13 +119,15 @@ public class AnnotationExploreViewModel {
                 String ownerCriterion = nullIfEmpty(owner.get());
                 String dataSetsCriterion = nullIfEmpty(relatedDatasetsId.get());
                 String annotationsCriterion = nullIfEmpty(relatedAnnotationsId.get());
-                String textCriterion = nullIfEmpty(nameCommentEventText.get());
+                String textCriterion = nullIfEmpty(nameDescriptionText.get());
                 String tagsCriterion = nullIfEmpty(tagValue.get());
                 String attributeKeyCriterion = nullIfEmpty(attributeKey.get());
                 String attributeValueCriterion = nullIfEmpty(attributeValue.get());
                 
-                // Call DpApplication.queryAnnotations() with search criteria
-                com.ospreydcs.dp.client.result.QueryAnnotationsApiResult apiResult = 
+                // Call DpApplication.queryAnnotations(), which follows nextPageToken internally
+                // and reports whether it stopped at the cap.  A failed page throws rather than
+                // returning a partial list, so there is no partial-success case to check here.
+                DpApplication.PagedResult<Annotation> pagedResult =
                     dpApplication.queryAnnotations(
                         idCriterion, 
                         ownerCriterion,
@@ -112,38 +139,32 @@ public class AnnotationExploreViewModel {
                         attributeValueCriterion
                     );
                 
-                if (apiResult == null) {
-                    throw new RuntimeException("Annotation query failed - null response from service");
-                }
-                
-                if (apiResult.resultStatus.isError) {
-                    throw new RuntimeException("Annotation query failed: " + apiResult.resultStatus.msg);
-                }
-                
-                if (apiResult.annotations == null) {
-                    logger.warn("Annotation query returned null annotations list");
-                    return java.util.List.of();
-                }
-                
-                logger.debug("Annotation search completed successfully - {} annotations found", 
-                           apiResult.annotations.size());
-                return apiResult.annotations;
+                logger.debug("Annotation search completed successfully - {} annotations found (truncated={})",
+                           pagedResult.records.size(), pagedResult.truncated);
+                return pagedResult;
             }
         };
         
         searchTask.setOnSucceeded(e -> {
-            java.util.List<com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation> annotations = searchTask.getValue();
+            DpApplication.PagedResult<Annotation> pagedResult = searchTask.getValue();
             
             javafx.application.Platform.runLater(() -> {
+                // set before adding, so the searchResults listener formatting the count label sees
+                // the truncation state of the batch it is reacting to
+                lastResultTruncated = pagedResult.truncated;
+                
                 // Convert protobuf objects to table row objects
-                for (com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation : annotations) {
+                for (Annotation annotation : pagedResult.records) {
                     AnnotationInfoTableRow tableRow = new AnnotationInfoTableRow(annotation);
                     searchResults.add(tableRow);
                 }
                 
                 searchInProgress.set(false);
-                searchStatusMessage.set("Search completed successfully");
-                logger.info("Annotation search completed - {} annotations displayed", annotations.size());
+                // report the count as a total only when the query was not capped, so a truncated
+                // result is never presented as a complete one
+                searchStatusMessage.set("Search completed - " + pagedResult.describeCount("annotation"));
+                logger.info("Annotation search completed - {} annotations displayed (truncated={})",
+                            pagedResult.records.size(), pagedResult.truncated);
             });
         });
         
@@ -175,12 +196,13 @@ public class AnnotationExploreViewModel {
         owner.set("");
         relatedDatasetsId.set("");
         relatedAnnotationsId.set("");
-        nameCommentEventText.set("");
+        nameDescriptionText.set("");
         tagValue.set("");
         attributeKey.set("");
         attributeValue.set("");
         
         // Clear results
+        lastResultTruncated = false;
         searchResults.clear();
         searchStatusMessage.set("Search cleared");
     }
@@ -207,9 +229,9 @@ public class AnnotationExploreViewModel {
     public String getRelatedAnnotationsId() { return relatedAnnotationsId.get(); }
     public void setRelatedAnnotationsId(String id) { relatedAnnotationsId.set(id != null ? id : ""); }
     
-    public StringProperty nameCommentEventTextProperty() { return nameCommentEventText; }
-    public String getNameCommentEventText() { return nameCommentEventText.get(); }
-    public void setNameCommentEventText(String text) { nameCommentEventText.set(text != null ? text : ""); }
+    public StringProperty nameDescriptionTextProperty() { return nameDescriptionText; }
+    public String getNameDescriptionText() { return nameDescriptionText.get(); }
+    public void setNameDescriptionText(String text) { nameDescriptionText.set(text != null ? text : ""); }
     
     public StringProperty tagValueProperty() { return tagValue; }
     public String getTagValue() { return tagValue.get(); }

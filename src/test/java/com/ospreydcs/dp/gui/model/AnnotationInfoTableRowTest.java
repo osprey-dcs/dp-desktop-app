@@ -1,9 +1,10 @@
 package com.ospreydcs.dp.gui.model;
 
+import com.ospreydcs.dp.grpc.v1.annotation.Annotation;
 import com.ospreydcs.dp.grpc.v1.annotation.Calculations;
-import com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation;
 import com.ospreydcs.dp.grpc.v1.common.Attribute;
 import com.ospreydcs.dp.grpc.v1.common.DataColumn;
+import com.ospreydcs.dp.grpc.v1.common.DataFrame;
 import com.ospreydcs.dp.grpc.v1.common.DataTimestamps;
 import com.ospreydcs.dp.grpc.v1.common.Timestamp;
 import com.ospreydcs.dp.grpc.v1.common.TimestampList;
@@ -12,8 +13,10 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for the Annotation -> AnnotationInfoTableRow conversion: comma-separated
@@ -27,9 +30,10 @@ public class AnnotationInfoTableRowTest {
     private static Calculations.CalculationsDataFrame frame(String name) {
         return Calculations.CalculationsDataFrame.newBuilder()
                 .setName(name)
-                .setDataTimestamps(DataTimestamps.newBuilder()
-                        .setTimestampList(TimestampList.newBuilder().addTimestamps(TS)))
-                .addDataColumns(DataColumn.newBuilder().setName(name + "-col"))
+                .setFrame(DataFrame.newBuilder()
+                        .setDataTimestamps(DataTimestamps.newBuilder()
+                                .setTimestampList(TimestampList.newBuilder().addTimestamps(TS)))
+                        .addDataColumns(DataColumn.newBuilder().setName(name + "-col")))
                 .build();
     }
 
@@ -38,7 +42,7 @@ public class AnnotationInfoTableRowTest {
                 .setId("ann-1")
                 .setOwnerId("owner-1")
                 .setName("annotation-1")
-                .setComment("a comment");
+                .setDescription("a description");
     }
 
     @Test
@@ -48,7 +52,7 @@ public class AnnotationInfoTableRowTest {
         assertEquals("ann-1", row.getId());
         assertEquals("owner-1", row.getOwner());
         assertEquals("annotation-1", row.getName());
-        assertEquals("a comment", row.getComment());
+        assertEquals("a description", row.getDescription());
     }
 
     @Test
@@ -80,45 +84,61 @@ public class AnnotationInfoTableRowTest {
         assertEquals("", row.getCalculationsDataFrames());
     }
 
+    /**
+     * Calculations presence comes from calculationsId, not from embedded content: queryAnnotations()
+     * returns the id alone as of dp-grpc #132, so a row built from a query result has a
+     * calculationsId and no Calculations message at all.
+     */
     @Test
-    public void calculationFrameNamesAreJoinedWithCommas() {
+    public void calculationsPresenceIsDrivenByCalculationsId() {
         AnnotationInfoTableRow row = new AnnotationInfoTableRow(baseAnnotation()
-                .setCalculations(Calculations.newBuilder()
-                        .setId("calc-1")
-                        .addCalculationDataFrames(frame("frame-1"))
-                        .addCalculationDataFrames(frame("frame-2")))
+                .setCalculationsId("calc-1")
                 .build());
 
-        assertEquals("frame-1, frame-2", row.getCalculationsDataFrames());
-        assertEquals(List.of("frame-1", "frame-2"), row.getCalculationsDataFrameNames());
+        assertTrue(row.hasCalculations());
+        assertEquals("calc-1", row.getCalculationsId());
+        assertEquals(AnnotationInfoTableRow.CALCULATIONS_PRESENT_LABEL, row.getCalculationsDataFrames());
     }
 
     @Test
-    public void calculationFrameIsConvertedToDataFrameDetailsByName() {
+    public void absentCalculationsIdMeansNoCalculations() {
+        AnnotationInfoTableRow row = new AnnotationInfoTableRow(baseAnnotation().build());
+
+        assertFalse(row.hasCalculations());
+        assertEquals("", row.getCalculationsId());
+        assertEquals("", row.getCalculationsDataFrames());
+    }
+
+    /**
+     * The presence indicator must not depend on embedded content.  An annotation carrying
+     * Calculations content but no id would be a malformed record, and one carrying an id but no
+     * content is the normal shape of every query result -- so the id alone decides.
+     */
+    @Test
+    public void calculationsContentDoesNotAffectPresence() {
         AnnotationInfoTableRow row = new AnnotationInfoTableRow(baseAnnotation()
                 .setCalculations(Calculations.newBuilder()
-                        .setId("calc-1")
                         .addCalculationDataFrames(frame("frame-1")))
                 .build());
 
-        DataFrameDetails details = row.getCalculationDataFrameByName("frame-1");
+        assertFalse(row.hasCalculations());
+        assertEquals("", row.getCalculationsDataFrames());
+    }
+
+    /**
+     * The frame conversion the dialog depends on now happens against a fetched Calculations rather
+     * than against the row, so it is exercised here at its new home.
+     */
+    @Test
+    public void calculationFrameIsConvertedToDataFrameDetails() {
+        DataFrameDetails details = DataFrameDetails.fromCalculationsDataFrame(frame("frame-1"));
+
         assertNotNull(details);
         assertEquals("frame-1", details.getName());
         assertEquals(List.of(TS), details.getTimestamps());
         assertEquals(1, details.getDataColumns().size());
         assertEquals("frame-1-col", details.getDataColumns().get(0).getName());
-    }
-
-    @Test
-    public void unknownCalculationFrameNameReturnsNull() {
-        AnnotationInfoTableRow row = new AnnotationInfoTableRow(baseAnnotation()
-                .setCalculations(Calculations.newBuilder()
-                        .addCalculationDataFrames(frame("frame-1")))
-                .build());
-
-        assertNull(row.getCalculationDataFrameByName("no-such-frame"));
-        assertNull(new AnnotationInfoTableRow(baseAnnotation().build())
-                .getCalculationDataFrameByName("frame-1"));
+        assertNull(DataFrameDetails.fromCalculationsDataFrame(null));
     }
 
     @Test
@@ -128,10 +148,10 @@ public class AnnotationInfoTableRowTest {
         assertEquals("", row.getId());
         assertEquals("", row.getOwner());
         assertEquals("", row.getName());
-        assertEquals("", row.getComment());
+        assertEquals("", row.getDescription());
         assertEquals("", row.getRelatedDatasets());
         assertEquals(List.of(), row.getDataSetIdsList());
-        assertEquals(List.of(), row.getCalculationsDataFrameNames());
-        assertNull(row.getCalculationDataFrameByName("frame-1"));
+        assertEquals("", row.getCalculationsId());
+        assertFalse(row.hasCalculations());
     }
 }

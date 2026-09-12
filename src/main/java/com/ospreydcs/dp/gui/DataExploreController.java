@@ -1,5 +1,6 @@
 package com.ospreydcs.dp.gui;
 
+import com.ospreydcs.dp.grpc.v1.annotation.Annotation;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
@@ -104,7 +105,7 @@ public class DataExploreController implements Initializable {
     // Annotation Builder FXML components
     @FXML private TextField annotationIdField;
     @FXML private TextField annotationNameField;
-    @FXML private TextArea annotationCommentField;
+    @FXML private TextArea annotationDescriptionField;
     @FXML private ListView<com.ospreydcs.dp.gui.model.DataSetDetail> targetDatasetsList;
     @FXML private Button removeTargetDatasetButton;
     @FXML private Button resetAnnotationButton;
@@ -209,7 +210,11 @@ public class DataExploreController implements Initializable {
         tagsComponent = new com.ospreydcs.dp.gui.component.TagsListComponent();
         attributesComponent = new com.ospreydcs.dp.gui.component.AttributesListComponent();
         
-        // Note: Components manage their own data internally - no need to bind from ViewModel
+        // Inject the components into the ViewModel, which holds no tag/attribute collections of its
+        // own.  This is what makes loadFromAnnotation() and onSaveAnnotation() read and write the
+        // same lists; without it, loading an annotation would populate nothing the save can see.
+        annotationBuilderViewModel.setTagsComponent(tagsComponent);
+        annotationBuilderViewModel.setAttributesComponent(attributesComponent);
         
         // Add components to the container with proper sizing
         HBox.setHgrow(tagsComponent, Priority.ALWAYS);
@@ -316,7 +321,7 @@ public class DataExploreController implements Initializable {
         // Annotation Builder bindings
         annotationIdField.textProperty().bindBidirectional(annotationBuilderViewModel.annotationIdProperty());
         annotationNameField.textProperty().bindBidirectional(annotationBuilderViewModel.annotationNameProperty());
-        annotationCommentField.textProperty().bindBidirectional(annotationBuilderViewModel.commentProperty());
+        annotationDescriptionField.textProperty().bindBidirectional(annotationBuilderViewModel.descriptionProperty());
         annotationStatusLabel.textProperty().bind(annotationBuilderViewModel.statusMessageProperty());
         
         // Annotation Button state bindings
@@ -1166,14 +1171,14 @@ public class DataExploreController implements Initializable {
         
         // Step 2: Extract annotation details
         String id = annotationBuilderViewModel.getAnnotationId();
-        String comment = annotationBuilderViewModel.getComment();
+        String description = annotationBuilderViewModel.getDescription();
         var dataSets = new java.util.ArrayList<>(annotationBuilderViewModel.getDataSets());
         var tags = new java.util.ArrayList<>(tagsComponent.getTags());
         var attributes = new java.util.ArrayList<>(attributesComponent.getAttributes());
         var calculations = new java.util.ArrayList<>(calculationsDataFramesList.getItems());
         
-        logger.info("Saving annotation: id={}, name={}, comment={}, dataSets={}, tags={}, attributes={}, calculations={}",
-                   id, name, comment, dataSets.size(), tags.size(), attributes.size(), calculations.size());
+        logger.info("Saving annotation: id={}, name={}, description={}, dataSets={}, tags={}, attributes={}, calculations={}",
+                   id, name, description, dataSets.size(), tags.size(), attributes.size(), calculations.size());
         
         // Step 3: Convert attributes list to Map<String, String>
         Map<String, String> attributeMap = new HashMap<>();
@@ -1195,7 +1200,7 @@ public class DataExploreController implements Initializable {
             .collect(java.util.stream.Collectors.toList());
         
         // Convert empty strings to null for optional fields
-        String commentToSave = (comment != null && !comment.trim().isEmpty()) ? comment.trim() : null;
+        String descriptionToSave = (description != null && !description.trim().isEmpty()) ? description.trim() : null;
         List<String> tagsToSave = tags.isEmpty() ? null : new ArrayList<>(tags);
         Map<String, String> attributesToSave = attributeMap.isEmpty() ? null : attributeMap;
         
@@ -1211,7 +1216,7 @@ public class DataExploreController implements Initializable {
                     name,
                     dataSetIds,
                     null, // annotationIds - not used in current implementation
-                    commentToSave,
+                    descriptionToSave,
                     tagsToSave,
                     attributesToSave,
                     calculations
@@ -2104,25 +2109,33 @@ public class DataExploreController implements Initializable {
         javafx.concurrent.Task<com.ospreydcs.dp.grpc.v1.annotation.DataSet> loadTask = new javafx.concurrent.Task<com.ospreydcs.dp.grpc.v1.annotation.DataSet>() {
             @Override
             protected com.ospreydcs.dp.grpc.v1.annotation.DataSet call() throws Exception {
-                logger.debug("Querying dataset by ID: {}", datasetId);
+                logger.debug("Getting dataset by ID: {}", datasetId);
                 
-                com.ospreydcs.dp.client.result.QueryDataSetsApiResult apiResult = 
-                    dpApplication.queryDataSets(datasetId, null, null, null);
+                // getDataSet() rather than a queryDataSets() + .get(0) emulation: a dedicated
+                // single-record getter makes structurally true what "should be only" could only
+                // assume.  See plan/tickets/42 P3.2.
+                com.ospreydcs.dp.client.result.GetDataSetApiResult apiResult =
+                    dpApplication.getDataSet(datasetId);
                 
                 if (apiResult == null) {
-                    throw new RuntimeException("Dataset query failed - null response from service");
+                    throw new RuntimeException("Dataset get failed - null response from service");
                 }
                 
-                if (apiResult.resultStatus.isError) {
-                    throw new RuntimeException("Dataset query failed: " + apiResult.resultStatus.msg);
-                }
-                
-                if (apiResult.dataSets == null || apiResult.dataSets.isEmpty()) {
+                // a missing record comes back as a rejection rather than an empty result, so it is
+                // distinguished from a service failure here rather than reported as one
+                if (apiResult.isReject()) {
                     throw new RuntimeException("Dataset not found: " + datasetId);
                 }
                 
-                // Return the first (and should be only) dataset
-                return apiResult.dataSets.get(0);
+                if (apiResult.resultStatus.isError) {
+                    throw new RuntimeException("Dataset get failed: " + apiResult.resultStatus.msg);
+                }
+                
+                if (apiResult.dataSet == null) {
+                    throw new RuntimeException("Dataset not found: " + datasetId);
+                }
+                
+                return apiResult.dataSet;
             }
         };
         
@@ -2169,35 +2182,45 @@ public class DataExploreController implements Initializable {
         });
         
         // Query annotation in background task
-        javafx.concurrent.Task<com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation> loadTask = 
-            new javafx.concurrent.Task<com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation>() {
+        javafx.concurrent.Task<Annotation> loadTask = 
+            new javafx.concurrent.Task<Annotation>() {
                 
             @Override
-            protected com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation call() throws Exception {
-                logger.debug("Querying annotation by ID: {}", annotationId);
+            protected Annotation call() throws Exception {
+                logger.debug("Getting annotation by ID: {}", annotationId);
                 
-                com.ospreydcs.dp.client.result.QueryAnnotationsApiResult apiResult = 
-                    dpApplication.queryAnnotations(annotationId, null, null, null, null, null, null, null);
+                // getAnnotation() rather than queryAnnotations(), because it is the only method
+                // that returns Calculations content inline.  Loading through queryAnnotations()
+                // would populate the builder with no calculations, and saveAnnotation() is a
+                // full-replace upsert -- so editing any unrelated field and saving would destroy
+                // the stored Calculations silently.  See plan/tickets/42 P2.3.
+                com.ospreydcs.dp.client.result.GetAnnotationApiResult apiResult =
+                    dpApplication.getAnnotation(annotationId);
                 
                 if (apiResult == null) {
-                    throw new RuntimeException("Annotation query failed - null response from service");
+                    throw new RuntimeException("Annotation get failed - null response from service");
                 }
                 
-                if (apiResult.resultStatus.isError) {
-                    throw new RuntimeException("Annotation query failed: " + apiResult.resultStatus.msg);
-                }
-                
-                if (apiResult.annotations == null || apiResult.annotations.isEmpty()) {
+                // a missing record comes back as a rejection rather than an empty result, so it is
+                // distinguished from a service failure here rather than reported as one
+                if (apiResult.isReject()) {
                     throw new RuntimeException("Annotation not found: " + annotationId);
                 }
                 
-                // Return the first (and should be only) annotation
-                return apiResult.annotations.get(0);
+                if (apiResult.resultStatus.isError) {
+                    throw new RuntimeException("Annotation get failed: " + apiResult.resultStatus.msg);
+                }
+                
+                if (apiResult.annotation == null) {
+                    throw new RuntimeException("Annotation not found: " + annotationId);
+                }
+                
+                return apiResult.annotation;
             }
         };
         
         loadTask.setOnSucceeded(e -> {
-            com.ospreydcs.dp.grpc.v1.annotation.QueryAnnotationsResponse.AnnotationsResult.Annotation annotation = loadTask.getValue();
+            Annotation annotation = loadTask.getValue();
             javafx.application.Platform.runLater(() -> {
                 annotationBuilderViewModel.loadFromAnnotation(annotation);
                 logger.info("Successfully loaded annotation into builder: {}", annotation.getName());

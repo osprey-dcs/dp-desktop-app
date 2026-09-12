@@ -2,7 +2,9 @@ package com.ospreydcs.dp.gui;
 
 import com.ospreydcs.dp.client.*;
 import com.ospreydcs.dp.client.result.*;
+import com.ospreydcs.dp.grpc.v1.annotation.Annotation;
 import com.ospreydcs.dp.grpc.v1.annotation.Calculations;
+import com.ospreydcs.dp.grpc.v1.annotation.DataSet;
 import com.ospreydcs.dp.grpc.v1.annotation.ExportDataRequest;
 import com.ospreydcs.dp.grpc.v1.common.*;
 import com.ospreydcs.dp.grpc.v1.ingestion.RegisterProviderResponse;
@@ -20,6 +22,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class DpApplication {
@@ -123,6 +126,137 @@ public class DpApplication {
      */
     static Timestamp timestampFromInstant(Instant instant) {
         return (instant == null) ? null : TimestampUtility.getTimestampFromInstant(instant);
+    }
+
+    /**
+     * Thrown when a page request fails partway through a paged query.
+     *
+     * Unchecked so it can propagate out of the fetchPage lambda in accumulatePages() without
+     * forcing a checked-exception signature onto the generic helper.  A failure must abort the
+     * whole accumulation rather than break the loop: returning what had accumulated so far would
+     * present a partial result as a complete one, which is the same class of silent-wrong-answer
+     * bug transparent paging is being added to fix.
+     */
+    public static class QueryFailedException extends RuntimeException {
+        public QueryFailedException(String message) {
+            super(message);
+        }
+    }
+
+    // ------------------- transparent paging ---------------------------
+
+    /**
+     * Maximum number of records accumulated by a paged query before it stops following
+     * nextPageToken.
+     *
+     * queryDataSets() and queryAnnotations() became paged in dp-grpc #132, and an unset limit
+     * means the server's default page size rather than "everything".  This class follows
+     * nextPageToken internally so the explore views keep receiving one complete list and need no
+     * paging UI, but doing that without a bound would move the unbounded read from the server to
+     * the client -- the exact thing server-side paging was introduced to prevent.  This cap is
+     * what keeps transparent paging from re-creating that problem one layer up.
+     *
+     * 5000 is large enough that ordinary demo result sets never reach it and small enough to stay
+     * well inside that bound.  For comparison, server-side defaults are 10000 for sample statuses
+     * and Query V2, which is likely too large for record-shaped results like annotations.
+     */
+    public static final int QUERY_RESULT_CAP = 5000;
+
+    /**
+     * Accumulated result of a paged query: the records retrieved, and whether accumulation stopped
+     * at the cap with more records still available.
+     *
+     * Truncation is carried as data rather than left implicit because the views must say so.  The
+     * bug this paging work fixes is not that results were incomplete -- it is that the views
+     * reported a count as if it were a total, with nothing indicating anything was missing.  A
+     * silent cap would reproduce exactly that bug at a higher threshold.
+     */
+    public static class PagedResult<T> {
+
+        public final List<T> records;
+        public final boolean truncated;
+
+        public PagedResult(List<T> records, boolean truncated) {
+            this.records = records;
+            this.truncated = truncated;
+        }
+
+        /**
+         * Formats a result count for a status message, naming truncation when it occurred so a
+         * capped result is never presented as a complete total.
+         */
+        public String describeCount(String noun) {
+            if (truncated) {
+                return String.format("showing first %d %s(s), more available", records.size(), noun);
+            }
+            return String.format("found %d %s(s)", records.size(), noun);
+        }
+    }
+
+    /**
+     * Follows nextPageToken, accumulating records until the query is exhausted or the cap is
+     * reached.
+     *
+     * Static and free of any service reference so it is unit-testable without a service ecosystem,
+     * for the same reason as emptyToNull() and timestampFromInstant(): the page loop is the part
+     * with the edge cases (a cap reached exactly on a page boundary, a server that returns a token
+     * with an empty page, a page that overshoots the cap), and nothing requiring a live service
+     * has test coverage in this project.
+     *
+     * @param fetchPage        invoked with a page token -- null for the first page -- returning
+     *                         that page's records.  It must signal failure by throwing, NOT by
+     *                         returning null: a null page cannot be distinguished from an empty
+     *                         one here, so treating it as the end of the query would present a
+     *                         partial accumulation as a complete result -- the exact bug the
+     *                         QueryFailedException guarantee exists to prevent.  A null return is
+     *                         therefore rejected rather than tolerated.
+     * @param nextPageTokenOf  reads the nextPageToken from whatever fetchPage returned; an empty
+     *                         or null token ends the query
+     * @param recordsOf        reads the record list from whatever fetchPage returned
+     * @param cap              maximum records to accumulate
+     * @return the accumulated records, truncated to the cap, and whether more remained
+     */
+    static <R, T> PagedResult<T> accumulatePages(
+            Function<String, R> fetchPage,
+            Function<R, String> nextPageTokenOf,
+            Function<R, List<T>> recordsOf,
+            int cap
+    ) {
+        final List<T> accumulated = new ArrayList<>();
+        String pageToken = null;
+
+        while (true) {
+            final R page = fetchPage.apply(pageToken);
+            if (page == null) {
+                // a caller that returns null instead of throwing would otherwise have its error
+                // silently reported as a complete result; see the fetchPage contract above
+                throw new QueryFailedException(
+                        "Paged query failed - fetchPage returned null for page token: " + pageToken);
+            }
+
+            final List<T> pageRecords = recordsOf.apply(page);
+            if (pageRecords != null) {
+                for (T record : pageRecords) {
+                    if (accumulated.size() >= cap) {
+                        // the cap was reached mid-page, so records demonstrably remain
+                        return new PagedResult<>(accumulated, true);
+                    }
+                    accumulated.add(record);
+                }
+            }
+
+            pageToken = nextPageTokenOf.apply(page);
+            if (pageToken == null || pageToken.isEmpty()) {
+                // last page: complete regardless of how close to the cap we landed
+                return new PagedResult<>(accumulated, false);
+            }
+
+            if (accumulated.size() >= cap) {
+                // the cap was reached exactly on a page boundary and the server offers another
+                // page, so more records remain even though this page fit
+                return new PagedResult<>(accumulated, true);
+            }
+        }
     }
 
     // ------------------- Sample Status (demo support) ---------------------------
@@ -330,11 +464,15 @@ public class DpApplication {
                     TimestampList.newBuilder().addAllTimestamps(dataFrameDetails.getTimestamps()).build();
             final DataTimestamps frameDataTimestamps =
                     DataTimestamps.newBuilder().setTimestampList(frameTimestampList).build();
+            final DataFrame frame =
+                    DataFrame.newBuilder()
+                            .setDataTimestamps(frameDataTimestamps)
+                            .addAllDataColumns(dataFrameDetails.getDataColumns())
+                            .build();
             final Calculations.CalculationsDataFrame calculationsDataFrame =
                     Calculations.CalculationsDataFrame.newBuilder()
                             .setName(dataFrameDetails.getName())
-                            .setDataTimestamps(frameDataTimestamps)
-                            .addAllDataColumns(dataFrameDetails.getDataColumns())
+                            .setFrame(frame)
                             .build();
             calculationsBuilder.addCalculationDataFrames(calculationsDataFrame);
         }
@@ -1053,12 +1191,20 @@ public class DpApplication {
         return api.annotationClient.saveDataSet(saveDataSetParams);
     }
 
-    public QueryDataSetsApiResult queryDataSets(
+    /**
+     * Queries datasets, following nextPageToken internally so the caller receives one complete
+     * list up to QUERY_RESULT_CAP.  See accumulatePages() for why paging is transparent here and
+     * why the result carries a truncation flag.
+     *
+     * @throws QueryFailedException if any page request fails, so a partial accumulation is never
+     *                              returned as if it were the whole result
+     */
+    public PagedResult<DataSet> queryDataSets(
             String idCriterion,
             String ownerCriterion,
             String textCriterion, // search name and description fields
             String pvNameCriterion
-    ) {
+    ) throws QueryFailedException {
         // create params, omitting criteria left blank in the UI
         AnnotationClient.QueryDataSetsParams params = new AnnotationClient.QueryDataSetsParams();
         setIfPresent(idCriterion, params::setIdCriterion);
@@ -1066,7 +1212,21 @@ public class DpApplication {
         setIfPresent(textCriterion, params::setTextCriterion);
         setIfPresent(pvNameCriterion, params::setPvNameCriterion);
 
-        return api.annotationClient.queryDataSets(params);
+        return accumulatePages(
+                pageToken -> {
+                    params.setPageToken(pageToken);
+                    final QueryDataSetsApiResult pageResult = api.annotationClient.queryDataSets(params);
+                    if (pageResult == null) {
+                        throw new QueryFailedException("Dataset query failed - null response from service");
+                    }
+                    if (pageResult.resultStatus.isError) {
+                        throw new QueryFailedException("Dataset query failed: " + pageResult.resultStatus.msg);
+                    }
+                    return pageResult;
+                },
+                pageResult -> pageResult.nextPageToken,
+                pageResult -> pageResult.dataSets,
+                QUERY_RESULT_CAP);
     }
 
     public SaveAnnotationApiResult saveAnnotation(
@@ -1074,7 +1234,7 @@ public class DpApplication {
             String name,
             List<String> dataSetIds,
             List<String> annotationIds,
-            String comment,
+            String description,
             List<String> tags,
             Map<String, String> attributeMap,
             List<DataFrameDetails> calculationsDataFrameDetails
@@ -1090,7 +1250,7 @@ public class DpApplication {
                         name,
                         dataSetIds,
                         annotationIds,
-                        comment,
+                        description,
                         tags,
                         attributeMap,
                         calculations
@@ -1100,17 +1260,29 @@ public class DpApplication {
         return api.annotationClient.saveAnnotation(params);
     }
 
-    public QueryAnnotationsApiResult queryAnnotations(
+    /**
+     * Queries annotations, following nextPageToken internally so the caller receives one complete
+     * list up to QUERY_RESULT_CAP.  See accumulatePages() for why paging is transparent here and
+     * why the result carries a truncation flag.
+     *
+     * The returned Annotations carry calculationsId but NOT Calculations content -- queryAnnotations
+     * deliberately does not denormalize it as of dp-grpc #132.  Use getAnnotation() or
+     * getCalculations() to retrieve it.
+     *
+     * @throws QueryFailedException if any page request fails, so a partial accumulation is never
+     *                              returned as if it were the whole result
+     */
+    public PagedResult<Annotation> queryAnnotations(
             String idCriterion,
             String ownerCriterion,
             String dataSetsCriterion,
             String annotationsCriterion,
-            String textCriterion, // search name, comment, event description fields
+            String textCriterion, // search name and description fields
             String tagsCriterion,
             String attributeKeyCriterion,
             String attributeValueCriterion
 
-    ) {
+    ) throws QueryFailedException {
         // create params, omitting criteria left blank in the UI
         AnnotationClient.QueryAnnotationsParams params = new AnnotationClient.QueryAnnotationsParams();
         setIfPresent(idCriterion, params::setIdCriterion);
@@ -1121,7 +1293,68 @@ public class DpApplication {
         setIfPresent(tagsCriterion, params::setTagsCriterion);
         setIfBothPresent(attributeKeyCriterion, attributeValueCriterion, params::setAttributesCriterion);
 
-        return api.annotationClient.queryAnnotations(params);
+        return accumulatePages(
+                pageToken -> {
+                    params.setPageToken(pageToken);
+                    final QueryAnnotationsApiResult pageResult = api.annotationClient.queryAnnotations(params);
+                    if (pageResult == null) {
+                        throw new QueryFailedException("Annotation query failed - null response from service");
+                    }
+                    if (pageResult.resultStatus.isError) {
+                        throw new QueryFailedException("Annotation query failed: " + pageResult.resultStatus.msg);
+                    }
+                    return pageResult;
+                },
+                pageResult -> pageResult.nextPageToken,
+                pageResult -> pageResult.annotations,
+                QUERY_RESULT_CAP);
+    }
+
+    /**
+     * Retrieves a single DataSet by id.
+     *
+     * The right RPC for a one-record lookup, in place of emulating one with
+     * queryDataSets(id, null, null, null) plus .get(0): the dedicated getter makes structurally
+     * true what that pattern could only assume.
+     *
+     * A missing record is reported as a rejection rather than an empty result, so callers
+     * distinguishing "not found" from "service unreachable" must branch on
+     * ApiResultBase.isReject() rather than isError().
+     */
+    public GetDataSetApiResult getDataSet(String dataSetId) {
+        return api.annotationClient.getDataSet(dataSetId);
+    }
+
+    /**
+     * Retrieves a single Annotation by id, with its Calculations content populated inline.
+     *
+     * This is the ONLY method that returns calculations content within an Annotation --
+     * queryAnnotations() returns calculationsId alone as of dp-grpc #132.  Loading an annotation
+     * for editing must therefore go through here rather than through queryAnnotations(): because
+     * saveAnnotation() is a full-replace upsert, re-saving an annotation that was loaded without
+     * its calculations DESTROYS the stored Calculations, with no error and no warning.
+     *
+     * A missing record is reported as a rejection rather than an empty result, so callers
+     * distinguishing "not found" from "service unreachable" must branch on
+     * ApiResultBase.isReject() rather than isError().
+     */
+    public GetAnnotationApiResult getAnnotation(String annotationId) {
+        return api.annotationClient.getAnnotation(annotationId);
+    }
+
+    /**
+     * Retrieves a single Calculations object by id, without loading the owning Annotation.
+     *
+     * Used to resolve calculations content on demand for annotations obtained from
+     * queryAnnotations(), which returns calculationsId without content.  Fetching per user action
+     * rather than per row is the point: fetching per row would rebuild client-side, as serial
+     * round trips, the N+1 fan-out that dp-grpc #132 removed.
+     *
+     * A missing record is reported as a rejection rather than an empty result -- see
+     * getAnnotation().
+     */
+    public GetCalculationsApiResult getCalculations(String calculationsId) {
+        return api.annotationClient.getCalculations(calculationsId);
     }
 
     public ExportDataApiResult exportData(

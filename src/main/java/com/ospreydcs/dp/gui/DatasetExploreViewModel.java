@@ -1,6 +1,5 @@
 package com.ospreydcs.dp.gui;
 
-import com.ospreydcs.dp.client.result.QueryDataSetsApiResult;
 import com.ospreydcs.dp.grpc.v1.annotation.DataSet;
 import com.ospreydcs.dp.gui.model.DatasetInfoTableRow;
 import javafx.beans.property.*;
@@ -25,6 +24,13 @@ public class DatasetExploreViewModel {
     // Results properties
     private final ObservableList<DatasetInfoTableRow> datasetResults = FXCollections.observableArrayList();
     private final IntegerProperty resultCount = new SimpleIntegerProperty(0);
+    
+    /**
+     * The result count as displayed, which says "first N" rather than a bare count when the query
+     * stopped at the cap.  A count presented as a total when it is not is the bug transparent
+     * paging exists to fix, so the label cannot be a plain rendering of resultCount.
+     */
+    private final StringProperty resultCountMessage = new SimpleStringProperty("0 dataset(s)");
     private final BooleanProperty isSearching = new SimpleBooleanProperty(false);
     
     // Status properties
@@ -59,6 +65,7 @@ public class DatasetExploreViewModel {
     // Property getters for results
     public ObservableList<DatasetInfoTableRow> getDatasetResults() { return datasetResults; }
     public IntegerProperty resultCountProperty() { return resultCount; }
+    public StringProperty resultCountMessageProperty() { return resultCountMessage; }
     public BooleanProperty isSearchingProperty() { return isSearching; }
     
     // Property getters for status
@@ -78,6 +85,7 @@ public class DatasetExploreViewModel {
         searchStatusMessage.set("Searching datasets...");
         datasetResults.clear();
         resultCount.set(0);
+        resultCountMessage.set("0 dataset(s)");
 
         // Create background task for search
         Task<Void> searchTask = new Task<Void>() {
@@ -115,37 +123,40 @@ public class DatasetExploreViewModel {
         logger.debug("Searching datasets with parameters: datasetId={}, owner={}, nameDescription={}, pvName={}", 
             datasetIdParam, ownerParam, nameDescParam, pvNameParam);
 
-        QueryDataSetsApiResult apiResult = dpApplication.queryDataSets(
+        // queryDataSets() follows nextPageToken internally and reports whether it stopped at the
+        // cap.  A failed page throws rather than returning a partial list, so there is no
+        // partial-success case to check here.
+        DpApplication.PagedResult<DataSet> pagedResult = dpApplication.queryDataSets(
             datasetIdParam, ownerParam, nameDescParam, pvNameParam);
         
-        if (apiResult == null) {
-            throw new RuntimeException("Dataset search failed - null response from service");
-        }
-        
-        if (apiResult.resultStatus.isError) {
-            throw new RuntimeException("Dataset search failed: " + apiResult.resultStatus.msg);
-        }
-        
-        if (apiResult.dataSets != null) {
-            processSearchResults(apiResult.dataSets);
-        }
+        processSearchResults(pagedResult);
     }
 
-    private void processSearchResults(List<DataSet> datasets) {
+    private void processSearchResults(DpApplication.PagedResult<DataSet> pagedResult) {
         // Create table rows from dataset info on JavaFX thread
         javafx.application.Platform.runLater(() -> {
             datasetResults.clear();
             
-            for (DataSet dataset : datasets) {
+            for (DataSet dataset : pagedResult.records) {
                 DatasetInfoTableRow tableRow = new DatasetInfoTableRow(dataset);
                 datasetResults.add(tableRow);
             }
             
             resultCount.set(datasetResults.size());
-            statusMessage.set(String.format("Found %d dataset(s)", datasetResults.size()));
+            resultCountMessage.set(pagedResult.truncated
+                    ? "first " + datasetResults.size() + " dataset(s)"
+                    : datasetResults.size() + " dataset(s)");
+            // report the count as a total only when the query was not capped, so a truncated
+            // result is never presented as a complete one
+            statusMessage.set(capitalize(pagedResult.describeCount("dataset")));
             
-            logger.debug("Processed {} dataset search results", datasetResults.size());
+            logger.debug("Processed {} dataset search results (truncated={})",
+                         datasetResults.size(), pagedResult.truncated);
         });
+    }
+
+    private static String capitalize(String text) {
+        return text.isEmpty() ? text : Character.toUpperCase(text.charAt(0)) + text.substring(1);
     }
 
     /**

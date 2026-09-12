@@ -168,12 +168,12 @@ public class DpApplicationParamsTest {
 
         Calculations.CalculationsDataFrame first = calculations.getCalculationDataFrames(0);
         assertEquals("frame-1", first.getName());
-        assertEquals(1, first.getDataTimestamps().getTimestampList().getTimestampsCount());
+        assertEquals(1, first.getFrame().getDataTimestamps().getTimestampList().getTimestampsCount());
         assertEquals(1_700_000_000L,
-                first.getDataTimestamps().getTimestampList().getTimestamps(0).getEpochSeconds());
-        assertEquals(1, first.getDataColumnsCount());
-        assertEquals("frame-1-col", first.getDataColumns(0).getName());
-        assertEquals(1.5, first.getDataColumns(0).getDataValues(0).getDoubleValue());
+                first.getFrame().getDataTimestamps().getTimestampList().getTimestamps(0).getEpochSeconds());
+        assertEquals(1, first.getFrame().getDataColumnsCount());
+        assertEquals("frame-1-col", first.getFrame().getDataColumns(0).getName());
+        assertEquals(1.5, first.getFrame().getDataColumns(0).getDataValues(0).getDoubleValue());
 
         assertEquals("frame-2", calculations.getCalculationDataFrames(1).getName());
     }

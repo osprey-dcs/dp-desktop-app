@@ -185,15 +185,19 @@ public class MachineConfigurationController implements Initializable {
     }
 
     /**
-     * Asks the user whether to replace an activation already created in this session under the same
-     * client activation id.  Called on the FX thread by the ViewModel before the save is issued.
+     * Asks the user whether to replace an existing activation with the same client activation id.
+     * Called on the FX thread by the ViewModel before the save is issued.
+     *
+     * The wording is deliberately not session-specific: the ViewModel raises this for a record it
+     * created in this session AND for one found on the server, and the two are indistinguishable
+     * to the user - both are records that a save would replace outright.
      */
     private boolean confirmActivationOverwrite(String clientActivationId) {
         final Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
         alert.setTitle("Replace existing activation?");
         alert.setHeaderText(
                 "An activation with client activation id \"" + clientActivationId
-                        + "\" was already created in this session.");
+                        + "\" already exists.");
         alert.setContentText(
                 "Saving replaces that entire activation record: interval, description, tags, "
                         + "attributes and modified by are all overwritten, and anything left blank "

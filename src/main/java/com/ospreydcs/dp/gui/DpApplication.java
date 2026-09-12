@@ -1525,6 +1525,28 @@ public class DpApplication {
     }
 
     /**
+     * Retrieves the configuration activation record identified by the client-supplied activation
+     * id.
+     *
+     * As with getConfiguration(), a missing record is NOT reported as an empty successful result:
+     * the server rejects the request, so an id that does not exist comes back with
+     * resultStatus.isError true and apiResultStatus REJECT.  Callers using this as an existence
+     * check must branch on isReject() rather than on isError(), so that a service failure is not
+     * mistaken for a record that does not exist.  REJECT also covers server-side validation
+     * failures, so reading it as not-found is only safe once the request itself is known to be
+     * valid - here, that the id is non-blank.
+     *
+     * The RPC's key is a proto oneof and AnnotationClient exposes it as two named methods.  Only
+     * the by-id arm is wrapped here: this application's only use is the activation-id collision
+     * check, which always has the id the user typed.  The composite-key arm is deliberately not
+     * wrapped rather than overlooked - an unused wrapper is a surface to keep correct for no
+     * benefit.
+     */
+    public GetConfigurationActivationApiResult getConfigurationActivation(String clientActivationId) {
+        return api.annotationClient.getConfigurationActivationById(clientActivationId);
+    }
+
+    /**
      * Batch upsert of sample statuses.
      *
      * Upsert is per individual status keyed by (pvName, timestamp, domain, layer) and is a FULL

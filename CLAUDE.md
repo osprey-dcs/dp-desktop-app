@@ -191,7 +191,7 @@ Explore → Data, PVs, Providers, Datasets, Annotations, Data Events
 - ✅ Real-time data event subscription processing with background task integration
 - ✅ Event timestamp hyperlinks with automatic query editor navigation and time window setup
 - ✅ PV Metadata view for creating/updating PV metadata records via savePvMetadata() (aliases, tags, attributes, description)
-- ✅ Machine Configuration view for creating configuration records and activation intervals via saveConfiguration() / saveConfigurationActivation(), with a getConfiguration() overwrite warning
+- ✅ Machine Configuration view for creating configuration records and activation intervals via saveConfiguration() / saveConfigurationActivation(), with getConfiguration() and getConfigurationActivation() overwrite warnings
 - ✅ Demo sample status generation in the data-generation view via saveSampleStatuses(), plus an unwired querySampleStatuses() read-back wrapper
 
 ## GUI Architecture
@@ -447,13 +447,35 @@ configuration previously named in `savedConfigurationName` and would otherwise b
 activations of the new one.
 
 **A supplied `clientActivationId` is an upsert key, not a label.** Supplying one that already names
-a record replaces that record outright. A collision with an activation created *in this session* is
-detected locally and confirmed through `setActivationOverwriteConfirmation(...)`, and the session
-list is reconciled in place rather than appended to, so a replacement does not leave a stale row
-beside its replacement. A collision with a record this session knows nothing about is **not**
-detected: that needs a server round trip, and `AnnotationClient` exposes no wrapper for the
-`getConfigurationActivation()` RPC even though the service implements it — see the follow-up issue.
-Until that lands the field's prompt text carries the warning.
+a record replaces that record outright, so a collision is detected and confirmed before the save.
+The check has **two stages, and the ordering matters**:
+
+1. **Session list, on the FX thread.** `findSessionActivation()` matches an activation this session
+   created. It reads `activations`, an observable list bound to the view, which is why it stays on
+   the FX thread — the same reasoning that copies the component lists before the task starts.
+2. **Server, inside the background task.** `confirmActivationOverwriteIfExists()` calls
+   `DpApplication.getConfigurationActivation()` for a record this session knows nothing about — one
+   from an earlier session, or another client. It runs in the task body because it is a network
+   round trip, and raises its dialog through the same bounded `runOnFxThreadAndWait()` seam the
+   configuration save uses. **Do not add a second waiting mechanism.**
+
+Stage 2 is **skipped** when stage 1 matched (the user has already answered for that record) and when
+the id is blank (a blank id asks the server to generate one, so nothing can collide). Both skips are
+pinned by tests, because a refactor that turns every add into a round trip — or that asks the same
+question twice — is invisible otherwise.
+
+A failed existence check **aborts the save**, exactly as `confirmOverwriteIfExists()` does for
+configurations: proceeding on an unverifiable check reproduces the silent-replacement bug precisely
+when the system is unhealthy. The two paths deliberately behave identically here; if the policy is
+ever judged too strict it should change for both in one ticket rather than diverging.
+
+After either stage confirms, the session list is reconciled in place rather than appended to, so a
+replacement does not leave a stale row beside its replacement.
+
+Note that `DpApplication.getConfigurationActivation()` wraps only the **by-id** arm of the RPC.
+dp-service #243 exposed the proto's `oneof key` as two named methods so that "both keys supplied"
+and "neither supplied" cannot arise client-side; this app always has the id the user typed, so
+`getConfigurationActivationByCompositeKey()` is deliberately unwrapped rather than overlooked.
 
 **Waiting on an FX-thread confirmation from a background task is bounded.** `runOnFxThreadAndWait()`
 awaits with a timeout and returns `Boolean` so the caller can tell "declined" from "never answered".
@@ -467,6 +489,10 @@ the user declined, because the existence check failed, or was actually attempted
 `SaveOutcome`/`PreSaveOutcome`. The earlier version distinguished these by prefix-matching the
 status message, which both re-introduced the message-sniffing that `isReject()` exists to avoid and
 raced with the `Platform.runLater` that sets the message.
+
+`SaveOutcome<T>` is generic over the API result type and `PreSaveOutcome` is result-type-agnostic,
+so **both** saves in this view share one wrapper. Two near-identical wrapper classes in one file is
+the duplication that invites them to drift.
 
 ### Dataset Builder Workflow (Implemented)
 1. **Dataset Configuration**: Enter dataset name (required), description (optional), and auto-generated ID field

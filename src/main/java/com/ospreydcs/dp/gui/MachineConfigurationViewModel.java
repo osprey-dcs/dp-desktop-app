@@ -1,5 +1,6 @@
 package com.ospreydcs.dp.gui;
 
+import com.ospreydcs.dp.client.result.GetConfigurationActivationApiResult;
 import com.ospreydcs.dp.client.result.GetConfigurationApiResult;
 import com.ospreydcs.dp.client.result.SaveConfigurationActivationApiResult;
 import com.ospreydcs.dp.client.result.SaveConfigurationApiResult;
@@ -236,9 +237,9 @@ public class MachineConfigurationViewModel {
         isSaving.set(true);
         statusMessage.set("Saving configuration...");
 
-        final Task<SaveOutcome> saveTask = new Task<>() {
+        final Task<SaveOutcome<SaveConfigurationApiResult>> saveTask = new Task<>() {
             @Override
-            protected SaveOutcome call() throws Exception {
+            protected SaveOutcome<SaveConfigurationApiResult> call() throws Exception {
 
                 // Warn before clobbering an existing record.  The pre-save check reports its own
                 // outcome as a typed value rather than as a null result, so the success handler can
@@ -262,7 +263,7 @@ public class MachineConfigurationViewModel {
 
         saveTask.setOnSucceeded(e -> Platform.runLater(() -> {
             isSaving.set(false);
-            final SaveOutcome outcome = saveTask.getValue();
+            final SaveOutcome<SaveConfigurationApiResult> outcome = saveTask.getValue();
 
             if (outcome == null) {
                 // Not reachable through call() above, which always returns a value; handled so a
@@ -404,8 +405,12 @@ public class MachineConfigurationViewModel {
     }
 
     /**
-     * Why a configuration save did or did not go ahead, as decided before the save call is made.
-     * Typed so the success handler can distinguish these cases without reading the status message.
+     * Why a save did or did not go ahead, as decided before the save call is made.  Typed so the
+     * success handler can distinguish these cases without reading the status message.
+     *
+     * Shared by both save paths in this view: the configuration save, whose existence check is
+     * getConfiguration(), and the activation save, whose check is the session list followed by
+     * getConfigurationActivation().  The three cases cover both exactly.
      */
     private enum PreSaveOutcome {
         /** No existing record, or the user confirmed replacing the one that exists. */
@@ -417,25 +422,29 @@ public class MachineConfigurationViewModel {
     }
 
     /**
-     * The result of the configuration save task: either the save was attempted and carries the API
-     * result, or it was deliberately not attempted and carries the reason.
+     * The result of a save task: either the save was attempted and carries the API result, or it
+     * was deliberately not attempted and carries the reason.
+     *
+     * Generic over the result type so the configuration and activation saves share one wrapper.
+     * Two near-identical wrapper classes in one file is the duplication that invites them to drift,
+     * and there is no behavior here beyond holding the pair.
      */
-    private static final class SaveOutcome {
+    private static final class SaveOutcome<T> {
 
         final PreSaveOutcome preSaveOutcome;
-        final SaveConfigurationApiResult apiResult;
+        final T apiResult;
 
-        private SaveOutcome(PreSaveOutcome preSaveOutcome, SaveConfigurationApiResult apiResult) {
+        private SaveOutcome(PreSaveOutcome preSaveOutcome, T apiResult) {
             this.preSaveOutcome = preSaveOutcome;
             this.apiResult = apiResult;
         }
 
-        static SaveOutcome attempted(SaveConfigurationApiResult apiResult) {
-            return new SaveOutcome(PreSaveOutcome.PROCEED, apiResult);
+        static <T> SaveOutcome<T> attempted(T apiResult) {
+            return new SaveOutcome<>(PreSaveOutcome.PROCEED, apiResult);
         }
 
-        static SaveOutcome notAttempted(PreSaveOutcome preSaveOutcome) {
-            return new SaveOutcome(preSaveOutcome, null);
+        static <T> SaveOutcome<T> notAttempted(PreSaveOutcome preSaveOutcome) {
+            return new SaveOutcome<>(preSaveOutcome, null);
         }
 
         boolean wasAttempted() {
@@ -496,16 +505,20 @@ public class MachineConfigurationViewModel {
 
         /*
          * saveConfigurationActivation() is a full-replace upsert keyed by clientActivationId, so a
-         * supplied id that already names a record replaces it outright.  When that record is one
-         * this session created, the collision is detectable here and is confirmed before the call,
-         * so the user is not silently editing an activation they believe they are adding.
+         * supplied id that already names a record replaces it outright.  The collision check has
+         * two stages, and this is the first: a record this session created is known locally, so it
+         * is matched here on the FX thread without a round trip.
          *
-         * A supplied id may of course collide with a record this session knows nothing about.
-         * Catching that needs a server round trip, and AnnotationClient currently exposes no
-         * wrapper for the getConfigurationActivation() RPC - see the follow-up issue.  Until then
-         * the field carries a warning that a supplied id replaces any existing activation.
+         * Reading the session list here rather than in the task body is deliberate - activations is
+         * an observable list bound to the view, and the same reasoning that copies the component
+         * lists on the FX thread above applies to reading it.  Stage two, the server check for a
+         * record this session knows nothing about, runs inside the task; see
+         * confirmActivationOverwriteIfExists().
          */
-        if (findSessionActivation(clientActivationIdValue) != null) {
+        final boolean collidesWithSessionActivation =
+                findSessionActivation(clientActivationIdValue) != null;
+
+        if (collidesWithSessionActivation) {
             if (activationOverwriteConfirmation == null) {
                 logger.warn("no activation overwrite confirmation handler set; replacing {}",
                         clientActivationIdValue);
@@ -523,10 +536,24 @@ public class MachineConfigurationViewModel {
         isSaving.set(true);
         statusMessage.set("Saving activation...");
 
-        final Task<SaveConfigurationActivationApiResult> saveTask = new Task<>() {
+        final Task<SaveOutcome<SaveConfigurationActivationApiResult>> saveTask = new Task<>() {
             @Override
-            protected SaveConfigurationActivationApiResult call() {
-                return dpApplication.saveConfigurationActivation(
+            protected SaveOutcome<SaveConfigurationActivationApiResult> call() throws Exception {
+
+                /*
+                 * Stage two of the collision check, skipped when stage one already matched: that
+                 * record is known to exist and the user has already answered for it, so a round
+                 * trip would only ask the same question twice.
+                 */
+                if (!collidesWithSessionActivation) {
+                    final PreSaveOutcome preSave =
+                            confirmActivationOverwriteIfExists(clientActivationIdValue);
+                    if (preSave != PreSaveOutcome.PROCEED) {
+                        return SaveOutcome.notAttempted(preSave);
+                    }
+                }
+
+                return SaveOutcome.attempted(dpApplication.saveConfigurationActivation(
                         clientActivationIdValue,
                         configurationNameValue,
                         startTime,
@@ -534,13 +561,30 @@ public class MachineConfigurationViewModel {
                         descriptionValue,
                         tags,
                         attributeMap,
-                        modifiedByValue);
+                        modifiedByValue));
             }
         };
 
         saveTask.setOnSucceeded(e -> Platform.runLater(() -> {
             isSaving.set(false);
-            final SaveConfigurationActivationApiResult apiResult = saveTask.getValue();
+            final SaveOutcome<SaveConfigurationActivationApiResult> outcome = saveTask.getValue();
+
+            if (outcome == null) {
+                // Not reachable through call() above, which always returns a value; handled so a
+                // future change cannot turn this into a silent no-op.
+                statusMessage.set("Save failed: no outcome reported");
+                logger.error("addActivation task produced a null outcome");
+                return;
+            }
+
+            if (!outcome.wasAttempted()) {
+                // The save was deliberately not attempted.  confirmActivationOverwriteIfExists()
+                // has already set the status message explaining which case this was.
+                logger.debug("addActivation not attempted: {}", outcome.preSaveOutcome);
+                return;
+            }
+
+            final SaveConfigurationActivationApiResult apiResult = outcome.apiResult;
 
             if (apiResult == null) {
                 statusMessage.set("Save failed: null response from service");
@@ -608,6 +652,102 @@ public class MachineConfigurationViewModel {
             }
         }
         return null;
+    }
+
+    /**
+     * Stage two of the activation id collision check: asks the server whether a record already
+     * exists under this id, and if so confirms replacing it.
+     *
+     * Reached only for an id that stage one did not match, so this covers exactly the case the
+     * session list cannot see - a record created by an earlier session, or by another client.
+     *
+     * A blank id is not a collision at all: it is a request for the server to generate one, so
+     * there is nothing to check and no round trip is made.
+     *
+     * As with getConfiguration(), getConfigurationActivation() reports a missing record as a
+     * rejection rather than as an empty successful result, so this branches on isReject() rather
+     * than isError() - a service that is simply unreachable also sets isError, and treating that
+     * as "no existing record" would suppress the very warning this method exists to raise.  Reading
+     * a reject as not-found is safe here only because the id is known to be non-blank, which is the
+     * sole validation the request performs.
+     *
+     * Runs on the background task; the dialog itself is raised on the FX thread and waited on.
+     */
+    private PreSaveOutcome confirmActivationOverwriteIfExists(String clientActivationIdValue)
+            throws InterruptedException {
+
+        if (clientActivationIdValue == null || clientActivationIdValue.isEmpty()) {
+            // The server will generate an id; nothing can collide.
+            return PreSaveOutcome.PROCEED;
+        }
+
+        final GetConfigurationActivationApiResult getResult =
+                dpApplication.getConfigurationActivation(clientActivationIdValue);
+
+        if (getResult == null) {
+            // Treat an unusable existence check as a hard stop rather than silently overwriting.
+            Platform.runLater(() -> statusMessage.set(
+                    "Save failed: could not check for an existing activation"));
+            logger.error("getConfigurationActivation returned a null result for: {}",
+                    clientActivationIdValue);
+            return PreSaveOutcome.CHECK_FAILED;
+        }
+
+        if (getResult.isReject()) {
+            // No existing record - nothing to overwrite.
+            logger.debug("no existing activation for id: {}, saving as new", clientActivationIdValue);
+            return PreSaveOutcome.PROCEED;
+        }
+
+        if (getResult.resultStatus.isError) {
+            /*
+             * A genuine failure, not a not-found.  Do not save.
+             *
+             * This matches confirmOverwriteIfExists() deliberately rather than warning and letting
+             * the user decide: proceeding on an unverifiable check reproduces the silent-replacement
+             * bug precisely when the system is unhealthy, and two adjacent saves in the same view
+             * behaving differently for the same class of failure is worse than either policy alone.
+             */
+            Platform.runLater(() -> statusMessage.set(
+                    "Save failed: could not check for an existing activation: "
+                            + getResult.resultStatus.msg));
+            logger.error("getConfigurationActivation failed for {}: {}",
+                    clientActivationIdValue, getResult.resultStatus.msg);
+            return PreSaveOutcome.CHECK_FAILED;
+        }
+
+        // A record exists and would be replaced in its entirety.  Ask before proceeding.
+        logger.debug("existing activation found for id: {}, confirming overwrite",
+                clientActivationIdValue);
+
+        if (activationOverwriteConfirmation == null) {
+            // No dialog wired up: proceed rather than deadlock, but say so.
+            logger.warn("no activation overwrite confirmation handler set; replacing {}",
+                    clientActivationIdValue);
+            return PreSaveOutcome.PROCEED;
+        }
+
+        final Boolean confirmed = runOnFxThreadAndWait(
+                () -> activationOverwriteConfirmation.confirmOverwrite(clientActivationIdValue));
+
+        if (confirmed == null) {
+            // The FX thread never answered - see runOnFxThreadAndWait().  Do not save: the whole
+            // point of this check is that an unconfirmed overwrite must not go through.
+            Platform.runLater(() -> statusMessage.set(
+                    "Save failed: timed out waiting for the overwrite confirmation"));
+            logger.error("timed out waiting for activation overwrite confirmation for: {}",
+                    clientActivationIdValue);
+            return PreSaveOutcome.CHECK_FAILED;
+        }
+
+        if (!confirmed) {
+            Platform.runLater(() ->
+                    statusMessage.set("Add cancelled: existing activation not replaced"));
+            logger.info("user declined to replace existing activation: {}", clientActivationIdValue);
+            return PreSaveOutcome.DECLINED;
+        }
+
+        return PreSaveOutcome.PROCEED;
     }
 
     /**

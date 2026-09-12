@@ -182,6 +182,13 @@ public class AnnotationApiLiveIT {
             database.getCollection("pvStats").deleteMany(
                     com.mongodb.client.model.Filters.regex("_id", STAMP));
 
+            // Configurations and their activations are keyed by name and by client activation id
+            // rather than by a "name" field, so they need their own stamped filters.
+            database.getCollection("configurations").deleteMany(
+                    com.mongodb.client.model.Filters.regex("configurationName", STAMP));
+            database.getCollection("configurationActivations").deleteMany(
+                    com.mongodb.client.model.Filters.regex("clientActivationId", STAMP));
+
             // Calculations records are reached through the annotations that referenced them, which
             // are already gone by here, so they are matched on the id captured during the run.
             if (calculationsId != null && !calculationsId.isEmpty()) {
@@ -546,5 +553,71 @@ public class AnnotationApiLiveIT {
         assertTrue(paged.describeCount("dataset").startsWith("found "),
                 "an untruncated result should describe a definite count, got: "
                         + paged.describeCount("dataset"));
+    }
+
+    // ------------------------------------------- [7] activation id collision check (issue #36)
+
+    /**
+     * Pins the contract the machine-configuration view's activation collision check rests on:
+     * getConfigurationActivation() finds a record saved under a client-supplied id, and reports an
+     * id that names no record as a REJECTION rather than as an error or an empty success.
+     *
+     * The unit tests drive that branching against a fake, which proves the ViewModel reads the
+     * result correctly but not that the server produces the result it reads.  Only a real server
+     * can say which of REJECT and ERROR a missing activation actually comes back as - and the
+     * whole check inverts if that is wrong: an unreachable service would be read as "no existing
+     * record" and the save would overwrite blind.
+     */
+    @Test
+    @Order(7)
+    public void getConfigurationActivationFindsASavedIdAndRejectsAnUnknownOne() {
+        final String configurationNameValue = "it-config-" + STAMP;
+        final String activationIdValue = "it-activation-" + STAMP;
+
+        final var savedConfiguration = app.saveConfiguration(
+                configurationNameValue,
+                "it-category-" + STAMP,
+                "annotation API live IT configuration",
+                null,
+                List.of("integration-test"),
+                Map.of("run", STAMP),
+                "annotation API live IT");
+        assertNotNull(savedConfiguration, "saveConfiguration returned null");
+        assertFalse(savedConfiguration.resultStatus.isError,
+                "saveConfiguration failed: " + savedConfiguration.resultStatus.msg);
+
+        final var savedActivation = app.saveConfigurationActivation(
+                activationIdValue,
+                savedConfiguration.configurationName,
+                dataBegin,
+                dataEnd,
+                "annotation API live IT activation",
+                List.of("integration-test"),
+                Map.of("run", STAMP),
+                "annotation API live IT");
+        assertNotNull(savedActivation, "saveConfigurationActivation returned null");
+        assertFalse(savedActivation.resultStatus.isError,
+                "saveConfigurationActivation failed: " + savedActivation.resultStatus.msg);
+        assertEquals(activationIdValue, savedActivation.clientActivationId,
+                "the server did not save under the supplied client activation id");
+
+        // the collision case: the id names a record, so the view must confirm before replacing
+        final var found = app.getConfigurationActivation(activationIdValue);
+        assertNotNull(found, "getConfigurationActivation returned null for a saved id");
+        assertFalse(found.resultStatus.isError,
+                "getConfigurationActivation failed for a saved id: " + found.resultStatus.msg);
+        assertNotNull(found.configurationActivation,
+                "getConfigurationActivation returned no record for a saved id");
+        assertEquals(activationIdValue,
+                found.configurationActivation.getClientActivationId(),
+                "getConfigurationActivation returned a different record");
+
+        // the no-collision case: REJECT, not ERROR.  Reading this as an error would abort every
+        // save of a new activation id; reading an error as this would overwrite blind.
+        final var missing = app.getConfigurationActivation("it-no-such-activation-" + STAMP);
+        assertNotNull(missing, "getConfigurationActivation returned null for an unknown id");
+        assertTrue(missing.isReject(),
+                "an unknown activation id must be reported as a rejection, not an error (isError="
+                        + missing.resultStatus.isError + ", status=" + missing.apiResultStatus + ")");
     }
 }

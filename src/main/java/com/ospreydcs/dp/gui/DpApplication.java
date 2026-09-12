@@ -1541,8 +1541,12 @@ public class DpApplication {
      * check, which always has the id the user typed.  The composite-key arm is deliberately not
      * wrapped rather than overlooked - an unused wrapper is a surface to keep correct for no
      * benefit.
+     *
+     * The name says ById for that reason: it mirrors the wrapper it delegates to, and leaves
+     * getConfigurationActivationByCompositeKey() free to be added later without renaming this one
+     * or leaving an ambiguous getConfigurationActivation() beside it.
      */
-    public GetConfigurationActivationApiResult getConfigurationActivation(String clientActivationId) {
+    public GetConfigurationActivationApiResult getConfigurationActivationById(String clientActivationId) {
         return api.annotationClient.getConfigurationActivationById(clientActivationId);
     }
 

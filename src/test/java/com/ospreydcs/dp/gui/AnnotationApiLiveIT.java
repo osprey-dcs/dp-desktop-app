@@ -559,7 +559,7 @@ public class AnnotationApiLiveIT {
 
     /**
      * Pins the contract the machine-configuration view's activation collision check rests on:
-     * getConfigurationActivation() finds a record saved under a client-supplied id, and reports an
+     * getConfigurationActivationById() finds a record saved under a client-supplied id, and reports an
      * id that names no record as a REJECTION rather than as an error or an empty success.
      *
      * The unit tests drive that branching against a fake, which proves the ViewModel reads the
@@ -602,20 +602,20 @@ public class AnnotationApiLiveIT {
                 "the server did not save under the supplied client activation id");
 
         // the collision case: the id names a record, so the view must confirm before replacing
-        final var found = app.getConfigurationActivation(activationIdValue);
-        assertNotNull(found, "getConfigurationActivation returned null for a saved id");
+        final var found = app.getConfigurationActivationById(activationIdValue);
+        assertNotNull(found, "getConfigurationActivationById returned null for a saved id");
         assertFalse(found.resultStatus.isError,
-                "getConfigurationActivation failed for a saved id: " + found.resultStatus.msg);
+                "getConfigurationActivationById failed for a saved id: " + found.resultStatus.msg);
         assertNotNull(found.configurationActivation,
-                "getConfigurationActivation returned no record for a saved id");
+                "getConfigurationActivationById returned no record for a saved id");
         assertEquals(activationIdValue,
                 found.configurationActivation.getClientActivationId(),
-                "getConfigurationActivation returned a different record");
+                "getConfigurationActivationById returned a different record");
 
         // the no-collision case: REJECT, not ERROR.  Reading this as an error would abort every
         // save of a new activation id; reading an error as this would overwrite blind.
-        final var missing = app.getConfigurationActivation("it-no-such-activation-" + STAMP);
-        assertNotNull(missing, "getConfigurationActivation returned null for an unknown id");
+        final var missing = app.getConfigurationActivationById("it-no-such-activation-" + STAMP);
+        assertNotNull(missing, "getConfigurationActivationById returned null for an unknown id");
         assertTrue(missing.isReject(),
                 "an unknown activation id must be reported as a rejection, not an error (isError="
                         + missing.resultStatus.isError + ", status=" + missing.apiResultStatus + ")");

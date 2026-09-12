@@ -47,13 +47,13 @@ What is missing is a second existence check, consulted only when the session-loc
 
 ## The change
 
-### T1 — `DpApplication.getConfigurationActivation(String clientActivationId)`
+### T1 — `DpApplication.getConfigurationActivationById(String clientActivationId)`
 
 A thin wrapper next to `getConfiguration()` (`DpApplication.java:1523`), matching its shape
 exactly:
 
 ```java
-public GetConfigurationActivationApiResult getConfigurationActivation(String clientActivationId) {
+public GetConfigurationActivationApiResult getConfigurationActivationById(String clientActivationId) {
     return api.annotationClient.getConfigurationActivationById(clientActivationId);
 }
 ```
@@ -79,7 +79,7 @@ The current block at `:508-517` becomes a two-stage check. Stage 1 is unchanged.
 ```
 if (id is blank)                      -> no check at all; the server generates the id
 else if (session list has id)         -> confirm (existing path)
-else                                  -> server check: getConfigurationActivation(id)
+else                                  -> server check: getConfigurationActivationById(id)
                                            isReject()  -> no such record; proceed silently
                                            success     -> confirm; a decline aborts
                                            isError()   -> see D3
@@ -127,7 +127,7 @@ holding a pair. `PreSaveOutcome` itself is already result-type-agnostic and is r
 
 ### D3 — a failed existence check aborts the save, matching the configuration path
 
-The ticket does not address what happens when `getConfigurationActivation()` returns `isError()`
+The ticket does not address what happens when `getConfigurationActivationById()` returns `isError()`
 (service unreachable, backend failure — *not* a rejection), where the client cannot tell whether
 the id collides.
 
@@ -165,7 +165,7 @@ ecosystem, which is why `DpApplication` access goes through injectable seams. Ex
 - confirmation times out → treated as decline
 
 The existing `AnnotationApiLiveIT` is the right home for one end-to-end case: save an activation
-with an explicit id, then `getConfigurationActivation()` it back and assert the record is found —
+with an explicit id, then `getConfigurationActivationById()` it back and assert the record is found —
 pinning the REJECT-vs-found contract against a real server rather than against a stub. It skips
 automatically when MongoDB is unreachable, so this costs nothing in CI.
 

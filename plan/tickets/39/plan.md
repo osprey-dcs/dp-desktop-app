@@ -210,10 +210,16 @@ afterwards. Neither blocks task 6.
 
 Fix these as part of T2b rather than building on them. All verified by reading the code.
 
-- **D-1 — unbounded listener accumulation.** `PvExploreController.onSearch()` (`:244-251`)
-  registers a **new** `ListChangeListener` on `resultsTable.getItems()` on every click, in addition
-  to the one registered once at `:170`. N searches leave N listeners, each firing on every
-  subsequent change. Delete the one in `onSearch()`; it is redundant with `:170`.
+- **D-1 — unbounded listener accumulation. FIXED in PR #44**, rather than deferred to T2b, since
+  the fix is a deletion with no dependency on the rest of this ticket.
+  `PvExploreController.onSearch()` registered a **new** `ListChangeListener` on
+  `resultsTable.getItems()` on every click, in addition to the one registered once at `:170`. N
+  searches left N listeners, each firing on every subsequent change, none ever removed.
+  It was redundant with `:170` — `resultsTable.setItems(viewModel.getSearchResults())` makes both
+  the same list instance — and additionally registered *after* `searchPvMetadata()` starts its
+  background task, so it could never observe the results of the search that registered it. The
+  `:170` listener was doing the work in every case. Deleted, with the reasoning recorded in
+  CLAUDE.md so it is not re-added.
 - **D-2 — stale-read races.** `ProviderExploreViewModel.java:100-104` and
   `DatasetExploreViewModel.java:99-103` read state set by a `Platform.runLater` queued from the
   worker, with no ordering guarantee. Currently cosmetic (log lines only), but it is the pattern,

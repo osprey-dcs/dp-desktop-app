@@ -191,7 +191,7 @@ Explore → Data, PVs, Providers, Datasets, Annotations, Data Events
 - ✅ Real-time data event subscription processing with background task integration
 - ✅ Event timestamp hyperlinks with automatic query editor navigation and time window setup
 - ✅ PV Metadata view for creating/updating PV metadata records via savePvMetadata() (aliases, tags, attributes, description)
-- ✅ Machine Configuration view for creating configuration records and activation intervals via saveConfiguration() / saveConfigurationActivation(), with getConfiguration() and getConfigurationActivation() overwrite warnings
+- ✅ Machine Configuration view for creating configuration records and activation intervals via saveConfiguration() / saveConfigurationActivation(), with getConfiguration() and getConfigurationActivationById() overwrite warnings
 - ✅ Demo sample status generation in the data-generation view via saveSampleStatuses(), plus an unwired querySampleStatuses() read-back wrapper
 
 ## GUI Architecture
@@ -309,6 +309,16 @@ are reserved in the proto but deferred server-side, so the `epics_alarm` code ma
 8. **Cross-View Navigation**: "Edit Query" button returns to data-explore view with updated PV list
 9. **Provider Navigation**: Provider Name hyperlinks navigate to provider-explore view with automatic search
 10. **State Synchronization**: PV additions/removals automatically sync with global application state
+
+**The "Add Selected" button state is driven by exactly one listener, registered in
+`bindUIToViewModel()`.** `resultsTable.setItems(viewModel.getSearchResults())` makes the table's
+item list and the ViewModel's `searchResults` the same `ObservableList` instance, so a listener
+registered on either sees every change. `onSearch()` deliberately registers nothing: it previously
+added a second listener on each click, which was never removed, so every search left another
+permanently-retained copy re-doing work the first listener already did. That copy was also attached
+*after* `searchPvMetadata()` started its background task, so it could never observe the results of
+the search that registered it — the visible behavior was correct only because the
+`bindUIToViewModel()` listener was doing the job all along.
 
 ### Provider Explore Workflow (Implemented)
 1. **Query PVs Component**: Reusable component on left side for PV selection management (same as pv-explore)
@@ -454,7 +464,7 @@ The check has **two stages, and the ordering matters**:
    created. It reads `activations`, an observable list bound to the view, which is why it stays on
    the FX thread — the same reasoning that copies the component lists before the task starts.
 2. **Server, inside the background task.** `confirmActivationOverwriteIfExists()` calls
-   `DpApplication.getConfigurationActivation()` for a record this session knows nothing about — one
+   `DpApplication.getConfigurationActivationById()` for a record this session knows nothing about — one
    from an earlier session, or another client. It runs in the task body because it is a network
    round trip, and raises its dialog through the same bounded `runOnFxThreadAndWait()` seam the
    configuration save uses. **Do not add a second waiting mechanism.**
@@ -472,7 +482,7 @@ ever judged too strict it should change for both in one ticket rather than diver
 After either stage confirms, the session list is reconciled in place rather than appended to, so a
 replacement does not leave a stale row beside its replacement.
 
-Note that `DpApplication.getConfigurationActivation()` wraps only the **by-id** arm of the RPC.
+Note that `DpApplication.getConfigurationActivationById()` wraps only the **by-id** arm of the RPC.
 dp-service #243 exposed the proto's `oneof key` as two named methods so that "both keys supplied"
 and "neither supplied" cannot arise client-side; this app always has the id the user typed, so
 `getConfigurationActivationByCompositeKey()` is deliberately unwrapped rather than overlooked.

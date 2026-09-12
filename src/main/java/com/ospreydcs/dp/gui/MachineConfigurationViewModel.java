@@ -410,7 +410,7 @@ public class MachineConfigurationViewModel {
      *
      * Shared by both save paths in this view: the configuration save, whose existence check is
      * getConfiguration(), and the activation save, whose check is the session list followed by
-     * getConfigurationActivation().  The three cases cover both exactly.
+     * getConfigurationActivationById().  The three cases cover both exactly.
      */
     private enum PreSaveOutcome {
         /** No existing record, or the user confirmed replacing the one that exists. */
@@ -664,7 +664,7 @@ public class MachineConfigurationViewModel {
      * A blank id is not a collision at all: it is a request for the server to generate one, so
      * there is nothing to check and no round trip is made.
      *
-     * As with getConfiguration(), getConfigurationActivation() reports a missing record as a
+     * As with getConfiguration(), getConfigurationActivationById() reports a missing record as a
      * rejection rather than as an empty successful result, so this branches on isReject() rather
      * than isError() - a service that is simply unreachable also sets isError, and treating that
      * as "no existing record" would suppress the very warning this method exists to raise.  Reading
@@ -682,13 +682,13 @@ public class MachineConfigurationViewModel {
         }
 
         final GetConfigurationActivationApiResult getResult =
-                dpApplication.getConfigurationActivation(clientActivationIdValue);
+                dpApplication.getConfigurationActivationById(clientActivationIdValue);
 
         if (getResult == null) {
             // Treat an unusable existence check as a hard stop rather than silently overwriting.
             Platform.runLater(() -> statusMessage.set(
                     "Save failed: could not check for an existing activation"));
-            logger.error("getConfigurationActivation returned a null result for: {}",
+            logger.error("getConfigurationActivationById returned a null result for: {}",
                     clientActivationIdValue);
             return PreSaveOutcome.CHECK_FAILED;
         }
@@ -711,7 +711,7 @@ public class MachineConfigurationViewModel {
             Platform.runLater(() -> statusMessage.set(
                     "Save failed: could not check for an existing activation: "
                             + getResult.resultStatus.msg));
-            logger.error("getConfigurationActivation failed for {}: {}",
+            logger.error("getConfigurationActivationById failed for {}: {}",
                     clientActivationIdValue, getResult.resultStatus.msg);
             return PreSaveOutcome.CHECK_FAILED;
         }

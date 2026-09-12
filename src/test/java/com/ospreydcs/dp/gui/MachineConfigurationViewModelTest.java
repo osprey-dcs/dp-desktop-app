@@ -428,6 +428,55 @@ public class MachineConfigurationViewModelTest {
     }
 
     /**
+     * An overwrite confirmation that is never answered must abort the save, not sail through it.
+     *
+     * This is the one branch where "no answer" and "yes" would be catastrophic to confuse: the
+     * whole point of the check is that an unconfirmed overwrite does not go through, and the
+     * failure mode of getting it wrong is a silently replaced record.
+     *
+     * Simulating a dead FX thread without actually killing it: the timeout is shortened to a
+     * fraction of a second and the handler sleeps past it before answering.  The save thread has
+     * already given up by then and treats the result as no answer, which is exactly the state an
+     * FX thread that never runs the dialog would leave it in.  The handler then returns and frees
+     * the FX thread, so the settling runLater still arrives and the test does not hang -- stalling
+     * the FX thread outright would block the very callback the assertions wait on.
+     *
+     * It returns TRUE deliberately.  A late "yes" is the dangerous answer: if the timeout were
+     * removed, or its result read as a confirmation, this test would see the save proceed.
+     */
+    @Test
+    public void aConfirmationThatIsNeverAnsweredAbortsTheSave() throws Exception {
+        final FakeDpApplication application = new FakeDpApplication(found());
+        final MachineConfigurationViewModel viewModel = activationReadyViewModel(application);
+
+        viewModel.setFxConfirmationTimeoutSecondsForTesting(0);
+
+        final CountDownLatch handlerEntered = new CountDownLatch(1);
+        viewModel.setActivationOverwriteConfirmation(id -> {
+            handlerEntered.countDown();
+            try {
+                // Outlast the zero-second timeout the save thread is waiting on.
+                Thread.sleep(250);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+            return true;
+        });
+        viewModel.clientActivationIdProperty().set("an-unanswered-id");
+
+        addActivationAndAwait(viewModel, Instant.EPOCH, Instant.EPOCH.plusSeconds(3600));
+
+        assertTrue(handlerEntered.await(5, TimeUnit.SECONDS),
+                "the confirmation handler should have been reached");
+        assertEquals(0, application.saveCallCount.get(),
+                "a confirmation that timed out must not be treated as a confirmation");
+        assertTrue(viewModel.getActivations().isEmpty(),
+                "an unconfirmed overwrite must not appear in the session list");
+        assertEquals("Save failed: timed out waiting for the overwrite confirmation",
+                viewModel.statusMessageProperty().get());
+    }
+
+    /**
      * A save that replaced an existing record must show the replacement in place of the stale row,
      * not beside it.  The server-side collision path reaches the same reconciliation the
      * session-local one already used, so this pins that it was not bypassed.

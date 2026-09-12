@@ -45,6 +45,15 @@ public class MachineConfigurationViewModel {
      */
     private static final long FX_CONFIRMATION_TIMEOUT_SECONDS = 300;
 
+    /*
+     * The timeout actually applied, held as a field so a test can shorten it.  Production never
+     * changes it.  A test cannot exercise the timeout path otherwise: the alternative is stalling
+     * the FX thread for the real five minutes, which no unit suite can afford, and leaving the path
+     * untested means nothing catches a change that turns the bounded await back into an unbounded
+     * one - a regression whose symptom is a permanently hung save, not a failing assertion.
+     */
+    private long fxConfirmationTimeoutSeconds = FX_CONFIRMATION_TIMEOUT_SECONDS;
+
     // Configuration form properties
     private final StringProperty configurationName = new SimpleStringProperty("");
     private final StringProperty category = new SimpleStringProperty("");
@@ -811,7 +820,15 @@ public class MachineConfigurationViewModel {
      * Used for the overwrite confirmation, which has to be raised on the FX thread but whose answer
      * decides whether the background task proceeds.
      */
-    private static Boolean runOnFxThreadAndWait(BooleanSupplier supplier) throws InterruptedException {
+    /**
+     * Shortens the confirmation timeout, for tests that need to reach the timed-out branch without
+     * blocking for the production five minutes.  Package-private and called from nowhere in main.
+     */
+    void setFxConfirmationTimeoutSecondsForTesting(long seconds) {
+        this.fxConfirmationTimeoutSeconds = seconds;
+    }
+
+    private Boolean runOnFxThreadAndWait(BooleanSupplier supplier) throws InterruptedException {
 
         if (Platform.isFxApplicationThread()) {
             return supplier.getAsBoolean();
@@ -835,7 +852,7 @@ public class MachineConfigurationViewModel {
          * forever, leaving isSaving true and the progress indicator spinning with no way back.
          * The caller treats a null return as "no answer" and declines to save.
          */
-        if (!latch.await(FX_CONFIRMATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+        if (!latch.await(fxConfirmationTimeoutSeconds, TimeUnit.SECONDS)) {
             return null;
         }
 

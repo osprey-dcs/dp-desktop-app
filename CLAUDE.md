@@ -492,7 +492,12 @@ awaits with a timeout and returns `Boolean` so the caller can tell "declined" fr
 An unbounded await deadlocks the save thread if the FX thread is gone (view navigated away,
 application shutting down mid-save), leaving `isSaving` true and the progress indicator spinning
 with no way back. A timeout is treated as *do not save* — an unconfirmed overwrite must never go
-through.
+through, and specifically not as a decline the user made: the status says the confirmation timed
+out. The timeout is held in a field with a package-private
+`setFxConfirmationTimeoutSecondsForTesting()` seam, which is the only way to reach that branch in a
+test — stalling the FX thread for the production five minutes is not an option in a unit suite, and
+an untested branch here would let a change back to an unbounded await through, whose symptom is a
+permanently hung save rather than a failing assertion.
 
 **The save task reports a typed outcome, not a null sentinel.** Whether a save was skipped because
 the user declined, because the existence check failed, or was actually attempted is carried by

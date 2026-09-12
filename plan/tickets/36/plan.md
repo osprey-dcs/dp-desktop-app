@@ -82,7 +82,8 @@ else if (session list has id)         -> confirm (existing path)
 else                                  -> server check: getConfigurationActivationById(id)
                                            isReject()  -> no such record; proceed silently
                                            success     -> confirm; a decline aborts
-                                           isError()   -> see D3
+                                           isError()   -> abort the save, no dialog (see D3)
+                                           null result -> abort the save, no dialog (see D3)
 ```
 
 ### D1 — the server check runs on the background thread, not the FX thread
@@ -160,9 +161,20 @@ ecosystem, which is why `DpApplication` access goes through injectable seams. Ex
   a refactor cannot turn every add into a round trip)
 - id absent from session, server rejects → save proceeds, no dialog
 - id absent from session, server returns a record → dialog raised; decline aborts the save
-- id absent from session, server errors → dialog raised with the *uncertainty* wording (D3), and
-  the outcome is the typed "skipped" value, not a message match (D2)
-- confirmation times out → treated as decline
+- id absent from session, server errors → **no** dialog; the save aborts with the typed
+  `CHECK_FAILED` outcome, not a message match (D2)
+
+  *(Corrected after implementation: this line originally read "dialog raised with the uncertainty
+  wording", which contradicts D3 above. D3 is the decision that was implemented — a failed check
+  aborts without asking, matching the configuration path — and D3's reasoning is why. The stray
+  T3 line described an alternative D3 had already rejected, and is fixed here rather than left to
+  read as an unmet requirement.)*
+- id absent from session, lookup returns null → same abort (no dialog, `CHECK_FAILED`)
+- confirmation times out → treated as "do not save", NOT as a decline the user made. The status
+  says the confirmation timed out, and the save is not attempted. Testing this needs the timeout
+  shortened via `setFxConfirmationTimeoutSecondsForTesting()`; stalling the FX thread for the
+  production five minutes is not an option in a unit suite, and leaving the branch untested means
+  nothing catches a change that turns the bounded await back into an unbounded one
 
 The existing `AnnotationApiLiveIT` is the right home for one end-to-end case: save an activation
 with an explicit id, then `getConfigurationActivationById()` it back and assert the record is found —

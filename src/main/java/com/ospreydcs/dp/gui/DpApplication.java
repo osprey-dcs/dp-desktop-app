@@ -12,7 +12,6 @@ import com.ospreydcs.dp.grpc.v1.common.*;
 import com.ospreydcs.dp.grpc.v1.ingestion.RegisterProviderResponse;
 import com.ospreydcs.dp.grpc.v1.ingestionstream.PvConditionTrigger;
 import com.ospreydcs.dp.grpc.v1.ingestionstream.SubscribeDataEventResponse;
-import com.ospreydcs.dp.grpc.v1.query.QueryTableRequest;
 import com.ospreydcs.dp.gui.model.*;
 import com.ospreydcs.dp.service.common.model.ResultStatus;
 import com.ospreydcs.dp.service.common.protobuf.TimestampUtility;
@@ -1126,21 +1125,68 @@ public class DpApplication {
         return api.queryClient.queryPvStats(pvNamePattern);
     }
 
-    public QueryTableApiResult queryTable(List<String> pvNameList, Instant beginTime, Instant endTime) {
+    /**
+     * Queries aligned time-series samples via the Query API V2, returning ONE page.
+     *
+     * <p><strong>This wrapper is deliberately single-page, unlike the other paged wrappers on this
+     * class.</strong>  queryDataSets(), queryPvMetadata() and their siblings follow nextPageToken
+     * internally via accumulatePages() because their callers want one complete list.  The data
+     * explore view instead displays each page as it arrives -- that incremental display is the
+     * behavior the retired 1-minute interval loop provided, and accumulating here would withhold
+     * every row until the last page landed.  The caller therefore drives the loop and owns the
+     * token; see DataExploreViewModel.executeSamplesQuery().
+     *
+     * <p><strong>Do not carry a page token across queries.</strong>  A token encodes a position
+     * only; nothing binds it to the QuerySpec that produced it beyond a coarse check separating
+     * bucket tokens from sample tokens.  Replaying one against an edited time range or PV list
+     * yields a well-formed but semantically WRONG result rather than an error.  Pass null to start.
+     *
+     * <p><strong>limit is deliberately left unset.</strong>  The server does not limit the Mongo
+     * cursor -- it drains buckets until its outgoing byte budget trips and then truncates the
+     * assembled table -- so a small limit causes repeated near-full re-scans without reducing
+     * server work.  Unset selects the server default (10,000 rows); an over-maximum value would be
+     * silently clamped rather than rejected.  None of those numbers are hardcoded here because all
+     * of them are environment-overridable server-side.
+     *
+     * <p>A page is bounded by whichever of the row limit and the byte budget trips first, and the
+     * byte accounting measures sample values only -- not the timestamp list, column framing, names
+     * or the response envelope -- so a page can overshoot the budget by up to one bucket.
+     *
+     * <p><strong>Two server-side failures are not retryable and must be surfaced verbatim.</strong>
+     * A single timestamp whose values across all selected PVs exceed the byte budget is a hard
+     * error; narrowing the time range cannot help, since the offending row is one instant, and only
+     * a smaller PV set can.  And a non-scalar PV is rejected MID-ASSEMBLY rather than pre-flight
+     * (dp-service #194 is still open), so a non-scalar PV with no buckets in the window passes
+     * silently and the same PV set can succeed on one page and reject on the next -- after rows are
+     * already on screen.
+     *
+     * @param pvNames  the PVs to query; an empty list is rejected by the server
+     * @param beginTime start of the half-open interval [beginTime, endTime)
+     * @param endTime  end of that interval
+     * @param pageToken a prior result's nextPageToken to continue, or null to start
+     */
+    public QuerySamplesApiResult querySamples(
+            List<String> pvNames,
+            Instant beginTime,
+            Instant endTime,
+            String pageToken
+    ) {
+        final QueryClient.QuerySamplesParams params = new QueryClient.QuerySamplesParams(
+                new QueryClient.QuerySpecParams(
+                        timestampFromInstant(beginTime),
+                        timestampFromInstant(endTime),
+                        new QueryClient.PvNameListSelector(pvNames),
+                        null),
+                null,  // sampleStatusSelector -- task 6's filter sections, not the migration
+                0,     // limit: server default, per the javadoc above
+                pageToken,
+                // useSerializedColumns stays off.  Serialized columns cannot be merged across
+                // pages, so enabling it would require checking serializedColumnsFragmented before
+                // reading the table; an unchecked consumer gets silently misaligned columns rather
+                // than an error.
+                false);
 
-        // build params for api call
-        final QueryClient.QueryTableRequestParams params =
-                new QueryClient.QueryTableRequestParams(
-                        QueryTableRequest.TableResultFormat.TABLE_FORMAT_ROW_MAP,
-                        pvNameList,
-                        null,
-                        beginTime.getEpochSecond(),
-                        Integer.toUnsignedLong(beginTime.getNano()),
-                        endTime.getEpochSecond(),
-                        Integer.toUnsignedLong(endTime.getNano()));
-
-        // call api method
-        return api.queryClient.queryTable(params);
+        return api.queryClient.querySamples(params);
     }
 
     public QueryProvidersApiResult queryProviders(

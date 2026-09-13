@@ -15,6 +15,9 @@ public abstract class InprocessServiceBase<T extends BindableService> {
     // static variables
     private static final Logger logger = LogManager.getLogger();
 
+    /** See the channel construction in init() for why the gRPC default is not enough. */
+    private static final int MAX_INBOUND_MESSAGE_SIZE_BYTES = 64 * 1024 * 1024;
+
     // common instance variables
     protected T service;
     protected T serviceMock;
@@ -46,8 +49,20 @@ public abstract class InprocessServiceBase<T extends BindableService> {
         }
 
         // Create a client channel and register for automatic graceful shutdown.
+        //
+        // maxInboundMessageSize is raised above gRPC's 4 MB default because the server's own
+        // outgoing budget for a Query API V2 sample page is 4,096,000 bytes, and that budget is
+        // measured on sample VALUES only -- it excludes the timestamp list, per-column framing,
+        // column names and the response envelope, and it accounts per whole bucket, so a page can
+        // overshoot it by up to one bucket.  A client left at the default therefore has no
+        // headroom at all, and the failure mode is a RESOURCE_EXHAUSTED on the page that overshoots
+        // rather than anything identifying the cause.  The server's budget is environment-
+        // overridable, so this is deliberately generous rather than tuned to match it.
         channel = getGrpcCleanupRule().register(
-                InProcessChannelBuilder.forName(serverName).directExecutor().build());
+                InProcessChannelBuilder.forName(serverName)
+                        .directExecutor()
+                        .maxInboundMessageSize(MAX_INBOUND_MESSAGE_SIZE_BYTES)
+                        .build());
 
         return true;
     }

@@ -424,7 +424,7 @@ public class DataExploreController implements Initializable {
                 return new javafx.beans.property.SimpleObjectProperty<>("N/A");
             });
             
-            column.setPrefWidth(columnName.equals("timestamp") ? 180 : 100);
+            column.setPrefWidth(columnName.equals(DataExploreViewModel.TIMESTAMP_COLUMN_NAME) ? 180 : 100);
             resultsTable.getColumns().add(column);
         }
         
@@ -444,7 +444,7 @@ public class DataExploreController implements Initializable {
         // Create a series for each PV (skip timestamp column)
         int seriesCount = 0;
         for (String columnName : columnNames) {
-            if (!columnName.equals("timestamp")) {
+            if (!columnName.equals(DataExploreViewModel.TIMESTAMP_COLUMN_NAME)) {
                 XYChart.Series<Number, Number> series = new XYChart.Series<>();
                 series.setName(columnName);
                 resultsChart.getData().add(series);
@@ -487,7 +487,7 @@ public class DataExploreController implements Initializable {
         // Find timestamp column index
         int timestampIndex = -1;
         for (int i = 0; i < columnNames.size(); i++) {
-            if (columnNames.get(i).equals("timestamp")) {
+            if (columnNames.get(i).equals(DataExploreViewModel.TIMESTAMP_COLUMN_NAME)) {
                 timestampIndex = i;
                 break;
             }
@@ -663,7 +663,7 @@ public class DataExploreController implements Initializable {
             
             int timestampIndex = -1;
             for (int i = 0; i < columnNames.size(); i++) {
-                if (columnNames.get(i).equals("timestamp")) {
+                if (columnNames.get(i).equals(DataExploreViewModel.TIMESTAMP_COLUMN_NAME)) {
                     timestampIndex = i;
                     break;
                 }

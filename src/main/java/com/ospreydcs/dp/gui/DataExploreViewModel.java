@@ -1,9 +1,12 @@
 package com.ospreydcs.dp.gui;
 
 import com.ospreydcs.dp.client.result.QueryPvStatsApiResult;
-import com.ospreydcs.dp.client.result.QueryTableApiResult;
+import com.ospreydcs.dp.client.result.QuerySamplesApiResult;
+import com.ospreydcs.dp.grpc.v1.common.DataColumn;
+import com.ospreydcs.dp.grpc.v1.common.DataValue;
+import com.ospreydcs.dp.grpc.v1.common.Timestamp;
+import com.ospreydcs.dp.grpc.v1.query.ColumnTable;
 import com.ospreydcs.dp.grpc.v1.query.QueryPvStatsResponse;
-import com.ospreydcs.dp.grpc.v1.query.QueryTableResponse;
 import javafx.beans.property.*;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -25,6 +28,15 @@ public class DataExploreViewModel {
 
     private static final Logger logger = LogManager.getLogger();
     private static final DateTimeFormatter TIMESTAMP_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+
+    /**
+     * Name of the synthesized time-axis column.
+     *
+     * A V2 ColumnTable has no timestamp column -- the axis lives only in its timestampList -- but
+     * the results table sizes this column specially and the chart locates its X axis by this
+     * literal name.  Naming it once here keeps the reshape and those two consumers from drifting.
+     */
+    static final String TIMESTAMP_COLUMN_NAME = "timestamp";
 
     // Query Specification properties
     private final ObservableList<String> pvNameList = FXCollections.observableArrayList();
@@ -207,7 +219,7 @@ public class DataExploreViewModel {
         Task<Void> queryTask = new Task<Void>() {
             @Override
             protected Void call() throws Exception {
-                executeIncrementalQuery();
+                executeSamplesQuery();
                 return null;
             }
         };
@@ -245,140 +257,180 @@ public class DataExploreViewModel {
         queryThread.start();
     }
 
-    private void executeIncrementalQuery() throws Exception {
-        Instant beginInstant = getQueryBeginDateTime().atZone(ZoneId.systemDefault()).toInstant();
-        Instant endInstant = getQueryEndDateTime().atZone(ZoneId.systemDefault()).toInstant();
-        
-        logger.debug("Query time range: {} to {}", beginInstant, endInstant);
-        logger.debug("Query begin epoch seconds: {}, nanos: {}", beginInstant.getEpochSecond(), beginInstant.getNano());
-        logger.debug("Query end epoch seconds: {}, nanos: {}", endInstant.getEpochSecond(), endInstant.getNano());
-        
-        // Break query into 1-minute intervals to avoid message size limits
-        java.time.Duration totalDuration = java.time.Duration.between(beginInstant, endInstant);
-        long totalDurationSeconds = totalDuration.toSeconds();
-        long totalDurationNanos = totalDuration.toNanos();
-        int intervalSeconds = 60; // 1 minute intervals
-        
-        // Calculate intervals based on total duration in nanoseconds to avoid truncation
-        double totalDurationInSeconds = totalDurationNanos / 1_000_000_000.0;
-        int numberOfIntervals = (int) Math.ceil(totalDurationInSeconds / intervalSeconds);
-        
-        logger.debug("Total duration: {} seconds + {} nanos = {} total seconds", 
-            totalDurationSeconds, totalDuration.toNanosPart(), totalDurationInSeconds);
-        
-        boolean firstResponse = true;
+    /**
+     * Runs the query as a sequence of Query API V2 sample pages, publishing each page as it
+     * arrives.
+     *
+     * <p><strong>The 1-minute interval chopping this replaced is gone, not relocated.</strong>  It
+     * existed only to dodge the gRPC message size limit by making each request small enough to fit.
+     * The server now bounds a page itself -- by a row count and an outgoing byte budget, whichever
+     * trips first -- and hands back a resume token, so the client no longer has to guess a window
+     * size.  Guessing was also wrong in both directions: a minute of a fast PV could still overflow,
+     * while a minute of a slow one cost a round trip to return nothing.
+     *
+     * <p>The page token is never carried in from a previous query.  It encodes a position only, and
+     * replaying one against a changed time range or PV list yields a well-formed but wrong result
+     * rather than an error, so each query starts from null.
+     */
+    private void executeSamplesQuery() throws Exception {
+        final Instant beginInstant = getQueryBeginDateTime().atZone(ZoneId.systemDefault()).toInstant();
+        final Instant endInstant = getQueryEndDateTime().atZone(ZoneId.systemDefault()).toInstant();
+        final List<String> pvNames = new ArrayList<>(pvNameList);
+
+        logger.debug("Query time range: {} to {} for {} PV(s)", beginInstant, endInstant, pvNames.size());
+
+        String pageToken = null;
+        boolean firstPage = true;
         int totalRows = 0;
-        
-        for (int intervalIndex = 0; intervalIndex < numberOfIntervals; intervalIndex++) {
-            Instant intervalBegin = beginInstant.plusSeconds((long) intervalIndex * intervalSeconds);
-            Instant intervalEnd = beginInstant.plusSeconds((long) (intervalIndex + 1) * intervalSeconds);
-            
-            if (intervalEnd.isAfter(endInstant)) {
-                intervalEnd = endInstant;
-            }
-            
-            logger.debug("Querying interval {} of {}: {} to {}", 
-                intervalIndex + 1, numberOfIntervals, intervalBegin, intervalEnd);
-            
-            QueryTableApiResult apiResult = dpApplication.queryTable(
-                new ArrayList<>(pvNameList), intervalBegin, intervalEnd);
-            
+        int pageCount = 0;
+
+        do {
+            final QuerySamplesApiResult apiResult =
+                    dpApplication.querySamples(pvNames, beginInstant, endInstant, pageToken);
+
             if (apiResult == null) {
                 throw new RuntimeException("Query failed - null response from service");
             }
-            
+
             if (apiResult.resultStatus.isError) {
-                throw new RuntimeException("Query failed: " + apiResult.resultStatus.toString());
+                // Surfaced verbatim and never retried.  The two server-side failures worth naming
+                // here -- an oversized single row, and a non-scalar PV rejected mid-assembly -- are
+                // both retry-proof, and the message is the only thing that says which PV or which
+                // timestamp is at fault.  A non-scalar rejection can also arrive on a LATER page,
+                // after rows are already displayed, which is why this reports the rows kept so far
+                // rather than implying the table is empty.
+                throw new RuntimeException(pageCount == 0
+                        ? "Query failed: " + apiResult.resultStatus.msg
+                        : "Query failed after " + totalRows + " row(s) on page " + pageCount
+                                + ": " + apiResult.resultStatus.msg);
             }
-            
-            QueryTableResponse response = apiResult.queryTableResponse;
-            if (response == null) {
-                throw new RuntimeException("Query failed - null response from service");
+
+            final ColumnTable columnTable = apiResult.columnTable;
+            if (columnTable == null) {
+                throw new RuntimeException("Query failed - null table in response");
             }
-            
-            if (response.hasExceptionalResult()) {
-                throw new RuntimeException("Query failed: " + response.getExceptionalResult().getMessage());
+
+            pageCount++;
+
+            if (firstPage) {
+                final List<String> columnNames = columnNamesOf(columnTable);
+                javafx.application.Platform.runLater(() -> tableColumnNames.setAll(columnNames));
+                firstPage = false;
             }
-            
-            if (response.hasTableResult()) {
-                processQueryTableResponse(response, firstResponse);
-                firstResponse = false;
-                
-                if (response.getTableResult().hasRowMapTable()) {
-                    totalRows += response.getTableResult().getRowMapTable().getRowsCount();
-                }
+
+            final List<ObservableList<Object>> pageRows = reshapePage(columnTable);
+            totalRows += pageRows.size();
+
+            if (!pageRows.isEmpty()) {
+                javafx.application.Platform.runLater(() -> tableData.addAll(pageRows));
             }
-        }
-        
-        // Update total rows on JavaFX thread
+
+            pageToken = apiResult.nextPageToken;
+            logger.debug("Page {} yielded {} row(s); nextPageToken present: {}",
+                    pageCount, pageRows.size(), pageToken != null && !pageToken.isEmpty());
+
+        } while (pageToken != null && !pageToken.isEmpty());
+
         final int finalTotalRows = totalRows;
-        javafx.application.Platform.runLater(() -> {
-            totalRowsLoaded.set(finalTotalRows);
-        });
+        javafx.application.Platform.runLater(() -> totalRowsLoaded.set(finalTotalRows));
     }
 
-    private void processQueryTableResponse(QueryTableResponse response, boolean isFirstResponse) {
-        if (!response.getTableResult().hasRowMapTable()) {
-            return;
+    /**
+     * The displayed column names for a V2 sample table: the synthesized timestamp column, then the
+     * PV columns in the order the server returned them (bare PV names, sorted ascending and
+     * deduped).
+     *
+     * <p><strong>The timestamp column is synthesized, not received.</strong>  A V2 ColumnTable has
+     * no timestamp column -- the axis lives only in its timestampList -- whereas the V1 ROW_MAP
+     * table this replaced carried "timestamp" as an ordinary column.  The table and chart both
+     * locate the time axis by that literal name, so the reshape prepends it rather than changing
+     * them.
+     */
+    static List<String> columnNamesOf(ColumnTable columnTable) {
+        final List<String> columnNames = new ArrayList<>();
+        columnNames.add(TIMESTAMP_COLUMN_NAME);
+        for (DataColumn dataColumn : columnTable.getDataColumnsList()) {
+            columnNames.add(dataColumn.getName());
         }
-        
-        var rowMapTable = response.getTableResult().getRowMapTable();
-        
-        // Set up column names from first response
-        if (isFirstResponse) {
-            javafx.application.Platform.runLater(() -> {
-                tableColumnNames.setAll(rowMapTable.getColumnNamesList());
-            });
-        }
-        
-        // Process rows
-        List<ObservableList<Object>> newRows = new ArrayList<>();
-        
-        for (var dataRow : rowMapTable.getRowsList()) {
-            ObservableList<Object> row = FXCollections.observableArrayList();
-            
-            for (String columnName : rowMapTable.getColumnNamesList()) {
-                if (dataRow.containsColumnValues(columnName)) {
-                    var value = dataRow.getColumnValuesMap().get(columnName);
-                    
-                    if (columnName.equals("timestamp")) {
-                        // Convert protobuf Timestamp to formatted string
-                        if (value.hasTimestampValue()) {
-                            var timestamp = value.getTimestampValue();
-                            Instant instant = Instant.ofEpochSecond(timestamp.getEpochSeconds(), timestamp.getNanoseconds());
-                            LocalDateTime dateTime = LocalDateTime.ofInstant(instant, ZoneId.systemDefault());
-                            row.add(dateTime.format(TIMESTAMP_FORMATTER));
-                        } else {
-                            row.add("N/A");
-                        }
-                    } else {
-                        // Handle other data types
-                        if (value.hasIntValue()) {
-                            row.add(value.getIntValue());
-                        } else if (value.hasLongValue()) {
-                            row.add(value.getLongValue());
-                        } else if (value.hasDoubleValue()) {
-                            row.add(value.getDoubleValue());
-                        } else if (value.hasStringValue()) {
-                            row.add(value.getStringValue());
-                        } else {
-                            row.add("N/A");
-                        }
-                    }
-                } else {
-                    row.add("N/A");
+        return columnNames;
+    }
+
+    /**
+     * Reshapes one column-oriented V2 page into the row-oriented structure the table and chart
+     * consume, transposing the columns against the page's timestamp axis.
+     *
+     * <p>Static and free of any JavaFX or service reference so the transpose is unit-testable
+     * without a service ecosystem, for the same reason as accumulatePages() and
+     * SampleStatusTableRow.expand(): this is the point where a wrong answer looks plausible rather
+     * than failing loudly.
+     *
+     * <p><strong>A missing value renders as blank, not "N/A".</strong>  The server encodes "this PV
+     * had no sample at this timestamp" as an UNSET DataValue oneof, which is a real distinction the
+     * V1 path could not make -- there, a column absent from a row map and a value the decoder did
+     * not recognize both became the string "N/A", so genuinely missing data was indistinguishable
+     * from a decode gap.  Blank says the former; anything else appearing in a cell now means the
+     * latter.
+     *
+     * <p><strong>The row count comes from the timestamp axis, not from the columns.</strong>  The
+     * server guarantees exactly one DataValue per column per timestamp, but reading a length from a
+     * column would silently truncate every row of the page if that guarantee were ever broken,
+     * whereas indexing past a short column is caught here and rendered blank.
+     */
+    static List<ObservableList<Object>> reshapePage(ColumnTable columnTable) {
+        final List<Timestamp> timestamps = columnTable.getTimestampList().getTimestampsList();
+        final List<DataColumn> dataColumns = columnTable.getDataColumnsList();
+
+        final List<ObservableList<Object>> rows = new ArrayList<>(timestamps.size());
+
+        for (int rowIndex = 0; rowIndex < timestamps.size(); rowIndex++) {
+            final ObservableList<Object> row = FXCollections.observableArrayList();
+
+            final Timestamp timestamp = timestamps.get(rowIndex);
+            final Instant instant =
+                    Instant.ofEpochSecond(timestamp.getEpochSeconds(), timestamp.getNanoseconds());
+            row.add(LocalDateTime.ofInstant(instant, ZoneId.systemDefault()).format(TIMESTAMP_FORMATTER));
+
+            for (DataColumn dataColumn : dataColumns) {
+                if (rowIndex >= dataColumn.getDataValuesCount()) {
+                    // short column -- see the row-count note above
+                    row.add("");
+                    continue;
                 }
+                row.add(renderDataValue(dataColumn.getDataValues(rowIndex)));
             }
-            
-            newRows.add(row);
+
+            rows.add(row);
         }
-        
-        // Update table data on JavaFX thread
-        if (!newRows.isEmpty()) {
-            javafx.application.Platform.runLater(() -> {
-                tableData.addAll(newRows);
-            });
-        }
+
+        return rows;
+    }
+
+    /**
+     * Renders one sample for display, returning a Number where the value is numeric so the chart
+     * can plot it without reparsing a string.
+     *
+     * <p>An unset value oneof -- the server's encoding for a PV with no sample at this timestamp --
+     * renders as blank.  So does a value this decoder has no scalar rendering for; the samples path
+     * rejects non-scalar PVs server-side, so such a value should not reach here at all.
+     */
+    static Object renderDataValue(DataValue dataValue) {
+        return switch (dataValue.getValueCase()) {
+            case STRINGVALUE -> dataValue.getStringValue();
+            case BOOLEANVALUE -> dataValue.getBooleanValue();
+            case UINTVALUE -> Integer.toUnsignedLong(dataValue.getUintValue());
+            case ULONGVALUE -> Long.toUnsignedString(dataValue.getUlongValue());
+            case INTVALUE -> dataValue.getIntValue();
+            case LONGVALUE -> dataValue.getLongValue();
+            case FLOATVALUE -> dataValue.getFloatValue();
+            case DOUBLEVALUE -> dataValue.getDoubleValue();
+            case TIMESTAMPVALUE -> {
+                final Timestamp nested = dataValue.getTimestampValue();
+                yield LocalDateTime.ofInstant(
+                        Instant.ofEpochSecond(nested.getEpochSeconds(), nested.getNanoseconds()),
+                        ZoneId.systemDefault()).format(TIMESTAMP_FORMATTER);
+            }
+            default -> "";
+        };
     }
 
     private boolean isQueryValid() {

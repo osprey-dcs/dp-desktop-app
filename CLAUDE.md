@@ -303,6 +303,70 @@ are reserved in the proto but deferred server-side, so the `epics_alarm` code ma
 8. **Chart Visualization**: TabPane with Table and Chart views, LineChart with NumberAxis scaling
 9. **Interactive Features**: Mouse tracking tooltips, dynamic data sampling for performance
 
+**The query runs on Query API V2 (`querySamples`), migrated from `queryTable` in #39 task 6.**
+`DpApplication.querySamples()` returns ONE page; `DataExploreViewModel.executeSamplesQuery()` drives
+the `nextPageToken` loop and publishes each page as it arrives. That per-page display is deliberate
+and is why this wrapper does not use `accumulatePages()` like every other paged wrapper on
+`DpApplication`: accumulating would withhold every row until the last page landed, where the
+retired code displayed incrementally.
+
+**The 1-minute interval chopping is gone, not relocated.** It existed only to keep each response
+under the gRPC message size limit by guessing a window small enough to fit. The server now bounds a
+page itself — by a row count and an outgoing byte budget, whichever trips first — and returns a
+resume token. Guessing was wrong in both directions anyway: a minute of a fast PV could still
+overflow, while a minute of a slow one cost a round trip to return nothing.
+
+**The timestamp column is synthesized, not received.** A V2 `ColumnTable` has no timestamp column —
+the axis lives only in `timestampList` — whereas the V1 ROW_MAP table carried `"timestamp"` as an
+ordinary column. Both the results table and the chart locate the time axis by that literal name, so
+`columnNamesOf()` prepends it rather than changing them. The name is
+`DataExploreViewModel.TIMESTAMP_COLUMN_NAME`, referenced by all four consumer sites in
+`DataExploreController`, so a rename cannot silently orphan the chart — whose failure mode is a
+logged "No timestamp column found" and an empty chart beside a table that still renders.
+
+**A missing value renders BLANK, not "N/A".** V2 encodes "this PV had no sample at this timestamp"
+as an **unset** `DataValue` oneof — a real distinction the V1 path could not make, where a column
+absent from a row map and a value the decoder did not recognize both became the string `"N/A"`.
+Blank now means genuinely missing; anything else in a cell means a decode gap.
+
+**`uint32` / `uint64` are widened rather than rendered signed.** They are unsigned on the wire and
+signed in Java, so the signed accessors would display a large unsigned reading as a negative number
+— a wrong value that looks like a real one.
+
+**The row count comes from the timestamp axis, never from a column.** The server guarantees one
+`DataValue` per column per timestamp, but reading the count from a column would silently truncate
+the whole page if that guarantee broke, whereas over-indexing a short column is caught per cell.
+
+**Three server-side failures are surfaced verbatim and never retried**: a single row whose values
+across all PVs exceed the byte budget (narrowing the *time range* cannot help — only fewer PVs);
+a non-scalar PV, rejected **mid-assembly** rather than pre-flight (dp-service #194 is open), so a
+non-scalar PV with no buckets in the window passes silently and the same PV set can succeed on one
+page and reject on the next, **after rows are already displayed**; and a selector resolving past
+`maxResolvedPvCount`. `executeSamplesQuery()` reports the rows already kept when a later page fails,
+rather than implying the table is empty.
+
+**A page token is never carried across queries.** It encodes a position only, and nothing binds it
+to the `QuerySpec` that produced it beyond a coarse bucket-vs-sample kind check, so replaying one
+against an edited time range or PV list yields a well-formed but **semantically wrong** result
+rather than an error. Every query starts from null.
+
+**`limit` is deliberately left unset.** The server does not `.limit()` the Mongo cursor — it drains
+buckets until the byte budget trips and then truncates — so a small limit causes repeated near-full
+re-scans without reducing server work. Unset selects the server default; an over-maximum value is
+silently clamped, not rejected. None of those numbers are hardcoded, since all are
+environment-overridable server-side.
+
+**`useSerializedColumns` stays off.** Serialized columns cannot be merged across pages, so enabling
+it would require checking `serializedColumnsFragmented` before reading the table; a consumer that
+ignored the flag would get silently misaligned columns rather than an error.
+
+**The in-process channel's `maxInboundMessageSize` is raised above gRPC's 4 MB default**
+(`InprocessServiceBase`). The server's own per-page budget is 4,096,000 bytes and is measured on
+sample **values only** — excluding the timestamp list, column framing, names and the response
+envelope — and accounts per whole bucket, so a page can overshoot by up to one bucket. A client at
+the default has no headroom, and the failure is a `RESOURCE_EXHAUSTED` on the overshooting page with
+nothing identifying the cause.
+
 ### PV Explore Workflow (Implemented)
 1. **Query PVs Component**: Reusable component displaying current PV selection with individual remove buttons
 2. **PV Query Editor**: Search form with pattern matching and name list options
@@ -1032,6 +1096,39 @@ neither help nor hinder this test; it reaches the same database through its own 
 Run it alone with `mvn test -Dtest=ExploreQueryLiveIT`; watch it skip with
 `mvn test -Dtest=ExploreQueryLiveIT -Ddp.MongoClient.dbPort=1`.
 
+**Query API V2 decode tests** (`DataExploreV2DecodeTest`): `columnNamesOf()`, `reshapePage()` and
+`renderDataValue()` are pure statics precisely so the transpose is testable without a service
+ecosystem, the same reasoning as `accumulatePages()` and `SampleStatusTableRow.expand()`. Every case
+guarded produces *plausible-looking wrong output* rather than an obvious failure: a dropped timestamp
+column leaves a table that still renders beside a chart that silently finds no axis, a missing value
+rendered as text is indistinguishable from a PV that really reported that text, a signed accessor
+turns a large unsigned reading into a negative one, and a transpose that reads its row count from a
+column truncates the whole page at once. All four were mutation-checked against the defect they
+claim to catch.
+
+**Live V2 test** (`QuerySamplesLiveIT`): pins what the unit suite structurally cannot — the shape the
+**server** actually returns. That a `ColumnTable` carries its axis only in `timestampList` with no
+timestamp column (so the synthesized one is required, not redundant); that every resolved PV gets a
+column even with no data; that there is exactly one `DataValue` per column per timestamp; that paging
+**terminates** and **accumulates**; and that an empty window is a success carrying an empty table
+rather than a rejection.
+
+Two things this test's own construction had to get right, both found by mutation-checking it:
+
+- **A single-page result cannot distinguish accumulation from stopping early.** The first version
+  queried 100 rows, which fit in one page, so a loop mutated to stop after page one still passed. It
+  now also queries a set sized past the server's default page and asserts `pageCount > 1`, so the
+  row-total assertion exercises a real page boundary.
+- **`generateAndIngestData()` returning success does not mean the data is queryable.** Ingestion is
+  asynchronous, and a `querySamples()` issued immediately after reliably returns the right COLUMNS
+  with an EMPTY timestamp list — the same shape a legitimately empty window produces, which is why it
+  reads as a query defect rather than as a race. Measured: the first query saw 0 rows and every query
+  from ~500 ms on saw all 100. `awaitIngestedDataVisible()` polls for the condition rather than
+  sleeping, so a growing lag fails loudly instead of becoming flaky again.
+
+Run it alone with `mvn test -Dtest=QuerySamplesLiveIT`; watch it skip with
+`-Ddp.MongoClient.dbPort=1`.
+
 **What live coverage still does not reach**: FXML rendering, clicks, navigation between views, and
 the editor forms. Those need the manual scenario in `plan/tickets/39/manual-verification.md`.
 
@@ -1318,6 +1415,14 @@ page (not truncated), and a server returning a token alongside an empty page.
   unspecified and rejected, so a query at Unix epoch 0 cannot be expressed. Not reachable through the
   date pickers, but it is why an `Instant.EPOCH` sentinel must never be used to mean "unset".
 
+**Query API V2 wrapper** on `DpApplication`:
+- `querySamples(pvNames, beginTime, endTime, pageToken)` — returns **ONE page** of aligned samples
+  as a `QuerySamplesApiResult`, deliberately unlike every other paged wrapper here. The data explore
+  view displays each page as it arrives, so the caller drives the loop and owns the token; see the
+  Data Explore Workflow above for the full rationale and the server-side caveats.
+- The V1 `queryTable()` wrapper was **removed** by #39 task 6 once its only caller migrated. Leaving
+  a dead wrapper would have invited a future view onto the retired path.
+
 **Sample Status API wrappers** on `DpApplication` (the client wrappers themselves already exist on
 `AnnotationClient`, added by dp-service #239 — no dp-service work is needed to use them):
 - `saveSampleStatuses(frames, source, modifiedBy)` — batch upsert. Upsert is per individual status
@@ -1325,7 +1430,8 @@ page (not truncated), and a server returning a token alongside an empty page.
   empty confidence/reasons list clears the stored values.
 - `querySampleStatuses(beginTime, endTime, pvNames, domains, layers, limit, pageToken)` — unary,
   resumable paging. Takes `Instant` at this boundary and converts inward via `timestampFromInstant()`,
-  since `QuerySampleStatusesParams` takes protobuf `Timestamp` (unlike `queryTable()`). **Bucket
+  since `QuerySampleStatusesParams` takes protobuf `Timestamp` (like `querySamples()`, and unlike the
+`queryTable()` wrapper that #39 task 6 removed). **Bucket
   selection is a `TimeRange` overlap test and boundary buckets are returned whole**, so a returned
   bucket may contain statuses outside the requested range — callers counting or displaying
   individual statuses must account for this. Currently has no UI caller; it is groundwork for the

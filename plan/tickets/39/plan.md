@@ -536,7 +536,50 @@ exercised by any of this.
 [`manual-verification.md`](manual-verification.md), whose highest-value check is the alias trap in
 Part 3c — a silent data-loss path if it regresses.
 
-### Task 6 — V2 migration (unblocked; #244 shipped)
+### Task 6 — V2 migration — **migration half DONE**; selector sections remain
+
+Sequenced in three commits rather than one, because the migration rewrites the one query path with
+prior manual coverage while the selector sections are purely additive. **Commit 1 (the migration) is
+done**; the modal PV selector and the configuration / sample-status selector sections follow.
+
+**Done in the migration commit:**
+
+- `DpApplication.querySamples(pvNames, begin, end, pageToken)` — single-page by design, unlike every
+  other paged wrapper here, because the view displays each page as it arrives.
+- `DataExploreViewModel.executeSamplesQuery()` — `do/while` on `nextPageToken`, replacing the
+  1-minute interval loop, which is **deleted** rather than relocated.
+- `columnNamesOf()` / `reshapePage()` / `renderDataValue()` — pure statics; the synthesized timestamp
+  column, the column-to-row transpose, and blank-for-unset rendering.
+- `TIMESTAMP_COLUMN_NAME` constant, bound at all four `DataExploreController` consumer sites.
+- `InprocessServiceBase` raises `maxInboundMessageSize` to 64 MB.
+- The dead V1 `queryTable()` wrapper is **removed** — its only caller migrated, and leaving it would
+  invite a future view onto the retired path.
+
+**Claims verified rather than assumed:**
+
+| Claim | How |
+|---|---|
+| V2 table has no timestamp column (axis only in `timestampList`) | `QuerySamplesLiveIT` order 10 |
+| every resolved PV gets a column even with no data | order 11 |
+| exactly one `DataValue` per column per timestamp | order 12 |
+| paging terminates, and no token repeats | order 20 |
+| paging **accumulates** across a real page boundary | order 23 |
+| an empty window is a success, not a rejection | order 21 |
+| ingested floats render as `Number`, not blanks | order 22 |
+
+**Two findings from mutation-checking the live test itself**, both recorded in CLAUDE.md: a
+single-page result cannot distinguish accumulation from stopping early (fixed by adding a set sized
+past the server's default page, plus a `pageCount > 1` assertion), and **ingestion is asynchronous**
+— a query issued immediately after a successful `generateAndIngestData()` returns the right columns
+with an empty timestamp list, which is indistinguishable from a legitimately empty window. The
+readiness gate polls rather than sleeping.
+
+Four mutation checks on the decode, all caught: row count read from a column (`expected: <3> but was:
+<1>`), unset rendered as `"N/A"`, the synthesized timestamp column dropped, and signed accessors for
+unsigned values (`expected: <4294967295> but was: <-1>`).
+
+#### Original task 6 notes (retained)
+
 
 The single decode point is `DataExploreViewModel.processQueryTableResponse()` (`:320-382`), fed by
 `executeIncrementalQuery()` (`:248-318`). The ticket's plan to reshape at that point and leave the

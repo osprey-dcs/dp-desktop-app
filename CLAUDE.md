@@ -1000,6 +1000,41 @@ guard that cannot fail is worse than no guard — it reads as coverage. The blan
 distinguishes `null` from `[]` (`expected: <null> but was: <[]>`), which is the distinction
 `TextMatch.isEmpty()` alone cannot make, since it reports true for both.
 
+**Live explore-query test** (`ExploreQueryLiveIT`, added by #39): verifies the query paths of tasks
+3, 4 and 5 against a real ecosystem and a real MongoDB. Each assertion pins a claim about what the
+**server** does, which the unit suite cannot check because the unit suite supplies the server's
+answers:
+
+- `getPvMetadata()` really does resolve an alias to the **canonical** record. Task 4's whole
+  load-for-edit design rests on this; were it false, the structural fix would address a
+  non-problem while a real hazard went unguarded.
+- sample statuses written by `generateAndIngestData(..., true)` really do come back for the window
+  they were written for, expanding to exactly one status per generated sample. A clock misalignment
+  fails *silently* — the save succeeds and nothing matches at query time — so an empty result here
+  is the only signal that would ever appear.
+- boundary buckets really do come back **whole**: the untrimmed expansion of a one-second query
+  window carried 30 statuses where the trim yields 10, so the client-side trim is load-bearing
+  rather than a no-op that happens to look right.
+- a **half-filled** activation range really is dropped rather than rejected — a start bound a year
+  after the activation still returned it. That is the premise of
+  `ConfigurationExploreViewModel.hasPartialRange()` refusing to send one.
+
+Also pinned: a missing record is a REJECT not an error, a criteria-free query matches everything
+rather than erroring, and a non-matching attribute value **excludes** the record (proving the
+criterion is applied rather than dropped — the negative assertions are what stop the positive ones
+from passing vacuously).
+
+Skips rather than fails without MongoDB, and cleans up its stamped records in `@AfterAll`, exactly
+as `AnnotationApiLiveIT` does. Note that `DpApplication.init()` always starts its **own in-process
+ecosystem** — the app has no remote-gRPC path yet — so separately running services on 50051-50053
+neither help nor hinder this test; it reaches the same database through its own services.
+
+Run it alone with `mvn test -Dtest=ExploreQueryLiveIT`; watch it skip with
+`mvn test -Dtest=ExploreQueryLiveIT -Ddp.MongoClient.dbPort=1`.
+
+**What live coverage still does not reach**: FXML rendering, clicks, navigation between views, and
+the editor forms. Those need the manual scenario in `plan/tickets/39/manual-verification.md`.
+
 **Calculations import fixture** (`CalculationsWorkbookFixture`, added by #43): generates the
 multi-sheet XLSX used to exercise Annotation Builder → Import Calculations by hand, and through it
 the Calculations presence column, the fetch-on-click, and the multi-frame chooser.

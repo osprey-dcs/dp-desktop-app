@@ -429,8 +429,10 @@ Identical to the Annotation Builder defect, in a view with the same shape. Guard
 correct all-null match and the broken empty-list one — the mutation produced exactly
 `expected: <null> but was: <[]>`.
 
-**Still unverified end to end.** Neither task 3 nor task 4 has been exercised against live data
-through the UI; `AnnotationApiLiveIT` covers the Annotation API but not these two query paths.
+**Live coverage added.** `ExploreQueryLiveIT` now exercises this task's query paths against a real
+MongoDB, including the alias resolution this task's whole design rests on. UI-level interaction
+(clicks, navigation, the editor forms) remains manual — see
+[`manual-verification.md`](manual-verification.md).
 
 Original triage notes, for the record:
 
@@ -484,7 +486,9 @@ has started a thread, so reading a fake's call count straight afterwards is not 
 test had been passing by luck. Fixed with a bounded poll, since a refused search has no in-progress
 transition to await.
 
-**Still unverified end to end**, as with tasks 3 and 4.
+**Live coverage added**, as for tasks 3 and 4 — `ExploreQueryLiveIT` pins the half-filled-range
+behavior this task's refusal depends on. UI-level interaction remains manual, see
+[`manual-verification.md`](manual-verification.md).
 
 Original triage notes, for the record:
 
@@ -498,6 +502,39 @@ Unblocked by #243/#245. `#36` is planned separately and is independent — see
   for exactly this reason.
 - Configuration load-for-edit uses the existing `getConfiguration()`; the overwrite-warning path it
   feeds is already built (`MachineConfigurationViewModel.java:347-404`).
+
+## Live verification pass — **DONE**, before task 6
+
+Run before starting task 6, since task 6 rewrites the existing data-explore query path — the one
+part of this branch with prior manual coverage — and a regression there should land against a known
+good baseline.
+
+`ExploreQueryLiveIT` (16 tests) covers the query paths of tasks 3, 4 and 5 against a real ecosystem
+and a real MongoDB. **Every premise these tasks were built on is now verified rather than assumed:**
+
+| Claim | Verified |
+|---|---|
+| `getPvMetadata()` resolves an alias to the **canonical** record | yes — task 4's structural fix addresses a real behavior |
+| sample statuses come back for the window they were written for | yes — exactly 100 statuses for 100 generated samples, so the clock aligns at nanosecond precision |
+| boundary buckets are returned **whole** | yes — a 1-second window expanded to 30 untrimmed vs 10 trimmed |
+| a **half-filled** activation range is dropped, not rejected | yes — a start bound a year later still returned the activation |
+| a missing record is a REJECT, not an error | yes |
+| a criteria-free query matches everything | yes |
+
+The negative assertions matter as much as the positive ones: a non-matching attribute value must
+*exclude* the record, which is what stops the positive assertions from passing vacuously.
+
+The trim assertion was mutation-checked by deleting the lower-bound trim: `expected: <10> but was:
+<30>`. The suite skips cleanly with no database (`-Ddp.MongoClient.dbPort=1`) and leaves no records
+behind.
+
+**Note on transport**: `DpApplication.init()` always starts its own in-process ecosystem — the app
+has no remote-gRPC path yet — so separately running dp-service instances on 50051-50053 are not
+exercised by any of this.
+
+**What remains manual**: FXML rendering, clicks, cross-view navigation, and the editor forms. See
+[`manual-verification.md`](manual-verification.md), whose highest-value check is the alias trap in
+Part 3c — a silent data-loss path if it regresses.
 
 ### Task 6 — V2 migration (unblocked; #244 shipped)
 

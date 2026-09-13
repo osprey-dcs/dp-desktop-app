@@ -536,11 +536,12 @@ exercised by any of this.
 [`manual-verification.md`](manual-verification.md), whose highest-value check is the alias trap in
 Part 3c — a silent data-loss path if it regresses.
 
-### Task 6 — V2 migration — **migration half DONE**; selector sections remain
+### Task 6 — V2 migration — **commits 1 and 2 DONE**; selector sections remain
 
 Sequenced in three commits rather than one, because the migration rewrites the one query path with
-prior manual coverage while the selector sections are purely additive. **Commit 1 (the migration) is
-done**; the modal PV selector and the configuration / sample-status selector sections follow.
+prior manual coverage while the selector sections are purely additive. **Commit 1 (the migration)
+and commit 2 (the modal PV selector) are done**; the configuration / sample-status selector sections
+follow.
 
 **Done in the migration commit:**
 
@@ -577,6 +578,48 @@ readiness gate polls rather than sleeping.
 Four mutation checks on the decode, all caught: row count read from a column (`expected: <3> but was:
 <1>`), unset rendered as `"N/A"`, the synthesized timestamp column dropped, and signed accessors for
 unsigned values (`expected: <4294967295> but was: <-1>`).
+
+**Done in the modal PV selector commit (part 2):**
+
+- `PvSelection` (`gui/model`) — the app-side counterpart of the client's sealed `PvSelectorParams`,
+  covering all three arms. A single class with a mode rather than a mirrored hierarchy, because the
+  Query Editor must hold a *partially edited* selection while the modal is open, which a sealed
+  hierarchy makes unrepresentable. The conversion to the sealed form happens once, where the choice
+  is final.
+- `PvSelectorDialogController` + `pv-selector-dialog.fxml` — modal with live summary and warning.
+- `DpApplication.querySamples()` now takes `QueryClient.PvSelectorParams` rather than a name list.
+- `DataExploreViewModel.pvSelection` + selection-aware validation; the two success messages now
+  describe the selection rather than reporting `pvNameList.size()`, which was about to start lying.
+- `PvMetadataExploreViewModel.textMatch()` / `parseCommaSeparatedList()` widened to public and
+  reused rather than reimplemented.
+
+**The cost the ticket understated was handled as planned.** The PV name list is untouched: name-list
+mode reads the live list at conversion time rather than copying it, so all six name-list flows work
+exactly as before and none of them has to know the selection exists.
+
+**Three decisions worth recording, all of them about what NOT to enforce:**
+
+| Case | Decision | Why |
+|---|---|---|
+| empty metadata query | allowed, warned loudly | the server accepts it as a whole-archive scan; refusing would invent a client rule the service does not have |
+| blank pattern | refused | the server rejects it, and a blank field is unfilled rather than intentional |
+| Add to Dataset in a non-name-list mode | refused | a `DataBlock` *is* a name list; the populated list would otherwise be read for a query that never used it |
+
+**Mutation checks: 13, all caught.** Four on `PvSelection` (name list copied rather than read live,
+pattern arm falling back to the name list, metadata description omitting "every PV in the archive",
+selector aliasing the observable list), three on validation (names required in every mode, blank
+pattern accepted, null selection left null), four on the dialog (mode leakage from a stale field,
+metadata never warning, warning `visible` but not `managed`, panes hidden but still `managed`), and
+two on the **live** tests themselves — the pattern test's negative assertion and the metadata test's
+unmatched-tag case both failed correctly when the selector was neutered, so neither passes vacuously.
+
+**Claims verified against the real server rather than assumed:**
+
+| Claim | How |
+|---|---|
+| the name-pattern arm resolves PVs the caller never listed, and not ones outside the pattern | `QuerySamplesLiveIT` order 30 |
+| each metadata criterion (tag / alias / attribute) resolves independently | order 31 |
+| a metadata selector matching nothing is a success with an empty table, not an error | order 31 |
 
 #### Original task 6 notes (retained)
 

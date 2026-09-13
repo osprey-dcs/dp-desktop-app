@@ -54,6 +54,8 @@ public class DataExploreController implements Initializable {
     @FXML private VBox specificationContent;
     @FXML private ListView<String> pvNamesList;
     @FXML private Button explorePvsButton;
+    @FXML private Button selectPvsButton;
+    @FXML private Label pvSelectionLabel;
     
     // Time Range FXML components
     @FXML private DatePicker queryBeginDatePicker;
@@ -227,6 +229,14 @@ public class DataExploreController implements Initializable {
     private void bindUIToViewModel() {
         // Query Specification bindings
         pvNamesList.setItems(viewModel.getPvNameList());
+
+        // The summary tracks BOTH the selection and the name list, because in name-list mode the
+        // list IS the selection -- a label bound to the selection alone would keep saying "3 PVs by
+        // name" after a fourth was added.
+        viewModel.pvSelectionProperty().addListener((obs, oldVal, newVal) -> updatePvSelectionLabel());
+        viewModel.getPvNameList().addListener(
+                (javafx.collections.ListChangeListener<String>) change -> updatePvSelectionLabel());
+        updatePvSelectionLabel();
         
         // Set up custom cell factory AFTER setting items to ensure it's not overridden
         pvNamesList.setCellFactory(listView -> new PvNameListCell());
@@ -910,6 +920,42 @@ public class DataExploreController implements Initializable {
         logger.debug("Query results panel toggled: {}", isVisible ? "visible" : "hidden");
     }
     
+    /**
+     * Opens the modal PV selector and applies whatever it returns.
+     *
+     * <p>A cancelled dialog returns null and the current selection is left alone; the dialog never
+     * mutates the PV name list, so cancelling cannot have half-applied anything.
+     */
+    @FXML
+    private void onSelectPvs() {
+        final com.ospreydcs.dp.gui.model.PvSelection selection =
+                com.ospreydcs.dp.gui.component.PvSelectorDialogController.showDialog(
+                        viewModel.getPvSelection(),
+                        viewModel.getPvNameList(),
+                        primaryStage);
+
+        if (selection != null) {
+            viewModel.setPvSelection(selection);
+            viewModel.updateStatus("PV selection: " + viewModel.describePvSelection());
+        }
+    }
+
+    /**
+     * Keeps the Query Editor honest about what a submitted query would actually cover.
+     *
+     * <p>The PV ListView stays visible and populated in every mode, because it is shared state the
+     * other views write to -- so without this label a pattern or metadata query would run beside a
+     * list of PVs it had nothing to do with, and the list would read as the query's scope.
+     */
+    private void updatePvSelectionLabel() {
+        if (pvSelectionLabel == null) {
+            return;
+        }
+        final com.ospreydcs.dp.gui.model.PvSelection selection = viewModel.getPvSelection();
+        pvSelectionLabel.setText("Querying: " + viewModel.describePvSelection()
+                + (selection.isNameList() ? "" : " (the list below is not used by this query)"));
+    }
+
     @FXML
     private void onExplorePvs() {
         if (mainController != null) {
@@ -931,7 +977,20 @@ public class DataExploreController implements Initializable {
     @FXML
     private void onAddToDataset() {
         logger.info("Add to Dataset requested");
-        
+
+        // A data block is a PV NAME LIST by definition, so a pattern or metadata selection cannot
+        // be turned into one without resolving it server-side -- which this view does not do.
+        // Refusing is the only honest option: the name list below is still populated in those modes
+        // (it is shared global state), so an unguarded read here would build a data block out of
+        // PVs the query never covered and save it with no error at all.
+        if (!viewModel.getPvSelection().isNameList()) {
+            viewModel.updateStatus("A dataset needs an explicit PV list -- switch the selection to "
+                    + "\"Name list\" to add this time range to a dataset");
+            logger.warn("Refused add-to-dataset for a non-name-list selection: {}",
+                    viewModel.describePvSelection());
+            return;
+        }
+
         // Update global state and validate query data
         updateGlobalQueryState();
         

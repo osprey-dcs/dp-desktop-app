@@ -40,9 +40,12 @@
                             <HBox spacing="10" alignment="CENTER_LEFT">
                                 <Label styleClass="control-label" text="PV Names:" />
                                 <Region HBox.hgrow="ALWAYS" />
+                                <Button fx:id="selectPvsButton" onAction="#onSelectPvs"
+                                        styleClass="btn, btn-default" text="Select PVs..." />
                                 <Button fx:id="explorePvsButton" onAction="#onExplorePvs" 
                                         styleClass="btn, btn-primary" text="Explore PVs" />
                             </HBox>
+                            <Label fx:id="pvSelectionLabel" styleClass="text-info" wrapText="true" />
                             <ListView fx:id="pvNamesList" prefHeight="120.0" />
                         </VBox>
                         

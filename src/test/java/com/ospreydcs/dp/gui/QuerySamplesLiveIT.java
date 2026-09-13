@@ -59,6 +59,12 @@ public class QuerySamplesLiveIT {
     private static final String DATABASE_NAME = "dp-demo";
 
     private static final String PV_A = "IT:V2:A:" + STAMP;
+
+    /** Curated metadata on PV_A, so the metadata selector arm has something to resolve. */
+    private static final String METADATA_ALIAS = "IT:V2:ALIAS:" + STAMP;
+    private static final String METADATA_TAG = "it-v2-tag-" + STAMP;
+    private static final String METADATA_ATTRIBUTE_KEY = "itV2Subsystem";
+    private static final String METADATA_ATTRIBUTE_VALUE = "vacuum-" + STAMP;
     private static final String PV_B = "IT:V2:B:" + STAMP;
 
     /** A PV that is registered as a name but has NO data in the queried window. */
@@ -155,6 +161,17 @@ public class QuerySamplesLiveIT {
         assertFalse(pagedStatus.isError,
                 "generateAndIngestData failed for the dense PV: " + pagedStatus.msg);
 
+        // The metadata arm resolves against CURATED PvMetadata records, which are a different
+        // collection from the derived pvStats the name and pattern arms reach.  A PV can have
+        // buckets and no metadata record, so the metadata selector needs one written explicitly.
+        final var metadataSaved = app.savePvMetadata(
+                PV_A, List.of(METADATA_ALIAS), List.of(METADATA_TAG),
+                java.util.Map.of(METADATA_ATTRIBUTE_KEY, METADATA_ATTRIBUTE_VALUE),
+                "a live IT PV", "it-v2-" + STAMP);
+        assertNotNull(metadataSaved, "savePvMetadata returned null");
+        assertFalse(metadataSaved.resultStatus.isError,
+                "savePvMetadata failed: " + metadataSaved.resultStatus.msg);
+
         awaitIngestedDataVisible();
     }
 
@@ -172,6 +189,24 @@ public class QuerySamplesLiveIT {
      * reason this gate exists rather than a sleep: polling for the condition keeps the test honest
      * if the lag ever grows, whereas a fixed sleep would silently become flaky again.
      */
+    /**
+     * Queries by explicit PV name, the shape every assertion here is written against.
+     *
+     * <p>The wrapper takes a {@code PvSelectorParams} rather than a name list since #39 task 6's
+     * selector work, because the Query Editor can now select by name pattern or by metadata too.
+     * This keeps the name-list arm -- the one whose result shape these tests pin -- spelled once.
+     */
+    private static com.ospreydcs.dp.client.result.QuerySamplesApiResult querySamplesByName(
+            List<String> pvNames,
+            java.time.Instant begin,
+            java.time.Instant end,
+            String pageToken
+    ) {
+        return app.querySamples(
+                new com.ospreydcs.dp.client.QueryClient.PvNameListSelector(pvNames),
+                begin, end, pageToken);
+    }
+
     private static void awaitIngestedDataVisible() throws InterruptedException {
         final long deadline = System.currentTimeMillis() + VISIBILITY_TIMEOUT_MILLIS;
 
@@ -199,7 +234,7 @@ public class QuerySamplesLiveIT {
         String pageToken = null;
         int rows = 0;
         do {
-            final var probe = app.querySamples(pvNames, begin, end, pageToken);
+            final var probe = querySamplesByName(pvNames, begin, end, pageToken);
             if (probe == null || probe.resultStatus.isError || probe.columnTable == null) {
                 return false;
             }
@@ -244,6 +279,8 @@ public class QuerySamplesLiveIT {
                     com.mongodb.client.model.Filters.regex("_id", STAMP));
             database.getCollection("providers").deleteMany(
                     com.mongodb.client.model.Filters.regex("name", STAMP));
+            database.getCollection("pvMetadata").deleteMany(
+                    com.mongodb.client.model.Filters.regex("pvName", STAMP));
 
         } catch (Exception cleanupFailed) {
             System.err.println("QuerySamplesLiveIT cleanup failed (records tagged " + STAMP
@@ -263,7 +300,7 @@ public class QuerySamplesLiveIT {
     @Test
     @Order(10)
     public void theTableCarriesItsTimeAxisOnlyInTheTimestampListAndNeverAsAColumn() {
-        final var result = app.querySamples(List.of(PV_A, PV_B), dataBegin, dataEnd, null);
+        final var result = querySamplesByName(List.of(PV_A, PV_B), dataBegin, dataEnd, null);
 
         assertNotNull(result, "querySamples returned null");
         assertFalse(result.resultStatus.isError, "querySamples failed: " + result.resultStatus.msg);
@@ -289,8 +326,7 @@ public class QuerySamplesLiveIT {
     @Test
     @Order(11)
     public void everyRequestedPvGetsAColumnEvenWithNoDataInTheWindow() {
-        final var result = app.querySamples(
-                List.of(PV_A, PV_B, PV_NO_DATA), dataBegin, dataEnd, null);
+        final var result = querySamplesByName(List.of(PV_A, PV_B, PV_NO_DATA), dataBegin, dataEnd, null);
 
         assertFalse(result.resultStatus.isError,
                 "a PV with no data must not fail the query: " + result.resultStatus.msg);
@@ -322,7 +358,7 @@ public class QuerySamplesLiveIT {
     @Test
     @Order(12)
     public void everyColumnHasExactlyOneValuePerTimestamp() {
-        final var result = app.querySamples(List.of(PV_A, PV_B), dataBegin, dataEnd, null);
+        final var result = querySamplesByName(List.of(PV_A, PV_B), dataBegin, dataEnd, null);
         final ColumnTable table = result.columnTable;
 
         final int timestampCount = table.getTimestampList().getTimestampsCount();
@@ -359,7 +395,7 @@ public class QuerySamplesLiveIT {
         List<String> columnNames = null;
 
         do {
-            final var result = app.querySamples(List.of(PV_A, PV_B), dataBegin, dataEnd, pageToken);
+            final var result = querySamplesByName(List.of(PV_A, PV_B), dataBegin, dataEnd, pageToken);
             assertFalse(result.resultStatus.isError,
                     "page " + pageCount + " failed: " + result.resultStatus.msg);
 
@@ -419,7 +455,7 @@ public class QuerySamplesLiveIT {
         int totalRows = 0;
 
         do {
-            final var result = app.querySamples(List.of(PV_PAGED), pagedBegin, pagedEnd, pageToken);
+            final var result = querySamplesByName(List.of(PV_PAGED), pagedBegin, pagedEnd, pageToken);
             assertFalse(result.resultStatus.isError,
                     "page " + pageCount + " failed: " + result.resultStatus.msg);
 
@@ -440,6 +476,102 @@ public class QuerySamplesLiveIT {
     }
 
     /**
+     * THE NAME-PATTERN ARM resolves server-side, against PV names this test never lists.
+     *
+     * The unit suite structurally cannot check this: it asserts which selector arm is BUILT, and a
+     * selector that is built correctly and resolves to nothing returns a well-formed empty table
+     * rather than an error.  So without a live check, a pattern arm that silently matched no PVs
+     * would look exactly like a window with no data.
+     */
+    @Test
+    @Order(30)
+    public void theNamePatternArmResolvesPvsTheCallerNeverNamed() {
+        // Matches PV_A and PV_B (both "IT:V2:<letter>:<stamp>") but not PV_PAGED, and the stamp
+        // keeps it from reaching PVs left behind by an earlier run.
+        final var result = app.querySamples(
+                new com.ospreydcs.dp.client.QueryClient.PvNamePatternSelector(
+                        "^IT:V2:[AB]:" + STAMP + "$"),
+                dataBegin, dataEnd, null);
+
+        assertNotNull(result, "querySamples returned null for a pattern selector");
+        assertFalse(result.resultStatus.isError,
+                "pattern selector failed: " + result.resultStatus.msg);
+
+        final List<String> columnNames = DataExploreViewModel.columnNamesOf(result.columnTable);
+
+        assertTrue(columnNames.contains(PV_A), "the pattern resolved no column for " + PV_A
+                + "; resolved columns were " + columnNames);
+        assertTrue(columnNames.contains(PV_B), "the pattern resolved no column for " + PV_B
+                + "; resolved columns were " + columnNames);
+        assertFalse(columnNames.contains(PV_PAGED),
+                "the pattern matched a PV outside it, so it is not being applied as written: "
+                        + columnNames);
+
+        assertFalse(DataExploreViewModel.reshapePage(result.columnTable).isEmpty(),
+                "a pattern that resolved columns but returned no rows would be indistinguishable "
+                        + "from an empty window, which is why the rows are asserted too");
+    }
+
+    /**
+     * THE METADATA ARM resolves against curated PvMetadata, a different collection from the derived
+     * stats the other two arms reach.
+     *
+     * Each criterion is queried on its own so that a selector which quietly dropped one and
+     * returned the PV via another cannot pass.  The negative case is what makes the positives mean
+     * something: a metadata selector that resolved to EVERY PV would satisfy every positive
+     * assertion here.
+     */
+    @Test
+    @Order(31)
+    public void theMetadataArmResolvesEachCriterionSeparately() {
+        assertMetadataSelectorResolvesPvA("tag",
+                new com.ospreydcs.dp.client.QueryClient.PvMetadataSelector(
+                        null, null, List.of(METADATA_TAG), null));
+
+        assertMetadataSelectorResolvesPvA("alias",
+                new com.ospreydcs.dp.client.QueryClient.PvMetadataSelector(
+                        null, new com.ospreydcs.dp.client.criteria.TextMatch(
+                                List.of(METADATA_ALIAS), null, null),
+                        null, null));
+
+        assertMetadataSelectorResolvesPvA("attribute",
+                new com.ospreydcs.dp.client.QueryClient.PvMetadataSelector(
+                        null, null, null,
+                        List.of(new com.ospreydcs.dp.client.criteria.AttributeCriterion(
+                                METADATA_ATTRIBUTE_KEY, List.of(METADATA_ATTRIBUTE_VALUE)))));
+
+        // A tag nothing carries must resolve to no columns.  Without this, a selector that ignored
+        // its criteria entirely and returned every PV would pass all three assertions above.
+        final var unmatched = app.querySamples(
+                new com.ospreydcs.dp.client.QueryClient.PvMetadataSelector(
+                        null, null, List.of("no-such-tag-" + STAMP), null),
+                dataBegin, dataEnd, null);
+
+        assertNotNull(unmatched, "querySamples returned null for an unmatched metadata selector");
+        assertFalse(unmatched.resultStatus.isError,
+                "a metadata selector matching nothing must be a success carrying an empty table, "
+                        + "not an error: " + unmatched.resultStatus.msg);
+        assertFalse(DataExploreViewModel.columnNamesOf(unmatched.columnTable).contains(PV_A),
+                "a tag no PV carries resolved " + PV_A + " anyway, so the criterion is being "
+                        + "dropped rather than applied");
+    }
+
+    private static void assertMetadataSelectorResolvesPvA(
+            String criterionName,
+            com.ospreydcs.dp.client.QueryClient.PvMetadataSelector selector
+    ) {
+        final var result = app.querySamples(selector, dataBegin, dataEnd, null);
+
+        assertNotNull(result, "querySamples returned null for the " + criterionName + " criterion");
+        assertFalse(result.resultStatus.isError,
+                "the " + criterionName + " criterion failed: " + result.resultStatus.msg);
+        assertTrue(DataExploreViewModel.columnNamesOf(result.columnTable).contains(PV_A),
+                "the " + criterionName + " criterion resolved no column for " + PV_A
+                        + "; resolved columns were "
+                        + DataExploreViewModel.columnNamesOf(result.columnTable));
+    }
+
+    /**
      * An empty result is a SUCCESS carrying an empty table, not a rejection.  Treating it as a
      * failure would report "query failed" for the ordinary case of a window with no data.
      */
@@ -449,7 +581,7 @@ public class QuerySamplesLiveIT {
         final Instant emptyBegin = dataBegin.minus(400, ChronoUnit.DAYS);
         final Instant emptyEnd = emptyBegin.plusSeconds(10);
 
-        final var result = app.querySamples(List.of(PV_A), emptyBegin, emptyEnd, null);
+        final var result = querySamplesByName(List.of(PV_A), emptyBegin, emptyEnd, null);
 
         assertNotNull(result, "querySamples returned null for an empty window");
         assertFalse(result.resultStatus.isError,
@@ -469,7 +601,7 @@ public class QuerySamplesLiveIT {
     @Test
     @Order(22)
     public void ingestedFloatSamplesRenderAsNumbersRatherThanBlanks() {
-        final var result = app.querySamples(List.of(PV_A), dataBegin, dataEnd, null);
+        final var result = querySamplesByName(List.of(PV_A), dataBegin, dataEnd, null);
         final List<ObservableList<Object>> rows =
                 DataExploreViewModel.reshapePage(result.columnTable);
 

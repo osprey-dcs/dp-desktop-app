@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<VBox xmlns="http://javafx.com/javafx/21.0.2" xmlns:fx="http://javafx.com/fxml/1"
+      spacing="12.0" prefWidth="560.0"
+      fx:controller="com.ospreydcs.dp.gui.component.PvSelectorDialogController">
+
+    <padding>
+        <Insets bottom="10.0" left="10.0" right="10.0" top="10.0" />
+    </padding>
+
+    <Label styleClass="h5" text="How should this query choose its PVs?" />
+
+    <!-- Mode selection -->
+    <VBox spacing="6.0">
+        <RadioButton fx:id="nameListRadio" text="Name list — the PVs listed in the Query Editor">
+            <toggleGroup>
+                <ToggleGroup fx:id="modeToggleGroup" />
+            </toggleGroup>
+        </RadioButton>
+        <RadioButton fx:id="namePatternRadio" toggleGroup="$modeToggleGroup"
+                     text="Name pattern — a regular expression matched against PV names" />
+        <RadioButton fx:id="metadataRadio" toggleGroup="$modeToggleGroup"
+                     text="Metadata criteria — resolved against curated PV metadata records" />
+    </VBox>
+
+    <Separator />
+
+    <!-- Name list detail -->
+    <VBox fx:id="nameListPane" spacing="6.0">
+        <Label fx:id="nameListCountLabel" styleClass="text-muted" wrapText="true" />
+        <Label styleClass="text-muted" wrapText="true"
+               text="Edit the list in the Query Editor, or use Explore PVs to add to it." />
+    </VBox>
+
+    <!-- Name pattern detail -->
+    <VBox fx:id="namePatternPane" spacing="6.0">
+        <HBox alignment="CENTER_LEFT" spacing="10.0">
+            <Label styleClass="control-label" text="Pattern:" />
+            <TextField fx:id="patternField" promptText="e.g. ^S:.*:CURRENT$" HBox.hgrow="ALWAYS" />
+            <Button fx:id="matchAllButton" onAction="#onMatchAll" styleClass="btn, btn-default"
+                    text="Match all" />
+        </HBox>
+        <Label styleClass="text-muted" wrapText="true"
+               text="A regular expression, not a glob. Use .* to select every PV in the archive." />
+    </VBox>
+
+    <!-- Metadata criteria detail -->
+    <VBox fx:id="metadataPane" spacing="8.0">
+        <GridPane hgap="10.0" vgap="8.0">
+            <columnConstraints>
+                <ColumnConstraints minWidth="90.0" prefWidth="90.0" />
+                <ColumnConstraints minWidth="110.0" prefWidth="110.0" />
+                <ColumnConstraints minWidth="200.0" prefWidth="240.0" hgrow="ALWAYS" />
+            </columnConstraints>
+
+            <Label styleClass="control-label" text="PV Name:"
+                   GridPane.columnIndex="0" GridPane.rowIndex="0" />
+            <ComboBox fx:id="pvNameMatchModeCombo" prefWidth="110.0"
+                      GridPane.columnIndex="1" GridPane.rowIndex="0" />
+            <TextField fx:id="metadataPvNameField" promptText="comma-separated values"
+                       GridPane.columnIndex="2" GridPane.rowIndex="0" />
+
+            <Label styleClass="control-label" text="Alias:"
+                   GridPane.columnIndex="0" GridPane.rowIndex="1" />
+            <ComboBox fx:id="aliasMatchModeCombo" prefWidth="110.0"
+                      GridPane.columnIndex="1" GridPane.rowIndex="1" />
+            <TextField fx:id="metadataAliasField" promptText="comma-separated values"
+                       GridPane.columnIndex="2" GridPane.rowIndex="1" />
+
+            <Label styleClass="control-label" text="Tags:"
+                   GridPane.columnIndex="0" GridPane.rowIndex="2" />
+            <TextField fx:id="metadataTagsField" promptText="comma-separated, any of"
+                       GridPane.columnIndex="2" GridPane.rowIndex="2" />
+
+            <Label styleClass="control-label" text="Attribute:"
+                   GridPane.columnIndex="0" GridPane.rowIndex="3" />
+            <TextField fx:id="metadataAttributeKeyField" promptText="key"
+                       GridPane.columnIndex="1" GridPane.rowIndex="3" />
+            <TextField fx:id="metadataAttributeValueField" promptText="value (optional)"
+                       GridPane.columnIndex="2" GridPane.rowIndex="3" />
+        </GridPane>
+        <Label styleClass="text-muted" wrapText="true"
+               text="Criteria are combined with AND; values within one criterion are combined with OR. An attribute value with no key is ignored — the key is what the criterion requires." />
+    </VBox>
+
+    <Separator />
+
+    <!-- What this selection will cover -->
+    <VBox spacing="4.0">
+        <Label styleClass="control-label" text="This query will cover:" />
+        <Label fx:id="summaryLabel" styleClass="text-info" wrapText="true" />
+        <Label fx:id="warningLabel" styleClass="text-danger" wrapText="true" managed="false" visible="false" />
+    </VBox>
+
+</VBox>

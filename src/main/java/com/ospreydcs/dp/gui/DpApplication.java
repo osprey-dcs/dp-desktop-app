@@ -1160,13 +1160,21 @@ public class DpApplication {
      * silently and the same PV set can succeed on one page and reject on the next -- after rows are
      * already on screen.
      *
-     * @param pvNames  the PVs to query; an empty list is rejected by the server
+     * <p><strong>A metadata selector that resolves too broadly is a third such failure.</strong>
+     * The server caps a resolved selector at maxResolvedPvCount and rejects past it with "narrow
+     * the selector".  Unlike the other two this one is reachable from an ordinary-looking UI
+     * choice, because an all-empty metadata query is NOT rejected -- it matches every PV in the
+     * archive.  See PvSelection, which describes that case explicitly rather than letting it read
+     * as a filter.
+     *
+     * @param pvSelector which PVs to cover; the server rejects an unset selector, an empty name
+     *                   list and a blank pattern
      * @param beginTime start of the half-open interval [beginTime, endTime)
      * @param endTime  end of that interval
      * @param pageToken a prior result's nextPageToken to continue, or null to start
      */
     public QuerySamplesApiResult querySamples(
-            List<String> pvNames,
+            QueryClient.PvSelectorParams pvSelector,
             Instant beginTime,
             Instant endTime,
             String pageToken
@@ -1175,7 +1183,7 @@ public class DpApplication {
                 new QueryClient.QuerySpecParams(
                         timestampFromInstant(beginTime),
                         timestampFromInstant(endTime),
-                        new QueryClient.PvNameListSelector(pvNames),
+                        pvSelector,
                         null),
                 null,  // sampleStatusSelector -- task 6's filter sections, not the migration
                 0,     // limit: server default, per the javadoc above

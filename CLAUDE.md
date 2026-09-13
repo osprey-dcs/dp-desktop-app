@@ -197,6 +197,7 @@ Explore → Data, PV Statistics, PV Metadata, Providers, Datasets, Annotations, 
 - ✅ Machine Configuration view for creating configuration records and activation intervals via saveConfiguration() / saveConfigurationActivation(), with getConfiguration() and getConfigurationActivationById() overwrite warnings
 - ✅ Demo sample status generation in the data-generation view via saveSampleStatuses(), with the read-back now wired to the Sample Status Explore view via querySampleStatusBuckets()
 - ✅ PV Metadata Explore view with search by name/alias (contains, prefix or exact), tags and attributes via queryPvMetadata(), and load-for-edit into the PV Metadata editor
+- ✅ Modal PV selector in the Query Editor (Name list / Name pattern / Metadata criteria) driving the V2 `PvSelector`, with the PV name list preserved as the default and identity path
 - ✅ Configuration Explore view with two independent searches (configurations and activations) via queryConfigurations() / queryConfigurationActivations(), and load-for-edit into the Machine Configuration editor
 
 ## GUI Architecture
@@ -309,6 +310,54 @@ the `nextPageToken` loop and publishes each page as it arrives. That per-page di
 and is why this wrapper does not use `accumulatePages()` like every other paged wrapper on
 `DpApplication`: accumulating would withhold every row until the last page landed, where the
 retired code displayed incrementally.
+
+**The query chooses its PVs three ways, via the modal PV selector** (#39 task 6 part 2). The
+"Select PVs..." button opens `PvSelectorDialogController`, which edits a `PvSelection` — the app's
+counterpart to the client's sealed `PvSelectorParams` — covering the three arms of the V2
+`PvSelector`: **Name list** (the default), **Name pattern** (a regex, not a glob) and **Metadata
+criteria** (resolved against curated `PvMetadata`).
+
+**The name list stays the identity path, and the other two modes never write into it.** That
+`ObservableList<String>` is wired into six flows — global-state restore, `populateFromDataBlock`,
+`QueryPvsComponent`, `DpApplication.get/setPvNames()`, the data-event-explore hyperlink and
+`DataExploreController`'s PV cell — every one of them a *name-list* flow. A selector that resolved a
+pattern or a metadata query into that list would make a query-scoped choice silently rewrite state
+five other views read and write. So `PvSelection` does not even hold the names: name-list mode reads
+the live list at `toSelectorParams()` time, which also means a PV added after the dialog was last
+closed is still queried.
+
+**The PV ListView stays visible in every mode, so the Query Editor states which mode is active.**
+The list is populated in all three modes because it is shared state, so without the summary label a
+pattern query would run beside a list of PVs it had nothing to do with, and that list would read as
+the query's scope. The label says so explicitly ("the list below is not used by this query").
+
+**Add to Dataset is refused for a pattern or metadata selection.** A `DataBlock` *is* a PV name
+list, and this view does not resolve a selector client-side. The refusal is the point: the name list
+is still populated in those modes, so an unguarded read would build a data block out of PVs the
+query never covered and save it with no error at all — the same silent-wrong-data shape as the
+Annotation Builder's calculations loss.
+
+**An empty metadata query is NOT an error — it matches every PV in the archive.** This is the
+opposite of `configurationSelector`, whose empty form the server rejects, and it is the sharpest
+edge in the selector. A user who opens the metadata tab and types nothing gets a whole-archive scan
+that *looks* like a filter. Nothing downstream complains, so `PvSelection.describe()` names the case
+in words and the dialog shows a live warning while the fields are still being edited. Query
+validation deliberately does **not** refuse it: inventing a client-side rule the server does not
+have would make the app disagree with the service about what is a legal query. A whole-archive query
+is instead rejected only if it resolves past `maxResolvedPvCount`.
+
+**A blank pattern IS refused**, because the server rejects one and a blank field is an unfilled
+control rather than an intent to match nothing. It is the only client-checkable rule of the three.
+
+**Each mode reads only its own controls.** Text left in the pattern field by an earlier visit is
+ignored while metadata is selected, rather than being carried into a selection the user abandoned —
+the same reasoning that clears the machine-configuration activation spinners rather than reusing
+whatever time they hold.
+
+`PvMetadataExploreViewModel.textMatch()` and `parseCommaSeparatedList()` are **public** and reused by
+the dialog rather than reimplemented. Two copies would be free to drift on exactly the blank-field
+handling those methods exist to pin down: a blank field emitted as an empty-list criterion is
+rejected by the server, while a blank *prefix* compiles to a regex matching everything.
 
 **The 1-minute interval chopping is gone, not relocated.** It existed only to keep each response
 under the gRPC message size limit by guessing a window small enough to fit. The server now bounds a
@@ -934,6 +983,20 @@ One sample status — a single `(pvName, timestamp, domain, layer)` identity —
 - The `PROPERTY_*` constants name the properties the `PropertyValueFactory` column bindings resolve reflectively, so a rename that misses the controller fails to compile instead of silently blanking a column; `SampleStatusExploreColumnBindingTest` covers what constants cannot — a column bound to the *wrong* constant, or not bound at all
 - Used in sample-status-explore; see the workflow section above for the clock-expansion, trimming, and labelling rationale
 
+### PvSelection (`src/main/java/com/ospreydcs/dp/gui/model/PvSelection.java`)
+How a Query API V2 request chooses which PVs it covers — the app-side counterpart of the client's
+sealed `QueryClient.PvSelectorParams`:
+- Three modes: `NAME_LIST` (the default), `NAME_PATTERN`, `METADATA`
+- `toSelectorParams(pvNames)` converts to the sealed client form; `describe(pvNames)` is the
+  one-line summary shown in the Query Editor, the modal and the status messages
+- **Does not hold the PV names.** Name-list mode takes the Query Editor's live list at conversion
+  time, so there is one source of truth for the app's most widely shared state and a PV added after
+  the selection was built is still queried
+- `isNameList()` is what the Dataset Builder branches on — a `DataBlock` is a name list by
+  definition and cannot represent the other two modes
+- Immutable, so a cancelled modal leaves nothing half-applied
+- Covered by `PvSelectionTest`; see the Data Explore Workflow for the empty-metadata-query hazard
+
 ### DataEventSubscription (`src/main/java/com/ospreydcs/dp/gui/model/DataEventSubscription.java`)
 Wrapper for data event subscription management in data-event-explore view:
 - Contains SubscribeDataEventDetail and subscription metadata
@@ -1126,8 +1189,32 @@ Two things this test's own construction had to get right, both found by mutation
   from ~500 ms on saw all 100. `awaitIngestedDataVisible()` polls for the condition rather than
   sleeping, so a growing lag fails loudly instead of becoming flaky again.
 
+It also pins the two selector arms that resolve **server-side**, which is precisely what the unit
+suite structurally cannot check — it asserts which arm is *built*, and an arm built correctly that
+resolves to nothing returns a well-formed empty table rather than an error, indistinguishable from a
+window with no data. The name-pattern arm must resolve PVs the test never lists and must **not**
+reach one outside the pattern; each metadata criterion (tag, alias, attribute) is queried on its own
+so a selector that dropped one and returned the PV via another cannot pass. The negative case — a
+tag no PV carries — is what stops all of those from passing vacuously, and mutation-checking
+confirmed it: a selector with its criteria removed fails with "a tag no PV carries resolved … anyway,
+so the criterion is being dropped rather than applied".
+
 Run it alone with `mvn test -Dtest=QuerySamplesLiveIT`; watch it skip with
 `-Ddp.MongoClient.dbPort=1`.
+
+**PV selector tests** (`PvSelectionTest`, `DataExplorePvSelectionTest`,
+`PvSelectorDialogControllerTest`): `PvSelection` is a plain value class so which selector arm it
+builds is testable without a service ecosystem, the same reasoning as `accumulatePages()` and
+`SampleStatusTableRow.expand()`. The dialog test loads the **real FXML** and drives the real
+controls, because the two things worth pinning are integration facts: that each mode reads only its
+own controls, and that the live warning fires.
+
+Every guard here was mutation-checked, and each protects a failure that is silent rather than loud:
+a selection that copies the PV name list instead of reading it queries a stale PV set; a pattern arm
+falling back to the name list returns the wrong PVs in a well-formed table; a metadata description
+that omits "every PV in the archive" lets a whole-archive scan read as a filter; a validation rule
+requiring names in every mode disables Submit for a valid query; and a warning label left
+`visible` but not `managed` takes no space and cannot be read.
 
 **What live coverage still does not reach**: FXML rendering, clicks, navigation between views, and
 the editor forms. Those need the manual scenario in `plan/tickets/39/manual-verification.md`.
@@ -1416,10 +1503,15 @@ page (not truncated), and a server returning a token alongside an empty page.
   date pickers, but it is why an `Instant.EPOCH` sentinel must never be used to mean "unset".
 
 **Query API V2 wrapper** on `DpApplication`:
-- `querySamples(pvNames, beginTime, endTime, pageToken)` — returns **ONE page** of aligned samples
+- `querySamples(pvSelector, beginTime, endTime, pageToken)` — returns **ONE page** of aligned samples
   as a `QuerySamplesApiResult`, deliberately unlike every other paged wrapper here. The data explore
   view displays each page as it arrives, so the caller drives the loop and owns the token; see the
   Data Explore Workflow above for the full rationale and the server-side caveats.
+  Takes the client's sealed `QueryClient.PvSelectorParams` rather than a name list, so all three
+  selector arms reach it and the invalid "two arms set" combination does not compile. A third
+  non-retryable rejection joins the two named above: a selector resolving past `maxResolvedPvCount`.
+  Unlike those two it is reachable from an ordinary-looking UI choice, since an all-empty metadata
+  query resolves to the whole archive rather than being rejected.
 - The V1 `queryTable()` wrapper was **removed** by #39 task 6 once its only caller migrated. Leaving
   a dead wrapper would have invited a future view onto the retired path.
 
@@ -1524,6 +1616,18 @@ resolves by index against `getTableView().getItems()` and falls back to the `Tab
 index is out of range. `HyperlinkListTableCellTest` pins this by driving `updateIndex()`, which is
 what the table itself does to recycle a cell; the guard was mutation-checked against the pre-fix
 behavior.
+
+**PvSelectorDialogController** (`src/main/java/com/ospreydcs/dp/gui/component/PvSelectorDialogController.java`)
+- Modal editor for the Query Editor's PV selection — the three arms of the V2 `PvSelector`
+- Static factory: `showDialog(PvSelection, List<String> pvNames, Stage)`, returning the edited
+  selection or **null** when cancelled
+- Edits and returns a `PvSelection`; **never** writes into the PV name list it is handed, which is
+  read for display only — see the Data Explore Workflow above for why that list must stay the
+  identity path
+- Summary and warning update on every keystroke, because the case that needs it (an unfilled
+  metadata query covering the whole archive) is accepted downstream and would otherwise be silent
+- Reuses `PvMetadataExploreViewModel.textMatch()` / `parseCommaSeparatedList()` rather than
+  reimplementing the criteria construction
 
 **QueryPvsComponent** (`src/main/java/com/ospreydcs/dp/gui/component/QueryPvsComponent.java`)
 - Reusable component for PV list management with individual remove buttons

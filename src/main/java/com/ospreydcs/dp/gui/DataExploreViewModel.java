@@ -1,5 +1,6 @@
 package com.ospreydcs.dp.gui;
 
+import com.ospreydcs.dp.client.QueryClient;
 import com.ospreydcs.dp.client.result.QueryPvStatsApiResult;
 import com.ospreydcs.dp.client.result.QuerySamplesApiResult;
 import com.ospreydcs.dp.grpc.v1.common.DataColumn;
@@ -7,6 +8,7 @@ import com.ospreydcs.dp.grpc.v1.common.DataValue;
 import com.ospreydcs.dp.grpc.v1.common.Timestamp;
 import com.ospreydcs.dp.grpc.v1.query.ColumnTable;
 import com.ospreydcs.dp.grpc.v1.query.QueryPvStatsResponse;
+import com.ospreydcs.dp.gui.model.PvSelection;
 import javafx.beans.property.*;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -40,6 +42,22 @@ public class DataExploreViewModel {
 
     // Query Specification properties
     private final ObservableList<String> pvNameList = FXCollections.observableArrayList();
+
+    /**
+     * How the query chooses its PVs.
+     *
+     * <p>Defaults to name-list, and {@link #pvNameList} above remains the identity path: it is the
+     * list bound to the PV ListView, synchronized with DpApplication's global PV state, and written
+     * by the Dataset Builder, the PV Explore view, the Provider Explore view and the data-event
+     * hyperlink.  The pattern and metadata modes are strictly additive -- they change what the
+     * query SENDS and never write back into that list, so none of those five flows has to know this
+     * property exists.
+     *
+     * <p>Kept in the list's own {@link #pvNameList} rather than copied into the selection, so there
+     * is one source of truth for the names; see PvSelection.
+     */
+    private final ObjectProperty<PvSelection> pvSelection =
+            new SimpleObjectProperty<>(PvSelection.nameList());
     private final ObjectProperty<LocalDate> queryBeginDate = new SimpleObjectProperty<>(LocalDate.now());
     private final IntegerProperty beginHour = new SimpleIntegerProperty(0);
     private final IntegerProperty beginMinute = new SimpleIntegerProperty(0);
@@ -81,6 +99,9 @@ public class DataExploreViewModel {
     private void setupValidationListeners() {
         // Listen to PV name list changes
         pvNameList.addListener((javafx.collections.ListChangeListener<String>) change -> updateValidation());
+
+        // The selection decides WHETHER the name list is what validity depends on
+        pvSelection.addListener((obs, oldVal, newVal) -> updateValidation());
         
         // Listen to date and time changes
         queryBeginDate.addListener((obs, oldVal, newVal) -> updateValidation());
@@ -137,6 +158,23 @@ public class DataExploreViewModel {
 
     // Query Specification property getters
     public ObservableList<String> getPvNameList() { return pvNameList; }
+    public ObjectProperty<PvSelection> pvSelectionProperty() { return pvSelection; }
+    public PvSelection getPvSelection() { return pvSelection.get(); }
+
+    /**
+     * Replaces the PV selection.  A null selection restores the name-list default rather than
+     * leaving the query with no selector, which the server rejects.
+     */
+    public void setPvSelection(PvSelection selection) {
+        pvSelection.set(selection == null ? PvSelection.nameList() : selection);
+        updateValidation();
+        logger.debug("PV selection set to {}", pvSelection.get().describe(pvNameList));
+    }
+
+    /** A one-line description of what the current selection covers, for labels and status text. */
+    public String describePvSelection() {
+        return pvSelection.get().describe(pvNameList);
+    }
     public ObjectProperty<LocalDate> queryBeginDateProperty() { return queryBeginDate; }
     public IntegerProperty beginHourProperty() { return beginHour; }
     public IntegerProperty beginMinuteProperty() { return beginMinute; }
@@ -231,14 +269,14 @@ public class DataExploreViewModel {
             // Update application state and notify home view
             if (dpApplication != null) {
                 dpApplication.setHasPerformedQueries(true);
-                String resultMessage = "Successfully queried " + totalRowsLoaded.get() + 
-                    " row(s) for " + pvNameList.size() + " PV(s)";
+                String resultMessage = "Successfully queried " + totalRowsLoaded.get()
+                    + " row(s) for " + describePvSelection();
                 dpApplication.setLastOperationResult(resultMessage);
             }
             
             if (mainController != null) {
-                String resultMessage = "Query completed: " + totalRowsLoaded.get() + 
-                    " row(s) for " + pvNameList.size() + " PV(s)";
+                String resultMessage = "Query completed: " + totalRowsLoaded.get()
+                    + " row(s) for " + describePvSelection();
                 mainController.onQuerySuccess(resultMessage);
             }
             
@@ -275,9 +313,14 @@ public class DataExploreViewModel {
     private void executeSamplesQuery() throws Exception {
         final Instant beginInstant = getQueryBeginDateTime().atZone(ZoneId.systemDefault()).toInstant();
         final Instant endInstant = getQueryEndDateTime().atZone(ZoneId.systemDefault()).toInstant();
-        final List<String> pvNames = new ArrayList<>(pvNameList);
+        // Read on the FX thread's behalf before the loop: the selection and the observable name
+        // list both belong to the UI, and the loop below runs on a background thread.
+        final QueryClient.PvSelectorParams pvSelector =
+                pvSelection.get().toSelectorParams(new ArrayList<>(pvNameList));
+        final String selectionDescription = describePvSelection();
 
-        logger.debug("Query time range: {} to {} for {} PV(s)", beginInstant, endInstant, pvNames.size());
+        logger.debug("Query time range: {} to {} selecting {}",
+                beginInstant, endInstant, selectionDescription);
 
         String pageToken = null;
         boolean firstPage = true;
@@ -286,7 +329,7 @@ public class DataExploreViewModel {
 
         do {
             final QuerySamplesApiResult apiResult =
-                    dpApplication.querySamples(pvNames, beginInstant, endInstant, pageToken);
+                    dpApplication.querySamples(pvSelector, beginInstant, endInstant, pageToken);
 
             if (apiResult == null) {
                 throw new RuntimeException("Query failed - null response from service");
@@ -433,8 +476,33 @@ public class DataExploreViewModel {
         };
     }
 
+    /**
+     * Whether the non-name-list part of the selection can be sent.
+     *
+     * <p>Only the pattern mode has a client-checkable requirement: the server rejects a blank
+     * pattern, and a blank one here is an unfilled field rather than an intent to match nothing.
+     * The metadata mode deliberately has none -- an all-empty metadata query is NOT an error
+     * server-side, it matches every PV in the archive -- so refusing it here would invent a rule the
+     * server does not have.  PvSelection.describe() states that case in words instead, which is the
+     * honest treatment of a selection that is valid but far broader than it looks.
+     */
+    private boolean isPvSelectionValid() {
+        final PvSelection selection = pvSelection.get();
+        if (selection.getMode() == PvSelection.Mode.NAME_PATTERN) {
+            final String pattern = selection.getNamePattern();
+            return pattern != null && !pattern.isBlank();
+        }
+        return true;
+    }
+
     private boolean isQueryValid() {
-        if (pvNameList.isEmpty()) {
+        // Only the name-list mode depends on the list.  A pattern or metadata selection resolves
+        // server-side, so requiring names there would disable Submit for a perfectly valid query.
+        if (pvSelection.get().isNameList() && pvNameList.isEmpty()) {
+            return false;
+        }
+
+        if (!isPvSelectionValid()) {
             return false;
         }
         
@@ -454,9 +522,15 @@ public class DataExploreViewModel {
     }
     
     private boolean isQueryValidWithMessages() {
-        if (pvNameList.isEmpty()) {
+        if (pvSelection.get().isNameList() && pvNameList.isEmpty()) {
             statusMessage.set("Please add at least one PV name");
             logger.warn("Query validation failed: no PV names specified");
+            return false;
+        }
+
+        if (!isPvSelectionValid()) {
+            statusMessage.set("Please enter a PV name pattern, or switch back to a name list");
+            logger.warn("Query validation failed: blank PV name pattern");
             return false;
         }
         

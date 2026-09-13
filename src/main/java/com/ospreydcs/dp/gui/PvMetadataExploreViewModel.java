@@ -183,8 +183,13 @@ public class PvMetadataExploreViewModel {
      * while a blank <em>prefix</em> that did reach the server would compile to a regex matching
      * everything. Passing the raw field through, unpadded and unprocessed, is what keeps an unfilled
      * optional field from becoming either a rejection or a whole-collection scan.
+     *
+     * <p>Public rather than package-private because the Query Editor's PV selector dialog
+     * (com.ospreydcs.dp.gui.component.PvSelectorDialogController) builds the same criteria for the
+     * metadata arm of a V2 PvSelector.  Reimplementing it there would let the two copies drift on
+     * precisely the blank-field handling this javadoc exists to pin down.
      */
-    static TextMatch textMatch(String text, MatchMode mode) {
+    public static TextMatch textMatch(String text, MatchMode mode) {
         if (text == null || text.isBlank()) {
             return new TextMatch(null, null, null);
         }
@@ -260,7 +265,12 @@ public class PvMetadataExploreViewModel {
         return text.isEmpty() ? text : Character.toUpperCase(text.charAt(0)) + text.substring(1);
     }
 
-    private static List<String> parseCommaSeparatedList(String input) {
+    /**
+     * Splits a comma-separated field into trimmed, non-blank values.  Public alongside {@link
+     * #textMatch}, and for the same reason: the PV selector dialog splits tag and attribute-value
+     * fields the same way, and two copies would be free to disagree about blanks.
+     */
+    public static List<String> parseCommaSeparatedList(String input) {
         final List<String> values = new ArrayList<>();
         if (input == null || input.isBlank()) {
             return values;

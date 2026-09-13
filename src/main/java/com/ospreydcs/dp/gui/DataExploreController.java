@@ -56,6 +56,8 @@ public class DataExploreController implements Initializable {
     @FXML private Button explorePvsButton;
     @FXML private Button selectPvsButton;
     @FXML private Label pvSelectionLabel;
+    @FXML private Button queryFiltersButton;
+    @FXML private Label queryFiltersLabel;
     
     // Time Range FXML components
     @FXML private DatePicker queryBeginDatePicker;
@@ -237,7 +239,13 @@ public class DataExploreController implements Initializable {
         viewModel.getPvNameList().addListener(
                 (javafx.collections.ListChangeListener<String>) change -> updatePvSelectionLabel());
         updatePvSelectionLabel();
-        
+
+        // The filters label tracks only its own two properties -- unlike the PV summary, neither
+        // filter's meaning depends on the PV name list.
+        viewModel.configurationFilterProperty().addListener((obs, oldVal, newVal) -> updateQueryFiltersLabel());
+        viewModel.sampleStatusFilterProperty().addListener((obs, oldVal, newVal) -> updateQueryFiltersLabel());
+        updateQueryFiltersLabel();
+
         // Set up custom cell factory AFTER setting items to ensure it's not overridden
         pvNamesList.setCellFactory(listView -> new PvNameListCell());
         logger.debug("PV Names ListView cell factory set after binding items");
@@ -941,6 +949,58 @@ public class DataExploreController implements Initializable {
     }
 
     /**
+     * Opens the modal query filters editor and applies whatever it returns.
+     *
+     * <p>Both filters come back together, because the dialog edits both: applying only one of them
+     * would leave the other holding whatever the previous visit set, which is the state the user
+     * just saw and chose to change.
+     */
+    @FXML
+    private void onQueryFilters() {
+        final com.ospreydcs.dp.gui.component.QueryFiltersDialogController.Filters filters =
+                com.ospreydcs.dp.gui.component.QueryFiltersDialogController.showDialog(
+                        viewModel.getConfigurationFilter(),
+                        viewModel.getSampleStatusFilter(),
+                        primaryStage);
+
+        if (filters != null) {
+            viewModel.setConfigurationFilter(filters.configuration());
+            viewModel.setSampleStatusFilter(filters.sampleStatus());
+            viewModel.updateStatus("Query filters: " + describeActiveFilters());
+        }
+    }
+
+    /**
+     * Names whichever filters are active, or says that none are.
+     *
+     * <p>A filter that silently narrows a query is the failure this exists to prevent: the results
+     * table renders a filtered result exactly like an unfiltered one -- fewer rows, or blank cells
+     * that already mean "genuinely missing" on the V2 path -- so nothing else in the view would say
+     * a restriction was applied.
+     */
+    private void updateQueryFiltersLabel() {
+        if (queryFiltersLabel == null) {
+            return;
+        }
+        queryFiltersLabel.setText("Covering: " + describeActiveFilters());
+    }
+
+    private String describeActiveFilters() {
+        final com.ospreydcs.dp.gui.model.ConfigurationFilter configuration =
+                viewModel.getConfigurationFilter();
+        final com.ospreydcs.dp.gui.model.SampleStatusFilter sampleStatus =
+                viewModel.getSampleStatusFilter();
+
+        if (!configuration.isActive() && !sampleStatus.isActive()) {
+            return "the whole time range, all samples (no filters)";
+        }
+        final java.util.List<String> parts = new java.util.ArrayList<>();
+        parts.add(configuration.isActive() ? configuration.describe() : "the whole time range");
+        parts.add(sampleStatus.isActive() ? sampleStatus.describe() : "all samples");
+        return String.join(", ", parts);
+    }
+
+    /**
      * Keeps the Query Editor honest about what a submitted query would actually cover.
      *
      * <p>The PV ListView stays visible and populated in every mode, because it is shared state the
@@ -988,6 +1048,24 @@ public class DataExploreController implements Initializable {
                     + "\"Name list\" to add this time range to a dataset");
             logger.warn("Refused add-to-dataset for a non-name-list selection: {}",
                     viewModel.describePvSelection());
+            return;
+        }
+
+        // A configuration filter is refused for the same reason, on the time axis rather than the
+        // PV axis.  A DataBlock is a CONTIGUOUS [beginTime, endTime), while the filter resolves
+        // server-side to the union of matching activation intervals intersected with that range --
+        // which is normally fragmented, and always narrower.  The data block built here would carry
+        // the OUTER range, so the saved dataset would claim intervals the query deliberately
+        // excluded, with nothing recording that a filter had been applied.
+        //
+        // The sample status filter is deliberately NOT refused: it blanks individual samples inside
+        // the block rather than changing which interval the block covers, so the block stays an
+        // accurate description of its own extent.
+        if (viewModel.getConfigurationFilter().isActive()) {
+            viewModel.updateStatus("A dataset needs one continuous time range -- turn off the "
+                    + "configuration filter to add this time range to a dataset");
+            logger.warn("Refused add-to-dataset for an active configuration filter: {}",
+                    viewModel.getConfigurationFilter().describe());
             return;
         }
 

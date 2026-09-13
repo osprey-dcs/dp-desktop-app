@@ -536,12 +536,12 @@ exercised by any of this.
 [`manual-verification.md`](manual-verification.md), whose highest-value check is the alias trap in
 Part 3c — a silent data-loss path if it regresses.
 
-### Task 6 — V2 migration — **commits 1 and 2 DONE**; selector sections remain
+### Task 6 — V2 migration — **DONE** (all three commits)
 
 Sequenced in three commits rather than one, because the migration rewrites the one query path with
-prior manual coverage while the selector sections are purely additive. **Commit 1 (the migration)
-and commit 2 (the modal PV selector) are done**; the configuration / sample-status selector sections
-follow.
+prior manual coverage while the selector sections are purely additive. **All three are done**:
+commit 1 the migration, commit 2 the modal PV selector, commit 3 the configuration and sample-status
+filter sections.
 
 **Done in the migration commit:**
 
@@ -620,6 +620,63 @@ unmatched-tag case both failed correctly when the selector was neutered, so neit
 | the name-pattern arm resolves PVs the caller never listed, and not ones outside the pattern | `QuerySamplesLiveIT` order 30 |
 | each metadata criterion (tag / alias / attribute) resolves independently | order 31 |
 | a metadata selector matching nothing is a success with an empty table, not an error | order 31 |
+
+**Done in the query filters commit (part 3):**
+
+- `ConfigurationFilter` + `SampleStatusFilter` (`gui/model`) — the app-side counterparts of
+  `QuerySpec.configurationSelector` and `QuerySpec.sampleStatusSelector`.
+- `QueryFiltersDialogController` + `query-filters-dialog.fxml` — one modal for both, with live
+  summary and warning, and Apply disabled while the dialog is unacceptable.
+- `DpApplication.querySamples()` now takes `configurationCriteria` and `sampleStatusSelector`.
+- `DataExploreViewModel` filter properties, `describeQueryScope()` driving the success messages, and
+  status-filter validation.
+- Add to Dataset additionally refused for an active configuration filter.
+
+**The two selectors narrow different axes and compose by intersection** — configuration restricts
+the time axis, status then drops samples from what survives. That is why one modal covers both.
+
+**The empty-form asymmetry is the whole story of the configuration filter.** It is the exact inverse
+of the empty metadata PV selector: the server *accepts* that one (whole archive) and *rejects* this
+one. Worse, the client wrapper reads null/empty as "no restriction" but a non-empty list yielding no
+usable criterion as "asked for and unexpressible", emitting the empty selector for the server to
+reject. `toCriteria()` therefore returns **null**, never `List.of()`.
+
+**Three decisions worth recording, again about what to enforce and where:**
+
+| Case | Decision | Why |
+|---|---|---|
+| ticked configuration filter with no criteria | refused **in the dialog** | it is the empty-selector case the server rejects; not a query-validation rule, since an unticked box is the way to say "no restriction" |
+| active configuration filter, any criteria | **no** validation rule | its inactive form is sending no selector, so there is no incomplete state; a rule here would refuse a query the server would run |
+| status filter with a blank domain | refused, in both the dialog and query validation | the server rejects it — the only client-checkable rule among the two filters |
+
+**The sample status mode is the subtlest thing in this commit.** `INCLUDE` and `EXCLUDE` are not
+complements: they differ in how they treat *unlabeled* samples, which is most of a typical archive.
+Choosing wrong returns a plausible table, so the mode labels and `describe()` both state the
+unlabeled behavior rather than leaving the proto names to imply it.
+
+**Mutation checks: 12, all caught.** Two on `ConfigurationFilter` (empty list instead of null —
+caught in five places across three test classes; a multi-arm criterion), one on `SampleStatusFilter`
+(the two modes swapped), three at the wrapper and dialog (criteria dropped, status selector dropped,
+unparseable codes silently dropped), three more on the dialog (checkbox ignored, blank domain
+accepted, warning `visible` but not `managed`), and two on the view model (an over-strict
+configuration rule, filters omitted from the scope description).
+
+Five of those were checked against the **live** tests, following parts 1 and 2's lesson that a live
+test can pass while proving nothing. The decisive ones: dropping the configuration criteria failed
+with "the configuration selector returned 100 of 100 rows, so it is being DROPPED rather than
+applied", and neutering the status codes failed with "the CODES are being ignored and only the
+domain is applied -- which silently widens every INCLUDE filter". Both are invisible to the unit
+suite, which asserts which selector is *built*: a selector the server drops returns the full,
+well-formed table with no error at all.
+
+**Claims verified against the real server rather than assumed:**
+
+| Claim | How |
+|---|---|
+| a configuration selector really restricts the time axis (filtered rows < unfiltered rows) | `QuerySamplesLiveIT` order 32 |
+| a configuration selector matching no activation is an empty **success**, not a rejection | order 33 |
+| the two status modes differ on the same data (INCLUDE keeps all, EXCLUDE drops all, over a fully labelled PV) | order 34 |
+| the status **codes** are applied, not just the domain | order 35 |
 
 #### Original task 6 notes (retained)
 

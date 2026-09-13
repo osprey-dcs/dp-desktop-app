@@ -65,7 +65,23 @@ public class QuerySamplesLiveIT {
     private static final String METADATA_TAG = "it-v2-tag-" + STAMP;
     private static final String METADATA_ATTRIBUTE_KEY = "itV2Subsystem";
     private static final String METADATA_ATTRIBUTE_VALUE = "vacuum-" + STAMP;
+
+    /*
+     * Configuration selector fixture.  The activation covers only the FIRST part of the data
+     * window, so a filter that is applied and one that is dropped produce different row counts --
+     * without that, a selector the server ignored entirely would return the full table and pass.
+     */
+    private static final String CONFIGURATION_NAME = "it-v2-config-" + STAMP;
+    private static final String CONFIGURATION_CATEGORY = "it-v2-category-" + STAMP;
+    private static final String ACTIVATION_ID = "it-v2-activation-" + STAMP;
+    private static final int ACTIVATION_SECONDS = 4;
+
+    /* Sample status selector fixture: the demo generator's own domain and layer. */
+    private static final String STATUS_DOMAIN = DpApplication.SAMPLE_STATUS_DEMO_DOMAIN;
+    private static final String STATUS_LAYER = DpApplication.SAMPLE_STATUS_DEMO_LAYER;
     private static final String PV_B = "IT:V2:B:" + STAMP;
+    /** Ingested WITH sample statuses, so the status selector has something to filter on. */
+    private static final String PV_STATUS = "IT:V2:S:" + STAMP;
 
     /** A PV that is registered as a name but has NO data in the queried window. */
     private static final String PV_NO_DATA = "IT:V2:NODATA:" + STAMP;
@@ -172,6 +188,34 @@ public class QuerySamplesLiveIT {
         assertFalse(metadataSaved.resultStatus.isError,
                 "savePvMetadata failed: " + metadataSaved.resultStatus.msg);
 
+        // A PV ingested WITH sample statuses, for the status selector.  A separate PV rather than
+        // reusing PV_A because the statuses must cover the same window the other tests assert full
+        // row counts over, and labelling every sample of PV_A would change what those tests see.
+        final var statusStatus = app.generateAndIngestData(
+                dataBegin, dataEnd, null,
+                List.of(new PvDetail(PV_STATUS, "float", VALUES_PER_SECOND, "1.0", "0.5")),
+                5, List.of(), true);
+
+        assertNotNull(statusStatus, "generateAndIngestData returned null for the labelled PV");
+        assertFalse(statusStatus.isError,
+                "generateAndIngestData failed for the labelled PV: " + statusStatus.msg);
+
+        // Configuration + activation covering only the first ACTIVATION_SECONDS of the window.
+        final var configSaved = app.saveConfiguration(
+                CONFIGURATION_NAME, CONFIGURATION_CATEGORY, "a live IT configuration",
+                null, List.of(), java.util.Map.of(), "it-v2-" + STAMP);
+        assertNotNull(configSaved, "saveConfiguration returned null");
+        assertFalse(configSaved.resultStatus.isError,
+                "saveConfiguration failed: " + configSaved.resultStatus.msg);
+
+        final var activationSaved = app.saveConfigurationActivation(
+                ACTIVATION_ID, CONFIGURATION_NAME,
+                dataBegin, dataBegin.plusSeconds(ACTIVATION_SECONDS),
+                "a live IT activation", List.of(), java.util.Map.of(), "it-v2-" + STAMP);
+        assertNotNull(activationSaved, "saveConfigurationActivation returned null");
+        assertFalse(activationSaved.resultStatus.isError,
+                "saveConfigurationActivation failed: " + activationSaved.resultStatus.msg);
+
         awaitIngestedDataVisible();
     }
 
@@ -202,9 +246,27 @@ public class QuerySamplesLiveIT {
             java.time.Instant end,
             String pageToken
     ) {
-        return app.querySamples(
+        return querySamplesUnfiltered(
                 new com.ospreydcs.dp.client.QueryClient.PvNameListSelector(pvNames),
                 begin, end, pageToken);
+    }
+
+    /**
+     * Calls the wrapper with neither optional filter, so a selector-arm test reads as one call
+     * rather than as two explicit nulls whose meaning has to be looked up.
+     *
+     * <p>The configuration argument is spelled null rather than {@code List.of()} deliberately: the
+     * two are NOT interchangeable here.  Null means no restriction was asked for and the selector
+     * is dropped; an empty list would emit the empty selector, which the server rejects with
+     * "configurationSelector.criteria list must not be empty".
+     */
+    private static com.ospreydcs.dp.client.result.QuerySamplesApiResult querySamplesUnfiltered(
+            com.ospreydcs.dp.client.QueryClient.PvSelectorParams selector,
+            java.time.Instant begin,
+            java.time.Instant end,
+            String pageToken
+    ) {
+        return app.querySamples(selector, null, null, begin, end, pageToken);
     }
 
     private static void awaitIngestedDataVisible() throws InterruptedException {
@@ -281,6 +343,12 @@ public class QuerySamplesLiveIT {
                     com.mongodb.client.model.Filters.regex("name", STAMP));
             database.getCollection("pvMetadata").deleteMany(
                     com.mongodb.client.model.Filters.regex("pvName", STAMP));
+            database.getCollection("sampleStatusBuckets").deleteMany(
+                    com.mongodb.client.model.Filters.regex("pvName", STAMP));
+            database.getCollection("configurations").deleteMany(
+                    com.mongodb.client.model.Filters.regex("configurationName", STAMP));
+            database.getCollection("configurationActivations").deleteMany(
+                    com.mongodb.client.model.Filters.regex("configurationName", STAMP));
 
         } catch (Exception cleanupFailed) {
             System.err.println("QuerySamplesLiveIT cleanup failed (records tagged " + STAMP
@@ -488,7 +556,7 @@ public class QuerySamplesLiveIT {
     public void theNamePatternArmResolvesPvsTheCallerNeverNamed() {
         // Matches PV_A and PV_B (both "IT:V2:<letter>:<stamp>") but not PV_PAGED, and the stamp
         // keeps it from reaching PVs left behind by an earlier run.
-        final var result = app.querySamples(
+        final var result = querySamplesUnfiltered(
                 new com.ospreydcs.dp.client.QueryClient.PvNamePatternSelector(
                         "^IT:V2:[AB]:" + STAMP + "$"),
                 dataBegin, dataEnd, null);
@@ -542,7 +610,7 @@ public class QuerySamplesLiveIT {
 
         // A tag nothing carries must resolve to no columns.  Without this, a selector that ignored
         // its criteria entirely and returned every PV would pass all three assertions above.
-        final var unmatched = app.querySamples(
+        final var unmatched = querySamplesUnfiltered(
                 new com.ospreydcs.dp.client.QueryClient.PvMetadataSelector(
                         null, null, List.of("no-such-tag-" + STAMP), null),
                 dataBegin, dataEnd, null);
@@ -556,11 +624,170 @@ public class QuerySamplesLiveIT {
                         + "dropped rather than applied");
     }
 
+    /**
+     * THE CONFIGURATION SELECTOR narrows the TIME axis to the intervals during which matching
+     * activations were live.
+     *
+     * The whole premise of ConfigurationFilter is that the criteria actually restrict the query, and
+     * an unrestricted query is well-formed -- so a selector the server silently dropped would return
+     * the FULL table with no error at all.  The activation deliberately covers only the first
+     * ACTIVATION_SECONDS of the data window, so the filtered row count must be strictly smaller
+     * than the unfiltered one.  Comparing against the unfiltered count rather than against a
+     * hardcoded number keeps this honest if the generator's density ever changes.
+     */
+    @Test
+    @Order(32)
+    public void theConfigurationSelectorRestrictsTheTimeAxis() {
+        final var unfiltered = querySamplesUnfiltered(
+                new com.ospreydcs.dp.client.QueryClient.PvNameListSelector(List.of(PV_A)),
+                dataBegin, dataEnd, null);
+        assertFalse(unfiltered.resultStatus.isError,
+                "the unfiltered baseline failed: " + unfiltered.resultStatus.msg);
+        final int unfilteredRows = DataExploreViewModel.reshapePage(unfiltered.columnTable).size();
+        assertTrue(unfilteredRows > 0, "the baseline query returned no rows to narrow");
+
+        final var filtered = app.querySamples(
+                new com.ospreydcs.dp.client.QueryClient.PvNameListSelector(List.of(PV_A)),
+                List.of(new com.ospreydcs.dp.client.QueryClient.ConfigurationCriterion(
+                        List.of(CONFIGURATION_NAME), null, null, null, null)),
+                null,
+                dataBegin, dataEnd, null);
+
+        assertNotNull(filtered, "querySamples returned null for a configuration selector");
+        assertFalse(filtered.resultStatus.isError,
+                "configuration selector failed: " + filtered.resultStatus.msg);
+
+        final int filteredRows = DataExploreViewModel.reshapePage(filtered.columnTable).size();
+
+        assertTrue(filteredRows > 0,
+                "the activation covers part of the window, so the filter must not empty the result");
+        assertTrue(filteredRows < unfilteredRows,
+                "the configuration selector returned " + filteredRows + " of " + unfilteredRows
+                        + " rows, so it is being DROPPED rather than applied -- an unrestricted "
+                        + "query is well-formed and returns the full table with no error");
+    }
+
+    /**
+     * A configuration selector that matches NOTHING is a well-formed query returning an empty
+     * result, deliberately distinguished server-side from a malformed one, which rejects.
+     *
+     * This is what keeps a mis-built selector from being indistinguishable from "no data in this
+     * window", and it is the claim DpApplication.querySamples()'s javadoc makes.
+     */
+    @Test
+    @Order(33)
+    public void aConfigurationSelectorMatchingNothingIsAnEmptySuccessNotARejection() {
+        final var result = app.querySamples(
+                new com.ospreydcs.dp.client.QueryClient.PvNameListSelector(List.of(PV_A)),
+                List.of(new com.ospreydcs.dp.client.QueryClient.ConfigurationCriterion(
+                        List.of("no-such-configuration-" + STAMP), null, null, null, null)),
+                null,
+                dataBegin, dataEnd, null);
+
+        assertNotNull(result, "querySamples returned null for an unmatched configuration selector");
+        assertFalse(result.resultStatus.isError,
+                "a configuration selector matching no activation must be a SUCCESS carrying an "
+                        + "empty table, not an error: " + result.resultStatus.msg);
+        assertTrue(DataExploreViewModel.reshapePage(result.columnTable).isEmpty(),
+                "a selector matching no activation must yield no rows; returning data anyway means "
+                        + "the criteria are being ignored");
+    }
+
+    /**
+     * THE SAMPLE STATUS SELECTOR drops individual samples, and the two modes are not complements
+     * over a partially-labelled archive.
+     *
+     * Both modes are asserted against the same data, because that is the only way to show the
+     * selector is being applied rather than ignored: an ignored selector returns the same table
+     * for both, and each mode on its own has a plausible-looking result.  PV_STATUS is labelled on
+     * EVERY sample by the demo generator, so INCLUDE over its full code set keeps everything while
+     * EXCLUDE over the same set drops everything -- which is exactly the asymmetry that would
+     * vanish if the filter never reached the server.
+     */
+    @Test
+    @Order(34)
+    public void theSampleStatusSelectorFiltersSamplesAndTheModesDiffer() {
+        final var unfiltered = querySamplesUnfiltered(
+                new com.ospreydcs.dp.client.QueryClient.PvNameListSelector(List.of(PV_STATUS)),
+                dataBegin, dataEnd, null);
+        assertFalse(unfiltered.resultStatus.isError,
+                "the unfiltered baseline failed: " + unfiltered.resultStatus.msg);
+        final int unfilteredRows = DataExploreViewModel.reshapePage(unfiltered.columnTable).size();
+        assertTrue(unfilteredRows > 0, "the baseline query returned no rows to filter");
+
+        // INCLUDE with no status codes means "labelled at all in this (domain, layer)".  Every
+        // sample of PV_STATUS is labelled, so every row survives.
+        final int includedRows = statusFilteredRowCount(
+                com.ospreydcs.dp.gui.model.SampleStatusFilter.Mode.INCLUDE_MATCHING, List.of());
+
+        assertEquals(unfilteredRows, includedRows,
+                "every sample of " + PV_STATUS + " carries a status, so INCLUDE with any code must "
+                        + "keep them all; keeping fewer means the statuses are not matching the "
+                        + "samples they label");
+
+        // EXCLUDE over the same selection is its mirror: every labelled sample is dropped, and
+        // since all of them are labelled, nothing survives.
+        final int excludedRows = statusFilteredRowCount(
+                com.ospreydcs.dp.gui.model.SampleStatusFilter.Mode.EXCLUDE_MATCHING, List.of());
+
+        assertEquals(0, excludedRows,
+                "EXCLUDE over a fully labelled PV must drop every row; returning " + excludedRows
+                        + " of " + unfilteredRows + " means the selector is being ignored");
+    }
+
+    /**
+     * The status CODES are applied, not just the domain.
+     *
+     * Without this, a selector that matched every status regardless of code would pass the mode
+     * test above -- and a dropped code silently widens an INCLUDE filter from "samples alarming"
+     * to "samples labelled at all".  The demo generator writes ~85% NO_ALARM, so filtering to the
+     * alarm codes alone must return strictly fewer rows than filtering to any code.
+     */
+    @Test
+    @Order(35)
+    public void theSampleStatusSelectorAppliesItsStatusCodes() {
+        final int anyCode = statusFilteredRowCount(
+                com.ospreydcs.dp.gui.model.SampleStatusFilter.Mode.INCLUDE_MATCHING, List.of());
+
+        // The alarm codes only -- a small minority of the generated distribution.
+        final int alarmCodesOnly = statusFilteredRowCount(
+                com.ospreydcs.dp.gui.model.SampleStatusFilter.Mode.INCLUDE_MATCHING,
+                List.of(DpApplication.EPICS_ALARM_MINOR_ALARM,
+                        DpApplication.EPICS_ALARM_MAJOR_ALARM,
+                        DpApplication.EPICS_ALARM_INVALID_ALARM));
+
+        assertTrue(anyCode > 0, "the any-code baseline returned no rows");
+        assertTrue(alarmCodesOnly < anyCode,
+                "filtering to the alarm codes returned " + alarmCodesOnly + " rows against "
+                        + anyCode + " for any code, so the CODES are being ignored and only the "
+                        + "domain is applied -- which silently widens every INCLUDE filter");
+    }
+
+    /** Runs the status filter over PV_STATUS and returns the surviving row count. */
+    private static int statusFilteredRowCount(
+            com.ospreydcs.dp.gui.model.SampleStatusFilter.Mode mode, List<Integer> statusCodes) {
+
+        final var filter = com.ospreydcs.dp.gui.model.SampleStatusFilter.of(
+                STATUS_DOMAIN, List.of(STATUS_LAYER), statusCodes, mode);
+
+        final var result = app.querySamples(
+                new com.ospreydcs.dp.client.QueryClient.PvNameListSelector(List.of(PV_STATUS)),
+                null,
+                filter.toSelectorParams(),
+                dataBegin, dataEnd, null);
+
+        assertNotNull(result, "querySamples returned null for a status selector");
+        assertFalse(result.resultStatus.isError,
+                "status selector (" + mode + ") failed: " + result.resultStatus.msg);
+
+        return DataExploreViewModel.reshapePage(result.columnTable).size();
+    }
+
     private static void assertMetadataSelectorResolvesPvA(
             String criterionName,
             com.ospreydcs.dp.client.QueryClient.PvMetadataSelector selector
     ) {
-        final var result = app.querySamples(selector, dataBegin, dataEnd, null);
+        final var result = querySamplesUnfiltered(selector, dataBegin, dataEnd, null);
 
         assertNotNull(result, "querySamples returned null for the " + criterionName + " criterion");
         assertFalse(result.resultStatus.isError,

@@ -1167,14 +1167,47 @@ public class DpApplication {
      * archive.  See PvSelection, which describes that case explicitly rather than letting it read
      * as a filter.
      *
+     * <p>A configuration selector that matches no activations is NOT one of those failures.  It is a
+     * well-formed query returning an empty result, deliberately distinguished server-side from a
+     * malformed selector, which rejects -- so a mis-built selector is never indistinguishable from
+     * "no data in this window".
+     *
+     * <p><strong>The two optional filters narrow different axes and compose by intersection.</strong>
+     * configurationCriteria restricts the TIME axis to the intervals during which matching machine
+     * configurations were active; sampleStatusSelector then drops individual samples from what
+     * survives.  A status attached to a sample outside the activation intervals has no effect,
+     * because that sample is already gone.
+     *
+     * <p><strong>configurationCriteria must be null for "no restriction", never an empty list.</strong>
+     * The two are read differently by the request builder: null or empty means no restriction was
+     * asked for and the selector is dropped, but a non-EMPTY list from which no criterion survives
+     * emits the empty selector, which the server rejects with "configurationSelector.criteria list
+     * must not be empty".  That asymmetry is deliberate upstream -- dropping a criterion the caller
+     * filled in would WIDEN the query from "only while configuration X was active" to the whole time
+     * range, handing back more data than they asked for with no diagnostic.  ConfigurationFilter
+     * returns null rather than an empty list for exactly this reason.
+     *
+     * <p><strong>sampleStatusSelector is accepted here but rejected on the bucket methods</strong>,
+     * which return buckets whole and cannot represent per-sample filtering.  It is unreachable from
+     * this app, which queries samples only, but it is why the client's QueryBucketsParams omits the
+     * field rather than carrying one the server would refuse.  A filtered-out sample becomes a
+     * MISSING VALUE at its (PV, timestamp) position, not a dropped row; a timestamp disappears only
+     * when every selected PV is filtered out at it.
+     *
      * @param pvSelector which PVs to cover; the server rejects an unset selector, an empty name
      *                   list and a blank pattern
+     * @param configurationCriteria optional activation-interval restriction, or <strong>null</strong>
+     *                              for none -- never an empty list, per the note above
+     * @param sampleStatusSelector optional per-sample status filter, or null for none; the server
+     *                             requires a non-blank domain and a specified mode
      * @param beginTime start of the half-open interval [beginTime, endTime)
      * @param endTime  end of that interval
      * @param pageToken a prior result's nextPageToken to continue, or null to start
      */
     public QuerySamplesApiResult querySamples(
             QueryClient.PvSelectorParams pvSelector,
+            List<QueryClient.ConfigurationCriterion> configurationCriteria,
+            QueryClient.SampleStatusSelectorParams sampleStatusSelector,
             Instant beginTime,
             Instant endTime,
             String pageToken
@@ -1184,8 +1217,8 @@ public class DpApplication {
                         timestampFromInstant(beginTime),
                         timestampFromInstant(endTime),
                         pvSelector,
-                        null),
-                null,  // sampleStatusSelector -- task 6's filter sections, not the migration
+                        configurationCriteria),
+                sampleStatusSelector,
                 0,     // limit: server default, per the javadoc above
                 pageToken,
                 // useSerializedColumns stays off.  Serialized columns cannot be merged across

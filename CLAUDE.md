@@ -198,6 +198,7 @@ Explore → Data, PV Statistics, PV Metadata, Providers, Datasets, Annotations, 
 - ✅ Demo sample status generation in the data-generation view via saveSampleStatuses(), with the read-back now wired to the Sample Status Explore view via querySampleStatusBuckets()
 - ✅ PV Metadata Explore view with search by name/alias (contains, prefix or exact), tags and attributes via queryPvMetadata(), and load-for-edit into the PV Metadata editor
 - ✅ Modal PV selector in the Query Editor (Name list / Name pattern / Metadata criteria) driving the V2 `PvSelector`, with the PV name list preserved as the default and identity path
+- ✅ Modal query filters in the Query Editor (machine configuration activations, sample status) driving the V2 `configurationSelector` and `sampleStatusSelector`, both off by default
 - ✅ Configuration Explore view with two independent searches (configurations and activations) via queryConfigurations() / queryConfigurationActivations(), and load-for-edit into the Machine Configuration editor
 
 ## GUI Architecture
@@ -348,6 +349,70 @@ is instead rejected only if it resolves past `maxResolvedPvCount`.
 
 **A blank pattern IS refused**, because the server rejects one and a blank field is an unfilled
 control rather than an intent to match nothing. It is the only client-checkable rule of the three.
+
+**Two optional filters narrow the query further** (#39 task 6 part 3), reached from the
+"Query Filters..." button and edited in one modal (`QueryFiltersDialogController`). Both default to
+off, and they narrow **different axes**, composing by intersection: `ConfigurationFilter` restricts
+the TIME axis to the intervals during which matching machine configuration activations were live,
+and `SampleStatusFilter` then drops individual samples from whatever survives. A status attached to
+a sample outside the activation intervals has no effect, because that sample is already gone.
+
+**An empty configuration filter must send NO selector, never an empty one — the exact inverse of
+the empty metadata PV selector.** The server *accepts* an empty metadata query (whole archive) and
+*rejects* an empty configuration selector ("configurationSelector.criteria list must not be empty").
+Worse, the client wrapper reads the two empty forms differently on purpose: null or an empty list
+means "no restriction asked for" and drops the selector, while a **non-empty** list from which no
+criterion survives emits the empty selector for the server to reject. That asymmetry is the #243
+rule with its sign flipped — dropping a criterion the user filled in would *widen* the query from
+"only while configuration X was active" to the whole time range, handing back more data than they
+asked for. `ConfigurationFilter.toCriteria()` therefore returns **null**, not `List.of()`, and the
+`querySamples()` call site must not substitute one.
+
+**Each configuration criterion sets exactly one arm.** The proto criterion is a oneof, and the
+client's builder returns null for a multi-arm criterion, which `buildQuerySpec` turns into a
+rejected request rather than a silently preferred arm. The filter emits **one criterion per
+populated field**, which is also the semantics a user expects: criteria AND, values within one OR.
+
+**The sample status mode is not a polarity switch, and the difference is in the UNLABELED samples.**
+A status labels a sample only by exact `(pvName, timestamp)` equality at nanosecond precision, so
+most samples are unlabeled. `INCLUDE` returns matching samples and **excludes** unlabeled ones;
+`EXCLUDE` drops matching samples and **returns** unlabeled ones. The two are therefore not
+complements over a partially-labeled archive, and choosing wrong is silent: `INCLUDE` over a sparsely
+labeled PV returns a nearly empty table that reads as "no data in this window" rather than as
+"almost nothing here is labeled". `SampleStatusFilter.Mode`'s labels and `describe()` both state the
+unlabeled behavior in words for exactly this reason.
+
+**A filtered-out sample becomes a missing VALUE, not a missing row.** The server blanks it at its
+`(PV, timestamp)` position; a timestamp disappears only when every selected PV is filtered out at
+it. Those blanks render exactly like genuinely-missing V2 values, which is why the summary label is
+load-bearing — nothing else in the view says a filter was applied.
+
+**Only the status filter has a client-checkable rule**: the server rejects a blank domain. The
+configuration filter has none, because its inactive form is *sending no selector*, so there is no
+incomplete state for it to be in — adding a rule there would disable Submit for a query the server
+would happily run. A ticked-but-empty configuration filter is refused **in the dialog** (it is the
+empty-selector case), not by query validation.
+
+**Each filter is gated by its own checkbox rather than inferred from its fields**, because
+inferring would make the two behave oppositely for the same gesture — all-blank means "no
+restriction" for one and "rejected request" for the other. An unticked box drops its filter
+regardless of what the fields still hold, so criteria left by a previous visit cannot leak into a
+filter the user turned off.
+
+**Status codes are refused when they do not parse, never dropped.** A dropped code silently widens
+the filter — in `INCLUDE` mode "samples with code 2" becomes "samples labeled at all" — and returns
+a plausible table, so nothing downstream would say the typed code never reached the server.
+
+**Add to Dataset is also refused for an active configuration filter**, on the time axis rather than
+the PV axis. A `DataBlock` is a **contiguous** `[beginTime, endTime)`, while the filter resolves to
+the union of matching activation intervals intersected with that range — normally fragmented, always
+narrower. The block built here carries the OUTER range, so the saved dataset would claim intervals
+the query deliberately excluded. The *status* filter is deliberately not refused: it blanks samples
+inside the block rather than changing which interval the block covers.
+
+**A configuration selector matching no activations is a well-formed empty result, not a rejection.**
+The server distinguishes it from a malformed selector on purpose, so a mis-built selector is never
+indistinguishable from "no data in this window".
 
 **Each mode reads only its own controls.** Text left in the pattern field by an earlier visit is
 ignored while metadata is selected, rather than being carried into a selection the user abandoned —
@@ -997,6 +1062,33 @@ sealed `QueryClient.PvSelectorParams`:
 - Immutable, so a cancelled modal leaves nothing half-applied
 - Covered by `PvSelectionTest`; see the Data Explore Workflow for the empty-metadata-query hazard
 
+### ConfigurationFilter (`src/main/java/com/ospreydcs/dp/gui/model/ConfigurationFilter.java`)
+An optional restriction of a V2 query to the intervals during which matching machine configurations
+were active — the app-side counterpart of `QuerySpec.configurationSelector`:
+- Narrows the **time** axis, not the PV set, so it composes with `PvSelection` rather than
+  overlapping it
+- `toCriteria()` returns **null**, never an empty list, when nothing is filled in — the two are read
+  oppositely by the client wrapper, and an empty list turns an unfiltered query into a rejected one
+- Emits **one criterion per populated field**: the proto criterion is a oneof, and a multi-arm
+  criterion is rejected at build time rather than resolved by preference order
+- `isActive()` is what the Dataset Builder branches on — a `DataBlock` is one contiguous range and
+  cannot represent the fragmented intervals an activation filter resolves to
+- Immutable; covered by `ConfigurationFilterTest`
+
+### SampleStatusFilter (`src/main/java/com/ospreydcs/dp/gui/model/SampleStatusFilter.java`)
+An optional restriction of a V2 sample query to samples carrying (or not carrying) a matching sample
+status — the join between the query view and the Sample Status API:
+- **The mode is not a polarity switch**: `INCLUDE` excludes unlabeled samples, `EXCLUDE` returns
+  them, so the two are not complements over a partially-labeled archive. Both `Mode`'s labels and
+  `describe()` state the unlabeled behavior, because that is what decides whether a sparse result
+  means "no data" or "nothing labeled"
+- `MODE_UNSPECIFIED` is deliberately unmapped, making the server's "mode must be specified"
+  rejection unrepresentable rather than merely avoided
+- Empty layers means every layer in the domain and empty codes means any code; both reach the
+  request as **absent** fields rather than empty ones
+- `isComplete()` covers the one client-checkable rule — the server rejects a blank domain
+- Accepted by the sample-oriented methods only; immutable; covered by `SampleStatusFilterTest`
+
 ### DataEventSubscription (`src/main/java/com/ospreydcs/dp/gui/model/DataEventSubscription.java`)
 Wrapper for data event subscription management in data-event-explore view:
 - Contains SubscribeDataEventDetail and subscription metadata
@@ -1215,6 +1307,27 @@ falling back to the name list returns the wrong PVs in a well-formed table; a me
 that omits "every PV in the archive" lets a whole-archive scan read as a filter; a validation rule
 requiring names in every mode disables Submit for a valid query; and a warning label left
 `visible` but not `managed` takes no space and cannot be read.
+
+**Query filter tests** (`ConfigurationFilterTest`, `SampleStatusFilterTest`,
+`DataExploreQueryFiltersTest`, `QueryFiltersDialogControllerTest`): every guard here protects a
+failure that is silent rather than loud — an empty criteria list turning an unfiltered query into a
+rejected one, a multi-arm criterion rejected at build time, the two status modes swapped (which
+returns a plausible table either way), a dropped status code widening an `INCLUDE` filter to
+"labeled at all", an over-strict client rule disabling Submit for a query the server would run, and
+a scope description that omits an active filter so a filtered row count reads as unfiltered.
+
+The live tests carry the weight the unit suite structurally cannot, exactly as for the PV selector
+arms: the unit tests assert which selector is *built*, while a selector the server silently drops
+returns the **full, well-formed table with no error at all**. `QuerySamplesLiveIT` therefore fixes
+an activation covering only part of the data window and asserts the filtered row count is strictly
+smaller than the unfiltered one; asserts that a configuration selector matching nothing is an empty
+**success** rather than a rejection; and asserts both status modes against the same fully-labeled PV,
+since an ignored selector returns the same table for both and each mode alone has a plausible result.
+A separate test pins that the status **codes** are applied and not just the domain — without it, a
+selector matching every status regardless of code passes the mode test. All of this was
+mutation-checked: dropping the criteria failed with "the configuration selector returned 100 of 100
+rows, so it is being DROPPED rather than applied", and neutering the codes failed with "the CODES are
+being ignored and only the domain is applied -- which silently widens every INCLUDE filter".
 
 **What live coverage still does not reach**: FXML rendering, clicks, navigation between views, and
 the editor forms. Those need the manual scenario in `plan/tickets/39/manual-verification.md`.
@@ -1512,6 +1625,11 @@ page (not truncated), and a server returning a token alongside an empty page.
   non-retryable rejection joins the two named above: a selector resolving past `maxResolvedPvCount`.
   Unlike those two it is reachable from an ordinary-looking UI choice, since an all-empty metadata
   query resolves to the whole archive rather than being rejected.
+  Also takes the two optional filters. **`configurationCriteria` must be null for "no restriction",
+  never an empty list** — the builder reads null/empty as "none asked for" and drops the selector,
+  but a *non-empty* list yielding no usable criterion emits the empty selector the server rejects.
+  `sampleStatusSelector` is accepted here but rejected on the bucket methods, which is why
+  `QueryBucketsParams` omits the field entirely.
 - The V1 `queryTable()` wrapper was **removed** by #39 task 6 once its only caller migrated. Leaving
   a dead wrapper would have invited a future view onto the retired path.
 
@@ -1628,6 +1746,21 @@ behavior.
   metadata query covering the whole archive) is accepted downstream and would otherwise be silent
 - Reuses `PvMetadataExploreViewModel.textMatch()` / `parseCommaSeparatedList()` rather than
   reimplementing the criteria construction
+
+**QueryFiltersDialogController** (`src/main/java/com/ospreydcs/dp/gui/component/QueryFiltersDialogController.java`)
+- Modal editor for the Query Editor's two optional filters — `configurationSelector` and
+  `sampleStatusSelector` on the V2 `QuerySpec`
+- Static factory: `showDialog(ConfigurationFilter, SampleStatusFilter, Stage)`, returning a
+  `Filters` record or **null** when cancelled
+- **One dialog for both**, because they are the same kind of thing: optional restrictions on a query
+  whose subject is already chosen by the PV selector, both off by default, composing by intersection
+- **Each filter is gated by its own checkbox**, never inferred from its fields — all-blank means
+  "no restriction" for one and "rejected request" for the other, so only an explicit tick says which
+  the user meant. An unticked box drops its filter regardless of what the fields hold
+- **Apply is disabled while the dialog is unacceptable** rather than validated on accept: a rejected
+  apply that silently returned the previous filters would look like the dialog ignored the edit
+- Status codes that do not parse are **refused, not dropped** — a dropped code silently widens the
+  filter and returns a plausible table
 
 **QueryPvsComponent** (`src/main/java/com/ospreydcs/dp/gui/component/QueryPvsComponent.java`)
 - Reusable component for PV list management with individual remove buttons

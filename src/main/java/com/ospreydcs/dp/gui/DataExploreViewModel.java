@@ -8,7 +8,9 @@ import com.ospreydcs.dp.grpc.v1.common.DataValue;
 import com.ospreydcs.dp.grpc.v1.common.Timestamp;
 import com.ospreydcs.dp.grpc.v1.query.ColumnTable;
 import com.ospreydcs.dp.grpc.v1.query.QueryPvStatsResponse;
+import com.ospreydcs.dp.gui.model.ConfigurationFilter;
 import com.ospreydcs.dp.gui.model.PvSelection;
+import com.ospreydcs.dp.gui.model.SampleStatusFilter;
 import javafx.beans.property.*;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -58,6 +60,22 @@ public class DataExploreViewModel {
      */
     private final ObjectProperty<PvSelection> pvSelection =
             new SimpleObjectProperty<>(PvSelection.nameList());
+
+    /**
+     * Optional restriction to the intervals during which matching machine configurations were
+     * active.  Narrows the TIME axis, so it composes with {@link #pvSelection} rather than
+     * competing with it, and defaults to no restriction.
+     */
+    private final ObjectProperty<ConfigurationFilter> configurationFilter =
+            new SimpleObjectProperty<>(ConfigurationFilter.none());
+
+    /**
+     * Optional restriction to samples carrying (or not carrying) a matching sample status.  Narrows
+     * individual samples out of whatever the other two leave, and defaults to no restriction.
+     */
+    private final ObjectProperty<SampleStatusFilter> sampleStatusFilter =
+            new SimpleObjectProperty<>(SampleStatusFilter.none());
+
     private final ObjectProperty<LocalDate> queryBeginDate = new SimpleObjectProperty<>(LocalDate.now());
     private final IntegerProperty beginHour = new SimpleIntegerProperty(0);
     private final IntegerProperty beginMinute = new SimpleIntegerProperty(0);
@@ -102,6 +120,12 @@ public class DataExploreViewModel {
 
         // The selection decides WHETHER the name list is what validity depends on
         pvSelection.addListener((obs, oldVal, newVal) -> updateValidation());
+
+        // Only the status filter has a client-checkable rule (a required domain); the configuration
+        // filter is listened to anyway so that a future rule cannot be added without the validation
+        // silently not running.
+        configurationFilter.addListener((obs, oldVal, newVal) -> updateValidation());
+        sampleStatusFilter.addListener((obs, oldVal, newVal) -> updateValidation());
         
         // Listen to date and time changes
         queryBeginDate.addListener((obs, oldVal, newVal) -> updateValidation());
@@ -175,6 +199,47 @@ public class DataExploreViewModel {
     public String describePvSelection() {
         return pvSelection.get().describe(pvNameList);
     }
+
+    public ObjectProperty<ConfigurationFilter> configurationFilterProperty() { return configurationFilter; }
+    public ConfigurationFilter getConfigurationFilter() { return configurationFilter.get(); }
+
+    /**
+     * Replaces the configuration filter.  A null filter restores "no restriction", which is the
+     * only safe default: the alternative empty form is rejected by the server rather than ignored.
+     */
+    public void setConfigurationFilter(ConfigurationFilter filter) {
+        configurationFilter.set(filter == null ? ConfigurationFilter.none() : filter);
+        updateValidation();
+        logger.debug("Configuration filter set to {}", configurationFilter.get().describe());
+    }
+
+    public ObjectProperty<SampleStatusFilter> sampleStatusFilterProperty() { return sampleStatusFilter; }
+    public SampleStatusFilter getSampleStatusFilter() { return sampleStatusFilter.get(); }
+
+    /** Replaces the sample status filter.  A null filter restores "no restriction". */
+    public void setSampleStatusFilter(SampleStatusFilter filter) {
+        sampleStatusFilter.set(filter == null ? SampleStatusFilter.none() : filter);
+        updateValidation();
+        logger.debug("Sample status filter set to {}", sampleStatusFilter.get().describe());
+    }
+
+    /**
+     * A one-line description of the whole query scope -- PVs, then whichever filters are active.
+     *
+     * <p>Inactive filters are omitted rather than described as "no filter", so the sentence stays
+     * readable in the common unfiltered case while an active filter is always visible.
+     */
+    public String describeQueryScope() {
+        final StringBuilder description = new StringBuilder(describePvSelection());
+        if (configurationFilter.get().isActive()) {
+            description.append(", ").append(configurationFilter.get().describe());
+        }
+        if (sampleStatusFilter.get().isActive()) {
+            description.append(", ").append(sampleStatusFilter.get().describe());
+        }
+        return description.toString();
+    }
+
     public ObjectProperty<LocalDate> queryBeginDateProperty() { return queryBeginDate; }
     public IntegerProperty beginHourProperty() { return beginHour; }
     public IntegerProperty beginMinuteProperty() { return beginMinute; }
@@ -269,14 +334,17 @@ public class DataExploreViewModel {
             // Update application state and notify home view
             if (dpApplication != null) {
                 dpApplication.setHasPerformedQueries(true);
+                // describeQueryScope(), not describePvSelection(): a row count reported without
+                // the active filters reads as an unfiltered result, and a status filter is exactly
+                // the thing that makes a small count expected rather than suspicious.
                 String resultMessage = "Successfully queried " + totalRowsLoaded.get()
-                    + " row(s) for " + describePvSelection();
+                    + " row(s) for " + describeQueryScope();
                 dpApplication.setLastOperationResult(resultMessage);
             }
             
             if (mainController != null) {
                 String resultMessage = "Query completed: " + totalRowsLoaded.get()
-                    + " row(s) for " + describePvSelection();
+                    + " row(s) for " + describeQueryScope();
                 mainController.onQuerySuccess(resultMessage);
             }
             
@@ -317,7 +385,14 @@ public class DataExploreViewModel {
         // list both belong to the UI, and the loop below runs on a background thread.
         final QueryClient.PvSelectorParams pvSelector =
                 pvSelection.get().toSelectorParams(new ArrayList<>(pvNameList));
-        final String selectionDescription = describePvSelection();
+        // Null, not an empty list, when no configuration restriction is asked for -- an empty list
+        // is a rejected request rather than an unfiltered one.  ConfigurationFilter.toCriteria()
+        // encodes that; this call site must not "helpfully" substitute List.of().
+        final List<QueryClient.ConfigurationCriterion> configurationCriteria =
+                configurationFilter.get().toCriteria();
+        final QueryClient.SampleStatusSelectorParams statusSelector =
+                sampleStatusFilter.get().toSelectorParams();
+        final String selectionDescription = describeQueryScope();
 
         logger.debug("Query time range: {} to {} selecting {}",
                 beginInstant, endInstant, selectionDescription);
@@ -329,7 +404,8 @@ public class DataExploreViewModel {
 
         do {
             final QuerySamplesApiResult apiResult =
-                    dpApplication.querySamples(pvSelector, beginInstant, endInstant, pageToken);
+                    dpApplication.querySamples(pvSelector, configurationCriteria, statusSelector,
+                            beginInstant, endInstant, pageToken);
 
             if (apiResult == null) {
                 throw new RuntimeException("Query failed - null response from service");
@@ -505,6 +581,10 @@ public class DataExploreViewModel {
         if (!isPvSelectionValid()) {
             return false;
         }
+
+        if (!sampleStatusFilter.get().isComplete()) {
+            return false;
+        }
         
         if (queryBeginDate.get() == null || queryEndDate.get() == null) {
             return false;
@@ -531,6 +611,15 @@ public class DataExploreViewModel {
         if (!isPvSelectionValid()) {
             statusMessage.set("Please enter a PV name pattern, or switch back to a name list");
             logger.warn("Query validation failed: blank PV name pattern");
+            return false;
+        }
+
+        // The status filter's domain is the only client-checkable rule among the two filters.  The
+        // configuration filter has none: its inactive form is expressed by sending no selector at
+        // all, so there is no incomplete state for it to be in.
+        if (!sampleStatusFilter.get().isComplete()) {
+            statusMessage.set("Please enter a sample status domain, or turn the status filter off");
+            logger.warn("Query validation failed: sample status filter with no domain");
             return false;
         }
         

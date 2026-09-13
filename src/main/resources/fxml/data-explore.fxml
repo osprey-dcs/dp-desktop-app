@@ -74,7 +74,18 @@
                             <Spinner fx:id="endSecondSpinner" prefWidth="60.0" GridPane.columnIndex="4" GridPane.rowIndex="1" />
                             <Label styleClass="text-muted" text="(H:M:S)" GridPane.columnIndex="5" GridPane.rowIndex="1" />
                         </GridPane>
-                        
+
+                        <!-- Optional Filters Section -->
+                        <VBox spacing="5">
+                            <HBox spacing="10" alignment="CENTER_LEFT">
+                                <Label styleClass="control-label" text="Filters:" />
+                                <Region HBox.hgrow="ALWAYS" />
+                                <Button fx:id="queryFiltersButton" onAction="#onQueryFilters"
+                                        styleClass="btn, btn-default" text="Query Filters..." />
+                            </HBox>
+                            <Label fx:id="queryFiltersLabel" styleClass="text-info" wrapText="true" />
+                        </VBox>
+
                         <!-- Action Buttons -->
                         <HBox spacing="10" alignment="CENTER_LEFT">
                             <Button fx:id="submitQueryButton" onAction="#onSubmitQuery" styleClass="btn, btn-primary, btn-lg" text="Submit Query" />

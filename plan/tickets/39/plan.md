@@ -274,9 +274,22 @@ helper possible. Today there are four spellings of the same three concepts:
 The flag also drives different UI in each: Pv disables the button only, Provider/Dataset drive a
 progress indicator only, Annotation does both.
 
-**T2c — only then consider a helper, not a superclass.** After T2b, what remains shared is
-`protected <T> void runSearch(Supplier<T>, Consumer<T>)` — a static utility. Revisit after view
-five exists and there is real evidence of what the sixth needs.
+**T2c — only then consider a helper, not a superclass. DECIDED: do not extract — after task 5.**
+The condition for revisiting was "after view five exists". It does, and the evidence argues against
+the helper.
+
+Task 5 is the case that would have justified one, and it is the case that refutes it: the
+configuration view hosts **two** searches in one view model, so a `runSearch` helper would have to be
+a static utility parameterized by four properties (two status messages, a count, a flag) — at which
+point the call site is longer than the seven lines it replaces. The activation search also carries
+pre-flight validation the configuration search does not (the half-filled range), so the two are not
+the same shape even within one file.
+
+What actually made views five and six cheap was T2a (the shared cell) and T2b (the settled
+vocabulary), both of which removed duplication without imposing a lifecycle contract. The remaining
+repetition is a `Task` construction idiom that reads correctly in place and whose shape is load
+bearing — it is exactly where D-2's ordering bug lived, and where a future one would. Leave it
+visible.
 
 **Sequencing**: T2a is a prerequisite for tasks 3–5 (they all want the cell). T2b should also
 precede them, so the new views are written in the settled vocabulary rather than being renamed
@@ -434,7 +447,46 @@ Original triage notes, for the record:
   Bind UI fields straight to `TextMatch`; do not pre-process them.
 - Per C4, do the menu/property rename in this task.
 
-### Task 5 — configuration/activation explore + #36
+### Task 5 — configuration/activation explore + #36 — **DONE**
+
+Shipped as `configuration-explore.fxml` / `ConfigurationExploreController` /
+`ConfigurationExploreViewModel` / `ConfigurationTableRow` / `ConfigurationActivationTableRow`, plus
+`DpApplication.queryConfigurations()` and `queryConfigurationActivations()`, plus
+`MachineConfigurationViewModel.loadFromConfiguration()` and the menu wiring. 35 tests added; suite at
+290. (`#36` was already complete — PR #44.)
+
+**Both triage points held.** The params asymmetry is real and the `TimeRangeCriterion` both-bounds
+rule is confirmed in the request builder.
+
+**One consequence the triage did not state, and it is the important one.** The builder does not
+*reject* a half-filled range — it emits **no criterion at all**. So passing one through does not
+produce an error; it produces a silently broader result set with every other criterion still applied,
+which reads as a working search. The view model refuses the search and says why, rather than relying
+on the server to complain. This is the guard most worth keeping.
+
+**Two independent searches, not one.** Configurations and activations are separate records with
+disjoint criteria, so each carries the T2b vocabulary per *search* rather than per view. Tests pin
+that neither disturbs the other's results, counts, or status.
+
+**The activation gate was widened, deliberately.** Section 2 of the editor was gated on
+`configurationSaved`, described as "saved in this session". Its real invariant is that the server
+holds a Configuration under `savedConfigurationName` — the server rejects an activation whose name
+does not resolve. A loaded record satisfies that invariant, so `loadFromConfiguration()` opens the
+gate and binds it to the *record's* name rather than to the editable text field. Leaving it closed
+would have denied the one operation the loaded record makes safe. CLAUDE.md's "saved in this session"
+wording and the controller's matching comment were both corrected.
+
+**Testing.** Four mutation checks, all confirmed: the half-filled range (`expected: <0> but was:
+<1>`), the activation gate (6 of 8 tests failed), the open-ended end time (`expected: <open-ended>
+but was: <1970-01-01 00:00:00>`), and a column bound to the wrong `PROPERTY_*` constant. The range
+check also exposed a **race in the tests themselves** — `executeActivationSearch()` returns once it
+has started a thread, so reading a fake's call count straight afterwards is not ordered; one refusal
+test had been passing by luck. Fixed with a bounded poll, since a refused search has no in-progress
+transition to await.
+
+**Still unverified end to end**, as with tasks 3 and 4.
+
+Original triage notes, for the record:
 
 Unblocked by #243/#245. `#36` is planned separately and is independent — see
 [`plan/tickets/36/plan.md`](../36/plan.md); its dp-service half is already done.

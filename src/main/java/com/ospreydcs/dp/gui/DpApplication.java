@@ -1500,6 +1500,119 @@ public class DpApplication {
     }
 
     /**
+     * Queries machine configuration records, following nextPageToken internally.
+     *
+     * Criteria are ANDed; values within one criterion are ORed.  Every parameter is optional, and
+     * an unset one contributes no criterion at all - a query with no criteria matches everything,
+     * bounded by QUERY_RESULT_CAP.
+     *
+     * As with queryPvMetadata(), the TextMatch is passed through UNPROCESSED: the request builder
+     * drops blank entries itself, and a blank prefix would otherwise compile to a regex matching
+     * everything.
+     *
+     * A failed page throws QueryFailedException rather than returning what had accumulated.
+     */
+    public PagedResult<Configuration> queryConfigurations(
+            TextMatch nameMatch,
+            List<String> categoryAnyOf,
+            List<String> tagsAnyOf,
+            List<AttributeCriterion> attributes,
+            List<String> parentAnyOf
+    ) {
+        return accumulatePages(
+                pageToken -> {
+                    final AnnotationClient.QueryConfigurationsParams params =
+                            new AnnotationClient.QueryConfigurationsParams(
+                                    nameMatch,
+                                    emptyToNull(categoryAnyOf),
+                                    emptyToNull(tagsAnyOf),
+                                    emptyToNull(attributes),
+                                    emptyToNull(parentAnyOf),
+                                    0,
+                                    emptyToNull(pageToken));
+
+                    final QueryConfigurationsApiResult pageResult =
+                            api.annotationClient.queryConfigurations(params);
+
+                    if (pageResult == null) {
+                        throw new QueryFailedException(
+                                "configuration query failed - null response from service");
+                    }
+                    if (pageResult.resultStatus.isError) {
+                        throw new QueryFailedException(
+                                "configuration query failed: " + pageResult.resultStatus.msg);
+                    }
+                    return pageResult;
+                },
+                pageResult -> pageResult.nextPageToken,
+                pageResult -> pageResult.configurations,
+                QUERY_RESULT_CAP);
+    }
+
+    /**
+     * Queries configuration activation records, following nextPageToken internally.
+     *
+     * Takes Instant at this boundary and converts inward via timestampFromInstant(), which maps null
+     * to null - the activation params take protobuf Timestamp, and an optional time left unset must
+     * reach the request builder as null rather than as a zero-valued Timestamp.
+     *
+     * <strong>rangeStart and rangeEnd are all-or-nothing.</strong>  TimeRangeCriterion requires both
+     * bounds, and the request builder emits NO criterion when only one is supplied - it does not
+     * reject the request.  A half-filled range is therefore silently broader than the user asked
+     * for, which is why callers must validate the pair before calling rather than relying on the
+     * server to complain.  activeAt is independent and may be combined with a range.
+     *
+     * Note the server's zero-timestamp idiom: a Timestamp of exactly epoch 0 is treated as
+     * unspecified, so a query at Unix epoch 0 cannot be expressed.  This is not reachable through
+     * the UI, whose date pickers cannot produce it, but it is why an Instant.EPOCH sentinel must
+     * never be used here to mean "unset".
+     *
+     * A failed page throws QueryFailedException rather than returning what had accumulated.
+     */
+    public PagedResult<ConfigurationActivation> queryConfigurationActivations(
+            Instant activeAt,
+            Instant rangeStart,
+            Instant rangeEnd,
+            List<String> configurationNameAnyOf,
+            List<String> clientActivationIdAnyOf,
+            List<String> categoryAnyOf,
+            List<String> tagsAnyOf,
+            List<AttributeCriterion> attributes
+    ) {
+        return accumulatePages(
+                pageToken -> {
+                    final AnnotationClient.QueryConfigurationActivationsParams params =
+                            new AnnotationClient.QueryConfigurationActivationsParams(
+                                    timestampFromInstant(activeAt),
+                                    timestampFromInstant(rangeStart),
+                                    timestampFromInstant(rangeEnd),
+                                    emptyToNull(configurationNameAnyOf),
+                                    emptyToNull(clientActivationIdAnyOf),
+                                    emptyToNull(categoryAnyOf),
+                                    emptyToNull(tagsAnyOf),
+                                    emptyToNull(attributes),
+                                    0,
+                                    emptyToNull(pageToken));
+
+                    final QueryConfigurationActivationsApiResult pageResult =
+                            api.annotationClient.queryConfigurationActivations(params);
+
+                    if (pageResult == null) {
+                        throw new QueryFailedException(
+                                "configuration activation query failed - null response from service");
+                    }
+                    if (pageResult.resultStatus.isError) {
+                        throw new QueryFailedException(
+                                "configuration activation query failed: " + pageResult.resultStatus.msg);
+                    }
+                    return pageResult;
+                },
+                pageResult -> pageResult.nextPageToken,
+                pageResult -> pageResult.configurationActivations,
+                QUERY_RESULT_CAP);
+    }
+
+    /**
      * Creates or updates the machine configuration record for the specified configuration name.
      *
      * This is a full-replace upsert: every mutable field is replaced by the value supplied here on

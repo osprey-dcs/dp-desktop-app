@@ -26,6 +26,7 @@ public class MainViewModel {
     private final BooleanProperty dataEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty pvStatsEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty pvMetadataExploreEnabled = new SimpleBooleanProperty(false);
+    private final BooleanProperty configurationsExploreEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty providerMetadataEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty datasetsEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty annotationsEnabled = new SimpleBooleanProperty(false);
@@ -94,6 +95,10 @@ public class MainViewModel {
         return pvMetadataExploreEnabled;
     }
 
+    public BooleanProperty configurationsExploreEnabledProperty() {
+        return configurationsExploreEnabled;
+    }
+
     public BooleanProperty providerMetadataEnabledProperty() {
         return providerMetadataEnabled;
     }
@@ -141,6 +146,12 @@ public class MainViewModel {
             // Enable PV and Provider metadata menus if data has been ingested
             pvStatsEnabled.set(dpApplication.hasIngestedData());
             pvMetadataExploreEnabled.set(dpApplication.hasIngestedData());
+
+            // Configurations are curated records rather than ingestion-derived ones, so this view
+            // has something to show before any data exists.  It is gated with its Explore siblings
+            // anyway, for one menu with one rule rather than a lone exception -- the Metadata menu
+            // is where the always-enabled entry points live.
+            configurationsExploreEnabled.set(dpApplication.hasIngestedData());
             providerMetadataEnabled.set(dpApplication.hasIngestedData());
             
             // Enable datasets menu if data has been ingested
@@ -212,6 +223,11 @@ public class MainViewModel {
     public void handlePvMetadataExplore() {
         logger.info("PV Metadata explore action triggered");
         updateStatus("Opening PV metadata browser...");
+    }
+
+    public void handleConfigurationsExplore() {
+        logger.info("Machine Configurations explore action triggered");
+        updateStatus("Opening machine configuration browser...");
     }
 
     public void handleProviderMetadata() {

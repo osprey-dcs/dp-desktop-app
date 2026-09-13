@@ -39,6 +39,7 @@ public class MainController implements Initializable {
     @FXML private MenuItem providerMetadataMenuItem;
     @FXML private MenuItem datasetsMenuItem;
     @FXML private MenuItem annotationsMenuItem;
+    @FXML private MenuItem configurationsExploreMenuItem;
     @FXML private MenuItem sampleStatusesMenuItem;
     @FXML private MenuItem dataEventsMenuItem;
     // note: distinct from pvMetadataExploreMenuItem above, which opens the read-only
@@ -83,6 +84,8 @@ public class MainController implements Initializable {
         providerMetadataMenuItem.disableProperty().bind(viewModel.providerMetadataEnabledProperty().not());
         datasetsMenuItem.disableProperty().bind(viewModel.datasetsEnabledProperty().not());
         annotationsMenuItem.disableProperty().bind(viewModel.annotationsEnabledProperty().not());
+        configurationsExploreMenuItem.disableProperty()
+                .bind(viewModel.configurationsExploreEnabledProperty().not());
         sampleStatusesMenuItem.disableProperty().bind(viewModel.sampleStatusesEnabledProperty().not());
         dataEventsMenuItem.disableProperty().bind(viewModel.dataEventsEnabledProperty().not());
         // pvMetadataCreateMenuItem and machineConfigCreateMenuItem are always enabled (no binding
@@ -183,6 +186,43 @@ public class MainController implements Initializable {
             logger.error("Failed to open the PV metadata editor", e);
             viewModel.updateStatus("Failed to open the PV metadata editor: " + e.getMessage());
         }
+    }
+
+    /**
+     * Opens the machine configuration editor loaded with an existing record.
+     *
+     * <p>Takes the resolved record rather than a name, for the same reason as
+     * navigateToPvMetadataEditor(): saveConfiguration() is a full-replace upsert keyed on
+     * configurationName, so loading anything other than the record the user actually clicked would
+     * be written rather than merely displayed.
+     */
+    public void navigateToConfigurationEditor(com.ospreydcs.dp.grpc.v1.common.Configuration record) {
+        try {
+            viewModel.updateStatus("Loading machine configuration editor...");
+
+            final FXMLLoader loader =
+                    new FXMLLoader(getClass().getResource("/fxml/machine-configuration.fxml"));
+            contentPane.getChildren().clear();
+            contentPane.getChildren().add(loader.load());
+
+            final MachineConfigurationController controller = loader.getController();
+            controller.setDpApplication(dpApplication);
+            controller.setPrimaryStage(primaryStage);
+            controller.setMainController(this);
+            controller.loadForEditing(record);
+
+            viewModel.updateStatus("Editing configuration " + record.getConfigurationName());
+
+        } catch (Exception e) {
+            logger.error("Failed to open the machine configuration editor", e);
+            viewModel.updateStatus("Failed to open the machine configuration editor: " + e.getMessage());
+        }
+    }
+
+    @FXML
+    private void onConfigurationsExplore() {
+        viewModel.handleConfigurationsExplore();
+        switchToView("/fxml/configuration-explore.fxml");
     }
 
     @FXML
@@ -308,6 +348,11 @@ public class MainController implements Initializable {
                 ssController.setDpApplication(dpApplication);
                 ssController.setPrimaryStage(primaryStage);
                 ssController.setMainController(this);
+            } else if (controller instanceof ConfigurationExploreController) {
+                ConfigurationExploreController ceController = (ConfigurationExploreController) controller;
+                ceController.setDpApplication(dpApplication);
+                ceController.setPrimaryStage(primaryStage);
+                ceController.setMainController(this);
             }
             
             viewModel.updateStatus("View loaded successfully");

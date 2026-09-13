@@ -98,7 +98,7 @@ These track the upstream `osprey-dcs` org and are the checkouts to build from.
 File → Connection, Preferences, Exit
 Ingest → Generate, Import (Fixed and Subscribe removed)
 Metadata → PV, Machine Configuration
-Explore → Data, PV Statistics, PV Metadata, Providers, Datasets, Annotations, Sample Statuses, Data Events
+Explore → Data, PV Statistics, PV Metadata, Providers, Datasets, Annotations, Machine Configurations, Sample Statuses, Data Events
 ```
 
 **Menu Item Logic:**
@@ -112,6 +112,7 @@ Explore → Data, PV Statistics, PV Metadata, Providers, Datasets, Annotations, 
 - **Providers**: Navigate to provider-explore view for provider discovery and management
 - **Datasets**: Navigate to dataset-explore view for dataset discovery and Dataset Builder navigation
 - **Annotations**: Navigate to annotation-explore view for annotation discovery and management
+- **Machine Configurations**: Navigate to configuration-explore view for searching configuration records and their activation intervals, and loading a configuration for editing
 - **Sample Statuses**: Navigate to sample-status-explore view for querying stored sample statuses
 - **Data Events**: Navigate to data-event-explore view for data event subscription management and monitoring
 
@@ -196,6 +197,7 @@ Explore → Data, PV Statistics, PV Metadata, Providers, Datasets, Annotations, 
 - ✅ Machine Configuration view for creating configuration records and activation intervals via saveConfiguration() / saveConfigurationActivation(), with getConfiguration() and getConfigurationActivationById() overwrite warnings
 - ✅ Demo sample status generation in the data-generation view via saveSampleStatuses(), with the read-back now wired to the Sample Status Explore view via querySampleStatusBuckets()
 - ✅ PV Metadata Explore view with search by name/alias (contains, prefix or exact), tags and attributes via queryPvMetadata(), and load-for-edit into the PV Metadata editor
+- ✅ Configuration Explore view with two independent searches (configurations and activations) via queryConfigurations() / queryConfigurationActivations(), and load-for-edit into the Machine Configuration editor
 
 ## GUI Architecture
 
@@ -205,17 +207,17 @@ The application follows the Model-View-ViewModel pattern:
 **Controllers** (`src/main/java/com/ospreydcs/dp/gui/*Controller.java`)
 - Handle FXML UI binding and user interactions
 - Delegate business logic to ViewModels
-- Example: `DataGenerationController`, `DataExploreController`, `DataImportController`, `PvExploreController`, `ProviderExploreController`, `DatasetExploreController`, `AnnotationExploreController`, `DataEventExploreController`, `PvMetadataController`, `PvMetadataExploreController`, `SampleStatusExploreController`, `MachineConfigurationController`, `MainController`
+- Example: `DataGenerationController`, `DataExploreController`, `DataImportController`, `PvExploreController`, `ProviderExploreController`, `DatasetExploreController`, `AnnotationExploreController`, `DataEventExploreController`, `PvMetadataController`, `PvMetadataExploreController`, `SampleStatusExploreController`, `ConfigurationExploreController`, `MachineConfigurationController`, `MainController`
 
 **ViewModels** (`src/main/java/com/ospreydcs/dp/gui/*ViewModel.java`)
 - Contain UI state and business logic
 - Use JavaFX properties for data binding
-- Example: `DataGenerationViewModel`, `DataExploreViewModel`, `DataImportViewModel`, `PvExploreViewModel`, `ProviderExploreViewModel`, `DatasetExploreViewModel`, `AnnotationExploreViewModel`, `DataEventExploreViewModel`, `PvMetadataViewModel`, `PvMetadataExploreViewModel`, `SampleStatusExploreViewModel`, `MachineConfigurationViewModel`, `MainViewModel`
+- Example: `DataGenerationViewModel`, `DataExploreViewModel`, `DataImportViewModel`, `PvExploreViewModel`, `ProviderExploreViewModel`, `DatasetExploreViewModel`, `AnnotationExploreViewModel`, `DataEventExploreViewModel`, `PvMetadataViewModel`, `PvMetadataExploreViewModel`, `SampleStatusExploreViewModel`, `ConfigurationExploreViewModel`, `MachineConfigurationViewModel`, `MainViewModel`
 
 **Views** (`src/main/resources/fxml/*.fxml`)
 - FXML layout definitions
 - Styled with BootstrapFX and custom CSS
-- Example: `data-generation.fxml`, `data-explore.fxml`, `data-import.fxml`, `pv-explore.fxml`, `provider-explore.fxml`, `dataset-explore.fxml`, `annotation-explore.fxml`, `data-event-explore.fxml`, `pv-metadata.fxml`, `pv-metadata-explore.fxml`, `sample-status-explore.fxml`, `machine-configuration.fxml`, `main-window.fxml`
+- Example: `data-generation.fxml`, `data-explore.fxml`, `data-import.fxml`, `pv-explore.fxml`, `provider-explore.fxml`, `dataset-explore.fxml`, `annotation-explore.fxml`, `data-event-explore.fxml`, `pv-metadata.fxml`, `pv-metadata-explore.fxml`, `sample-status-explore.fxml`, `configuration-explore.fxml`, `machine-configuration.fxml`, `main-window.fxml`
 
 ### Data Generation Workflow (Implemented)
 1. **Provider Registration**: Users fill provider details (name, description, tags, attributes)
@@ -328,8 +330,8 @@ permanently-retained copy re-doing work the first listener already did. That cop
 the search that registered it — the visible behavior was correct only because the
 `bindUIToViewModel()` listener was doing the job all along.
 
-**The four explore views share one search vocabulary** (normalized by #39 T2b). A fifth or sixth
-explore view should use these names rather than inventing a fourth spelling:
+**The explore views share one search vocabulary** (normalized by #39 T2b). A new explore view
+should use these names rather than inventing another spelling:
 
 | Concept | Property | Bound to |
 |---|---|---|
@@ -343,7 +345,12 @@ other view models expose `statusMessageProperty()`, and four controllers forward
 `MainViewModel.updateStatus()` to drive the application status bar. The two status properties are
 **two distinct labels**, not two spellings of one — every explore FXML declares both.
 
-`resultCountMessage` is a `String` in all four views, never an `IntegerProperty`. A count label bound
+**The vocabulary scopes to a SEARCH, not to a view.** `ConfigurationExploreViewModel` hosts two
+independent searches and therefore carries two of each property, prefixed by search
+(`configurationSearchInProgress` / `activationSearchInProgress`, and so on). Sharing one set between
+them would let either search clear the other's results or overwrite its count.
+
+`resultCountMessage` is a `String` in every view, never an `IntegerProperty`. A count label bound
 to a bare int cannot say "first N of more", so it would read "5000 results" beside a status message
 saying the query was capped — the exact dishonesty transparent paging exists to prevent.
 
@@ -424,6 +431,56 @@ builder with no calculations, and saving any unrelated edit would then destroy t
 Calculations — no error, no warning, and nothing in the UI indicating a loss. The comment at
 `AnnotationBuilderViewModel.loadFromAnnotation()` guards this, since the read there looks like an
 ordinary embedded-content read and is only safe because of who calls it.
+
+### Configuration Explore Workflow (Implemented)
+1. **Navigation**: `Explore > Machine Configurations` (enabled after ingestion, like the other explore views)
+2. **Two tabs, two searches**: Configurations and Activations, each with its own criteria, progress indicator and status labels
+3. **Configuration criteria**: name (Contains / Starts-with / Exact), category, parent, tags, attribute key + optional value
+4. **Activation criteria**: configuration names, activation ids, category, tags, attributes, plus two optional time criteria
+5. **Search Execution**: background `Task`s calling `DpApplication.queryConfigurations()` / `queryConfigurationActivations()`, both following `nextPageToken` internally — no paging UI
+6. **Load for Edit**: a configuration name is a hyperlink that opens the machine-configuration editor populated with that record
+7. **Cross-search navigation**: an activation row's configuration name resolves through `getConfiguration()` and opens the editor
+
+**Two independent searches, not one search with two result tables.** A `Configuration` and a
+`ConfigurationActivation` are separate records with disjoint criteria, and either question is useful
+on its own — "what configurations exist in this category" and "what was active during this window"
+are asked separately. Each therefore carries the full T2b vocabulary (`searchStatusMessage`,
+`statusMessage`, `resultCountMessage`, `searchInProgress`) **per search rather than per view**, so
+one search cannot clear the other's results or overwrite its count.
+
+**A half-filled time range is refused, not passed through.** This is the sharpest edge in the view.
+`TimeRangeCriterion` requires **both** bounds, and the dp-service request builder responds to a
+half-filled pair by emitting **no criterion at all** rather than by rejecting the request
+(`AnnotationClient.buildQueryConfigurationActivationsRequest`). So a user who fills in only a start
+date gets a result set silently *broader* than what they asked for, with every other criterion still
+applied — which reads as a working search rather than a dropped filter. `hasPartialRange()` refuses
+the search and says why. The view states the constraint beneath the controls too, but the refusal is
+what enforces it.
+
+`activeAt` is an independent criterion and may be combined with a range, so `activeAt` alone is a
+complete search rather than half of one.
+
+**The temporal controls are read only when their checkbox is ticked.** An unticked criterion is
+published as null rather than as whatever its date picker happens to hold, so a date left behind by
+an earlier search cannot silently narrow the next one. Clearing resets the spinners explicitly as
+well as the dates, for the same reason the activation editor does: clearing only the dates leaves a
+time of day to be silently reused.
+
+**An absent `endTime` is open-ended, not epoch.** `ConfigurationActivation.endTime` has real protobuf
+field presence, and `getEndTime()` on an absent field returns a zero-valued `Timestamp` — which
+renders as a 1970 date and reads as an activation that ended before it began.
+`ConfigurationActivationTableRow` branches on `hasEndTime()` and renders `OPEN_ENDED` instead.
+`getEndInstant()` reports absence as null for the same reason, so the display string
+(`getEndTime()`, which can be the literal "open-ended") is never mistaken for a value.
+
+**An activation carries only its configuration's name, not the record.** So the activations table's
+configuration link resolves the name through `getConfiguration()` before navigating, branching on
+`isReject()` for not-found — `isError()` alone cannot tell a missing record from an unreachable
+service. A name that no longer resolves is reported rather than opening an empty editor, which would
+invite creating a new record under a name the user believed already existed.
+
+**There is deliberately no free-text field**, for the same reason as the PV metadata explore view:
+these criteria are name / category / parent / tags / attributes, with no `TextCriterion`.
 
 ### Sample Status Explore Workflow (Implemented)
 1. **Navigation**: `Explore > Sample Statuses` (enabled after ingestion, like the other explore views)
@@ -573,13 +630,15 @@ integration.
 9. **Status Feedback**: View-local status label plus a `ProgressIndicator` bound to an `isSaving` property
 10. **Reset**: Clears both forms, all four list components, the session activation list, and re-disables the activation section
 
-**Why one view and not two:** an activation cannot be created without an existing configuration. The server resolves `configurationName` against the Configuration collection on every activation save and rejects the request outright if it does not resolve (`no Configuration found for configurationName: '<name>'`). Gating section 2 on a configuration saved in this session, and binding it to the name the server returned rather than to the still-editable text field, makes that rejection unreachable through normal use.
+**Why one view and not two:** an activation cannot be created without an existing configuration. The server resolves `configurationName` against the Configuration collection on every activation save and rejects the request outright if it does not resolve (`no Configuration found for configurationName: '<name>'`). Gating section 2 on the server being known to hold a Configuration under `savedConfigurationName`, and binding it to that name rather than to the still-editable text field, makes that rejection unreachable through normal use. **The gate's invariant is existence, not provenance**: #39 task 5 added `loadFromConfiguration()`, and a record loaded from the server satisfies it exactly as a record saved here does — leaving the section disabled after a load would deny the one operation the loaded record makes safe.
 
 **Activation overlap is rejected on same configurationName OR same category.** The Configuration's category is denormalized onto each activation record as `internalCategory`, so two *different* configurations sharing a category cannot have overlapping activations. This is correct server behavior; the view surfaces the message rather than swallowing it.
 
 **Detecting not-found:** `getConfiguration()` reports a missing record as a *rejection*, not an empty successful result. Branch on `ApiResultBase.isReject()` rather than `isError()` — a service that is unreachable also sets `isError`, and treating that as "no existing record" would suppress the overwrite warning. Note that `REJECT` also covers server-side validation failures, so reading it as not-found is only safe once the request itself is known to be valid.
 
-**Full-replace upsert:** both `saveConfiguration()` and `saveConfigurationActivation()` replace the ENTIRE record; omitted fields are not preserved. The view states this in the panel. Loading an existing record before editing is deferred to a follow-up.
+**Full-replace upsert:** both `saveConfiguration()` and `saveConfigurationActivation()` replace the ENTIRE record; omitted fields are not preserved. The view states this in the panel. Loading a configuration for editing is provided by `loadFromConfiguration()`, reached from the Configuration Explore view; an *activation* still has no load-for-edit path.
+
+**Saving after a load raises the overwrite confirmation, and that is not spurious.** The record does exist, and the save really does replace all of it — so the prompt is the last chance to notice that a field cleared during editing will be cleared in the archive too.
 
 **End time is required in this version.** The server supports open-ended activations (absent `endTime`), but one blocks every subsequent activation in its entire category indefinitely. This is a UI-side constraint only — `DpApplication.saveConfigurationActivation()` keeps `endTime` nullable.
 
@@ -788,6 +847,21 @@ Wrapper for a protobuf `PvMetadata` record in TableView displays:
 - The `PROPERTY_*` constants name the properties the `PropertyValueFactory` column bindings resolve reflectively, so a rename that misses the controller fails to compile instead of silently blanking a column; `PvMetadataExploreColumnBindingTest` covers what constants cannot — a column bound to the *wrong* constant, or not bound at all
 - Used in pv-metadata-explore; see the workflow section above for the alias-resolution rationale
 
+### ConfigurationTableRow (`src/main/java/com/ospreydcs/dp/gui/model/ConfigurationTableRow.java`)
+Wrapper for a protobuf `Configuration` record in TableView displays:
+- Configuration name, category, description, parent, tags, attributes, modified-by, formatted updated time
+- `getConfiguration()` returns the wrapped record, which is what the editor is loaded from: `saveConfiguration()` is a full-replace upsert keyed on `configurationName`
+- The `PROPERTY_*` constants name the reflectively-resolved `PropertyValueFactory` bindings; `ConfigurationExploreColumnBindingTest` covers what constants cannot — a column bound to the *wrong* constant, or not bound at all
+- Used in configuration-explore
+
+### ConfigurationActivationTableRow (`src/main/java/com/ospreydcs/dp/gui/model/ConfigurationActivationTableRow.java`)
+Wrapper for a protobuf `ConfigurationActivation` record in TableView displays:
+- Activation id, configuration name, formatted start/end, description, tags, attributes, modified-by
+- **An absent `endTime` renders as `OPEN_ENDED` ("open-ended"), never as a formatted timestamp.** `endTime` has real protobuf field presence, so reading it without `hasEndTime()` yields a zero-valued `Timestamp` that displays as 1970 — an activation that appears to have ended before it began. `ConfigurationActivationDetail` makes the same distinction for the editor's session list
+- `getStartInstant()` / `getEndInstant()` expose the unformatted values, reporting absence as null, so the display string is never mistaken for a value
+- The `PROPERTY_*` constants name the reflectively-resolved bindings, as above
+- Used in configuration-explore
+
 ### SampleStatusTableRow (`src/main/java/com/ospreydcs/dp/gui/model/SampleStatusTableRow.java`)
 One sample status — a single `(pvName, timestamp, domain, layer)` identity — flattened out of a `SampleStatusBucket`:
 - PV name, formatted timestamp, domain, layer, raw status code, resolved label, confidence, reason, source, modified-by
@@ -899,6 +973,18 @@ without a service ecosystem — the same reasoning as `accumulatePages()` and `e
 the cases that produce *plausible-looking wrong output* rather than an obvious failure: an off-by-one
 at a bucket edge yields a believable count, and a drifting clock yields timestamps that look right but
 match no sample.
+
+**Configuration explore tests** (`ConfigurationExploreViewModelTest`, `ConfigurationLoadForEditTest`,
+`ConfigurationExploreColumnBindingTest`): the half-filled range is the case worth the most here,
+because both the failure and the symptom are invisible — the server accepts the request, returns
+plausible results, and nothing indicates a bound was dropped.
+
+Note what the mutation check exposed in the *tests* rather than the code: `executeActivationSearch()`
+returns as soon as it has started a background thread, so asserting on a fake's call count straight
+after `runOnFxThread()` reads it in a race. One refusal test passed against the broken version by
+luck. A refused search starts no task and therefore has no in-progress transition to await — awaiting
+the flag would hang on the correct behavior — so `runRefusedActivationSearch()` polls for a wrongly
+started call instead. Both tests then failed with `expected: <0> but was: <1>`.
 
 **PV metadata explore tests** (`PvMetadataExploreViewModelTest`, `PvMetadataLoadForEditTest`,
 `PvMetadataExploreColumnBindingTest`): `textMatch()` is pure and static for the same reason as
@@ -1177,6 +1263,25 @@ page (not truncated), and a server returning a token alongside an empty page.
 - `getPvMetadata(pvName)` — retrieves one record **by canonical name OR alias**. The returned
   record's `pvName` may therefore differ from what was passed, and callers must save using the name
   the record carries; see the alias trap in the PV Metadata Explore Workflow above.
+
+**Machine Configuration API wrappers** on `DpApplication`:
+- `queryConfigurations(nameMatch, categoryAnyOf, tagsAnyOf, attributes, parentAnyOf)` — pages
+  transparently via `accumulatePages()` up to `QUERY_RESULT_CAP`, returning
+  `PagedResult<Configuration>`.
+- `queryConfigurationActivations(activeAt, rangeStart, rangeEnd, configurationNameAnyOf,
+  clientActivationIdAnyOf, categoryAnyOf, tagsAnyOf, attributes)` — same shape, returning
+  `PagedResult<ConfigurationActivation>`. Takes `Instant` at this boundary and converts inward via
+  `timestampFromInstant()`, since the params take protobuf `Timestamp`.
+
+  **`rangeStart` and `rangeEnd` are all-or-nothing, and a half-filled pair is dropped rather than
+  rejected.** `TimeRangeCriterion` requires both bounds, so the request builder emits no criterion at
+  all when only one is supplied — silently widening the search. Callers must validate the pair before
+  calling; `ConfigurationExploreViewModel.hasPartialRange()` is what does that for the UI. `activeAt`
+  is independent and may be combined with a range.
+
+  Note the server's **zero-timestamp idiom**: a `Timestamp` of exactly epoch 0 is treated as
+  unspecified and rejected, so a query at Unix epoch 0 cannot be expressed. Not reachable through the
+  date pickers, but it is why an `Instant.EPOCH` sentinel must never be used to mean "unset".
 
 **Sample Status API wrappers** on `DpApplication` (the client wrappers themselves already exist on
 `AnnotationClient`, added by dp-service #239 — no dp-service work is needed to use them):

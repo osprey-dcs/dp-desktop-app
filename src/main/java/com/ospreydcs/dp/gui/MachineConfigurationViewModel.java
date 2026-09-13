@@ -4,6 +4,8 @@ import com.ospreydcs.dp.client.result.GetConfigurationActivationApiResult;
 import com.ospreydcs.dp.client.result.GetConfigurationApiResult;
 import com.ospreydcs.dp.client.result.SaveConfigurationActivationApiResult;
 import com.ospreydcs.dp.client.result.SaveConfigurationApiResult;
+import com.ospreydcs.dp.grpc.v1.common.Attribute;
+import com.ospreydcs.dp.grpc.v1.common.Configuration;
 import com.ospreydcs.dp.gui.component.AttributesListComponent;
 import com.ospreydcs.dp.gui.component.TagsListComponent;
 import com.ospreydcs.dp.gui.model.ConfigurationActivationDetail;
@@ -785,6 +787,64 @@ public class MachineConfigurationViewModel {
         if (activationTemporalFieldsReset != null) {
             activationTemporalFieldsReset.run();
         }
+    }
+
+
+    /**
+     * Loads an existing configuration record into the form for editing.
+     *
+     * <p><strong>This enables the activation section.</strong> That section is gated on
+     * {@code configurationSaved}, whose real invariant is "the server holds a Configuration under
+     * {@code savedConfigurationName}" — an activation save is rejected outright when the server
+     * cannot resolve the name. Saving in this session was previously the only way to establish that
+     * invariant; a record loaded from the server establishes it just as well, since its existence is
+     * what the load proves. Leaving the section disabled after a load would deny the one operation
+     * the loaded record makes safe.
+     *
+     * <p>The activation section is bound to the <em>record's</em> name rather than to the still
+     * editable text field, exactly as the save path binds it to the name the server returned. A user
+     * who loads "rf-cavity", retypes the name field, and then adds an activation gets an activation
+     * of "rf-cavity" — which is what the server will accept, and what the session list says.
+     *
+     * <p>Note that saving after a load will raise the overwrite confirmation, because the record
+     * does exist. That is not spurious: {@code saveConfiguration()} is a full-replace upsert, so the
+     * save really does replace the whole record, and the prompt is the last chance to notice that a
+     * field cleared during editing will be cleared in the archive too.
+     */
+    public void loadFromConfiguration(Configuration record) {
+        if (record == null) {
+            return;
+        }
+
+        resetForm();
+
+        configurationName.set(record.getConfigurationName());
+        category.set(record.getCategory());
+        configurationDescription.set(record.getDescription());
+        parentConfigurationName.set(record.getParentConfigurationName());
+        configurationModifiedBy.set(record.getModifiedBy());
+
+        // Critical Integration Pattern: the save reads tags and attributes from the COMPONENTS, so
+        // the load must write them there.  Populating ViewModel properties instead would be
+        // write-only, and the next save - a full replace - would drop both from the stored record.
+        if (configurationTagsComponent != null) {
+            for (String tag : record.getTagsList()) {
+                configurationTagsComponent.addTag(tag);
+            }
+        }
+        if (configurationAttributesComponent != null) {
+            for (Attribute attribute : record.getAttributesList()) {
+                configurationAttributesComponent.addAttribute(
+                        attribute.getName(), attribute.getValue());
+            }
+        }
+
+        savedConfigurationName.set(record.getConfigurationName());
+        configurationSaved.set(true);
+
+        statusMessage.set("Editing " + record.getConfigurationName()
+                + " - saving replaces the entire record under this name");
+        logger.debug("Loaded configuration record for editing: {}", record.getConfigurationName());
     }
 
     /**

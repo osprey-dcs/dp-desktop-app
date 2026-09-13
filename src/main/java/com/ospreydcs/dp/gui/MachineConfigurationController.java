@@ -136,9 +136,10 @@ public class MachineConfigurationController implements Initializable {
         // Reset is disabled while a save is in progress
         resetButton.disableProperty().bind(viewModel.isSavingProperty());
 
-        // The activation section stays disabled until a configuration has been saved in this
-        // session.  That is what keeps the server's "no Configuration found" rejection from being
-        // reachable through normal use of this view.
+        // The activation section stays disabled until the server is known to hold a Configuration
+        // under savedConfigurationName -- established either by saving one here, or by loading an
+        // existing record through loadForEditing().  That is what keeps the server's "no
+        // Configuration found" rejection from being reachable through normal use of this view.
         //
         // It is also disabled while a save is in flight: a successful activation save clears this
         // form, so input typed into it during the request would be discarded on completion.
@@ -284,6 +285,17 @@ public class MachineConfigurationController implements Initializable {
     public void setPrimaryStage(Stage primaryStage) {
         this.primaryStage = primaryStage;
         logger.debug("Primary stage injected");
+    }
+
+    /**
+     * Loads an existing configuration record into the form for editing.
+     *
+     * <p>Called after injection, so the activation-temporal-fields reset seam wired in
+     * {@code initialize()} is already in place — {@code loadFromConfiguration()} resets the form
+     * first, and that reset reaches the controller-owned date and time controls through it.
+     */
+    public void loadForEditing(com.ospreydcs.dp.grpc.v1.common.Configuration record) {
+        viewModel.loadFromConfiguration(record);
     }
 
     public void setMainController(MainController mainController) {

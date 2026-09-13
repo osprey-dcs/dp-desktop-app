@@ -24,7 +24,8 @@ public class MainViewModel {
     private final BooleanProperty importEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty subscribeEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty dataEnabled = new SimpleBooleanProperty(false);
-    private final BooleanProperty pvMetadataEnabled = new SimpleBooleanProperty(false);
+    private final BooleanProperty pvStatsEnabled = new SimpleBooleanProperty(false);
+    private final BooleanProperty pvMetadataExploreEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty providerMetadataEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty datasetsEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty annotationsEnabled = new SimpleBooleanProperty(false);
@@ -85,8 +86,12 @@ public class MainViewModel {
         return dataEnabled;
     }
 
-    public BooleanProperty pvMetadataEnabledProperty() {
-        return pvMetadataEnabled;
+    public BooleanProperty pvStatsEnabledProperty() {
+        return pvStatsEnabled;
+    }
+
+    public BooleanProperty pvMetadataExploreEnabledProperty() {
+        return pvMetadataExploreEnabled;
     }
 
     public BooleanProperty providerMetadataEnabledProperty() {
@@ -134,7 +139,8 @@ public class MainViewModel {
             dataEnabled.set(dpApplication.hasIngestedData());
             
             // Enable PV and Provider metadata menus if data has been ingested
-            pvMetadataEnabled.set(dpApplication.hasIngestedData());
+            pvStatsEnabled.set(dpApplication.hasIngestedData());
+            pvMetadataExploreEnabled.set(dpApplication.hasIngestedData());
             providerMetadataEnabled.set(dpApplication.hasIngestedData());
             
             // Enable datasets menu if data has been ingested
@@ -150,8 +156,8 @@ public class MainViewModel {
             // Enable data events menu if data has been ingested
             dataEventsEnabled.set(dpApplication.hasIngestedData());
             
-            logger.debug("Menu states updated - dataEnabled: {}, pvMetadataEnabled: {}, providerMetadataEnabled: {}, datasetsEnabled: {}, annotationsEnabled: {}, dataEventsEnabled: {}", 
-                dataEnabled.get(), pvMetadataEnabled.get(), providerMetadataEnabled.get(), datasetsEnabled.get(), annotationsEnabled.get(), dataEventsEnabled.get());
+            logger.debug("Menu states updated - dataEnabled: {}, pvStatsEnabled: {}, providerMetadataEnabled: {}, datasetsEnabled: {}, annotationsEnabled: {}, dataEventsEnabled: {}", 
+                dataEnabled.get(), pvStatsEnabled.get(), providerMetadataEnabled.get(), datasetsEnabled.get(), annotationsEnabled.get(), dataEventsEnabled.get());
         }
     }
     
@@ -198,8 +204,13 @@ public class MainViewModel {
         updateStatus("Opening data query...");
     }
 
-    public void handlePvMetadata() {
-        logger.info("PV Metadata action triggered");
+    public void handlePvStats() {
+        logger.info("PV Statistics action triggered");
+        updateStatus("Opening PV statistics browser...");
+    }
+
+    public void handlePvMetadataExplore() {
+        logger.info("PV Metadata explore action triggered");
         updateStatus("Opening PV metadata browser...");
     }
 

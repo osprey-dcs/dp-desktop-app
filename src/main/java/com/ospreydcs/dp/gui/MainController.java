@@ -32,13 +32,17 @@ public class MainController implements Initializable {
     @FXML private MenuItem generateMenuItem;
     @FXML private MenuItem importMenuItem;
     @FXML private MenuItem dataMenuItem;
-    @FXML private MenuItem pvMetadataMenuItem;
+    // Explore > PV Statistics: the read-only queryPvStats() view (pv-explore).  Named pvStats,
+    // not pvMetadata: Explore > PV Metadata is a different view, and Metadata > PV is the editor.
+    @FXML private MenuItem pvStatsMenuItem;
+    @FXML private MenuItem pvMetadataExploreMenuItem;
     @FXML private MenuItem providerMetadataMenuItem;
     @FXML private MenuItem datasetsMenuItem;
     @FXML private MenuItem annotationsMenuItem;
     @FXML private MenuItem sampleStatusesMenuItem;
     @FXML private MenuItem dataEventsMenuItem;
-    // note: distinct from pvMetadataMenuItem above, which opens the read-only Explore > PVs view
+    // note: distinct from pvMetadataExploreMenuItem above, which opens the read-only
+    // Explore > PV Metadata browser; this one opens the Metadata > PV editor
     @FXML private MenuItem pvMetadataCreateMenuItem;
     @FXML private MenuItem machineConfigCreateMenuItem;
 
@@ -74,7 +78,8 @@ public class MainController implements Initializable {
         generateMenuItem.disableProperty().bind(viewModel.generateEnabledProperty().not());
         // importMenuItem is now always enabled (no binding needed)
         dataMenuItem.disableProperty().bind(viewModel.dataEnabledProperty().not());
-        pvMetadataMenuItem.disableProperty().bind(viewModel.pvMetadataEnabledProperty().not());
+        pvStatsMenuItem.disableProperty().bind(viewModel.pvStatsEnabledProperty().not());
+        pvMetadataExploreMenuItem.disableProperty().bind(viewModel.pvMetadataExploreEnabledProperty().not());
         providerMetadataMenuItem.disableProperty().bind(viewModel.providerMetadataEnabledProperty().not());
         datasetsMenuItem.disableProperty().bind(viewModel.datasetsEnabledProperty().not());
         annotationsMenuItem.disableProperty().bind(viewModel.annotationsEnabledProperty().not());
@@ -144,9 +149,46 @@ public class MainController implements Initializable {
     }
 
     @FXML
-    private void onPvMetadata() {
-        viewModel.handlePvMetadata();
+    private void onPvStats() {
+        viewModel.handlePvStats();
         switchToView("/fxml/pv-explore.fxml");
+    }
+
+    /**
+     * Opens the PV metadata editor pre-loaded with an existing record, for edit-in-place from the
+     * explore view.
+     *
+     * <p>Takes the resolved record rather than a name, deliberately.  getPvMetadata() resolves
+     * aliases, so re-fetching here by whatever string the caller had would risk loading a different
+     * record than the one the user clicked -- and savePvMetadata() is a full-replace upsert keyed on
+     * pvName, so that divergence would be written, not just displayed.
+     */
+    public void navigateToPvMetadataEditor(com.ospreydcs.dp.grpc.v1.common.PvMetadata record) {
+        try {
+            viewModel.updateStatus("Loading PV metadata editor...");
+
+            final FXMLLoader loader = new FXMLLoader(getClass().getResource("/fxml/pv-metadata.fxml"));
+            contentPane.getChildren().clear();
+            contentPane.getChildren().add(loader.load());
+
+            final PvMetadataController controller = loader.getController();
+            controller.setDpApplication(dpApplication);
+            controller.setPrimaryStage(primaryStage);
+            controller.setMainController(this);
+            controller.loadForEditing(record);
+
+            viewModel.updateStatus("Editing PV metadata for " + record.getPvName());
+
+        } catch (Exception e) {
+            logger.error("Failed to open the PV metadata editor", e);
+            viewModel.updateStatus("Failed to open the PV metadata editor: " + e.getMessage());
+        }
+    }
+
+    @FXML
+    private void onPvMetadataExplore() {
+        viewModel.handlePvMetadataExplore();
+        switchToView("/fxml/pv-metadata-explore.fxml");
     }
 
     @FXML
@@ -256,6 +298,11 @@ public class MainController implements Initializable {
                 mcController.setDpApplication(dpApplication);
                 mcController.setPrimaryStage(primaryStage);
                 mcController.setMainController(this);
+            } else if (controller instanceof PvMetadataExploreController) {
+                PvMetadataExploreController pmeController = (PvMetadataExploreController) controller;
+                pmeController.setDpApplication(dpApplication);
+                pmeController.setPrimaryStage(primaryStage);
+                pmeController.setMainController(this);
             } else if (controller instanceof SampleStatusExploreController) {
                 SampleStatusExploreController ssController = (SampleStatusExploreController) controller;
                 ssController.setDpApplication(dpApplication);

@@ -103,6 +103,13 @@ public class PvMetadataController implements Initializable {
         logger.debug("Primary stage injected");
     }
 
+    /**
+     * Loads an existing record into the form, for edit-in-place from the PV metadata explore view.
+     */
+    public void loadForEditing(com.ospreydcs.dp.grpc.v1.common.PvMetadata record) {
+        viewModel.loadFromPvMetadata(record);
+    }
+
     public void setMainController(MainController mainController) {
         this.mainController = mainController;
         viewModel.setMainController(mainController);

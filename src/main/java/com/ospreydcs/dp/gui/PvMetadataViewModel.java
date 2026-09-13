@@ -1,6 +1,8 @@
 package com.ospreydcs.dp.gui;
 
 import com.ospreydcs.dp.client.result.SavePvMetadataApiResult;
+import com.ospreydcs.dp.grpc.v1.common.Attribute;
+import com.ospreydcs.dp.grpc.v1.common.PvMetadata;
 import com.ospreydcs.dp.gui.component.AttributesListComponent;
 import com.ospreydcs.dp.gui.component.TagsListComponent;
 import javafx.application.Platform;
@@ -160,6 +162,54 @@ public class PvMetadataViewModel {
         final Thread saveThread = new Thread(saveTask);
         saveThread.setDaemon(true);
         saveThread.start();
+    }
+
+    /**
+     * Loads an existing record into the form for editing.
+     *
+     * <p><strong>The record's pvName is the canonical name, and that is what a subsequent save
+     * targets.</strong>  getPvMetadata() resolves aliases, so a record loaded by looking up a
+     * historical name comes back under its canonical name.  Because savePvMetadata() is a
+     * full-replace upsert keyed on pvName, populating the form from the record -- rather than from
+     * whatever the user typed to find it -- is what stops an edit of "OLD:NAME" from silently
+     * rewriting, or worse creating, a different record.
+     *
+     * <p>Aliases, tags and attributes are written into the injected COMPONENTS, not into ViewModel
+     * properties: the components are where savePvMetadata() reads them from, and this ViewModel
+     * holds no collections for them.  Filling properties instead would load a record whose metadata
+     * the save never sees, and the save would then write those fields back as absent -- silently,
+     * because the upsert is a full replace.  That is the same defect the Annotation Builder had.
+     */
+    public void loadFromPvMetadata(PvMetadata record) {
+        if (record == null) {
+            return;
+        }
+
+        resetForm();
+
+        pvName.set(record.getPvName());
+        description.set(record.getDescription());
+        modifiedBy.set(record.getModifiedBy());
+
+        if (aliasesComponent != null) {
+            for (String alias : record.getAliasesList()) {
+                aliasesComponent.addTag(alias);
+            }
+        }
+        if (tagsComponent != null) {
+            for (String tag : record.getTagsList()) {
+                tagsComponent.addTag(tag);
+            }
+        }
+        if (attributesComponent != null) {
+            for (Attribute attribute : record.getAttributesList()) {
+                attributesComponent.addAttribute(attribute.getName(), attribute.getValue());
+            }
+        }
+
+        statusMessage.set("Editing " + record.getPvName()
+                + " - saving replaces the entire record under this name");
+        logger.debug("Loaded PV metadata record for editing: {}", record.getPvName());
     }
 
     /**

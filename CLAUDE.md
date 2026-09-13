@@ -98,7 +98,7 @@ These track the upstream `osprey-dcs` org and are the checkouts to build from.
 File → Connection, Preferences, Exit
 Ingest → Generate, Import (Fixed and Subscribe removed)
 Metadata → PV, Machine Configuration
-Explore → Data, PVs, Providers, Datasets, Annotations, Sample Statuses, Data Events
+Explore → Data, PV Statistics, PV Metadata, Providers, Datasets, Annotations, Sample Statuses, Data Events
 ```
 
 **Menu Item Logic:**
@@ -107,7 +107,8 @@ Explore → Data, PVs, Providers, Datasets, Annotations, Sample Statuses, Data E
 - **Metadata > PV**: Always enabled (creating PV metadata does not depend on session data ingestion); navigates to pv-metadata view for creating/updating PV metadata records
 - **Metadata > Machine Configuration**: Always enabled (same rationale); navigates to machine-configuration view for creating machine configuration records and their activation intervals
 - **Explore menu items**: Enabled after data ingestion (in-process mode) or immediately (remote production mode), because they browse metadata derived by aggregation over ingested documents and have nothing to show until data exists
-- **PVs**: Navigate to pv-explore view for PV discovery and management
+- **PV Statistics**: Navigate to pv-explore view for PV discovery and management — the *derived* per-PV statistics (data type, first/last timestamp, sample period), aggregated over ingested buckets
+- **PV Metadata**: Navigate to pv-metadata-explore view for searching *curated* PV metadata records (aliases, tags, attributes, description) and loading one for editing
 - **Providers**: Navigate to provider-explore view for provider discovery and management
 - **Datasets**: Navigate to dataset-explore view for dataset discovery and Dataset Builder navigation
 - **Annotations**: Navigate to annotation-explore view for annotation discovery and management
@@ -194,6 +195,7 @@ Explore → Data, PVs, Providers, Datasets, Annotations, Sample Statuses, Data E
 - ✅ PV Metadata view for creating/updating PV metadata records via savePvMetadata() (aliases, tags, attributes, description)
 - ✅ Machine Configuration view for creating configuration records and activation intervals via saveConfiguration() / saveConfigurationActivation(), with getConfiguration() and getConfigurationActivationById() overwrite warnings
 - ✅ Demo sample status generation in the data-generation view via saveSampleStatuses(), with the read-back now wired to the Sample Status Explore view via querySampleStatusBuckets()
+- ✅ PV Metadata Explore view with search by name/alias (contains, prefix or exact), tags and attributes via queryPvMetadata(), and load-for-edit into the PV Metadata editor
 
 ## GUI Architecture
 
@@ -203,17 +205,17 @@ The application follows the Model-View-ViewModel pattern:
 **Controllers** (`src/main/java/com/ospreydcs/dp/gui/*Controller.java`)
 - Handle FXML UI binding and user interactions
 - Delegate business logic to ViewModels
-- Example: `DataGenerationController`, `DataExploreController`, `DataImportController`, `PvExploreController`, `ProviderExploreController`, `DatasetExploreController`, `AnnotationExploreController`, `DataEventExploreController`, `PvMetadataController`, `MachineConfigurationController`, `MainController`
+- Example: `DataGenerationController`, `DataExploreController`, `DataImportController`, `PvExploreController`, `ProviderExploreController`, `DatasetExploreController`, `AnnotationExploreController`, `DataEventExploreController`, `PvMetadataController`, `PvMetadataExploreController`, `SampleStatusExploreController`, `MachineConfigurationController`, `MainController`
 
 **ViewModels** (`src/main/java/com/ospreydcs/dp/gui/*ViewModel.java`)
 - Contain UI state and business logic
 - Use JavaFX properties for data binding
-- Example: `DataGenerationViewModel`, `DataExploreViewModel`, `DataImportViewModel`, `PvExploreViewModel`, `ProviderExploreViewModel`, `DatasetExploreViewModel`, `AnnotationExploreViewModel`, `DataEventExploreViewModel`, `PvMetadataViewModel`, `MachineConfigurationViewModel`, `MainViewModel`
+- Example: `DataGenerationViewModel`, `DataExploreViewModel`, `DataImportViewModel`, `PvExploreViewModel`, `ProviderExploreViewModel`, `DatasetExploreViewModel`, `AnnotationExploreViewModel`, `DataEventExploreViewModel`, `PvMetadataViewModel`, `PvMetadataExploreViewModel`, `SampleStatusExploreViewModel`, `MachineConfigurationViewModel`, `MainViewModel`
 
 **Views** (`src/main/resources/fxml/*.fxml`)
 - FXML layout definitions
 - Styled with BootstrapFX and custom CSS
-- Example: `data-generation.fxml`, `data-explore.fxml`, `data-import.fxml`, `pv-explore.fxml`, `provider-explore.fxml`, `dataset-explore.fxml`, `annotation-explore.fxml`, `data-event-explore.fxml`, `pv-metadata.fxml`, `machine-configuration.fxml`, `main-window.fxml`
+- Example: `data-generation.fxml`, `data-explore.fxml`, `data-import.fxml`, `pv-explore.fxml`, `provider-explore.fxml`, `dataset-explore.fxml`, `annotation-explore.fxml`, `data-event-explore.fxml`, `pv-metadata.fxml`, `pv-metadata-explore.fxml`, `sample-status-explore.fxml`, `machine-configuration.fxml`, `main-window.fxml`
 
 ### Data Generation Workflow (Implemented)
 1. **Provider Registration**: Users fill provider details (name, description, tags, attributes)
@@ -499,9 +501,65 @@ would attach the wrong confidence to a status, which is worse than omitting it.
 8. **Error Surfacing**: Server rejections reported verbatim from `apiResult.resultStatus.msg`
 9. **Reset**: Clears all fields and all three list components
 
-**Full-replace upsert:** `savePvMetadata()` replaces the ENTIRE record for a given PV name — aliases, tags, attributes, description and modifiedBy are all overwritten, and omitted fields are not preserved. The view states this in the panel. Loading an existing record before editing (`getPvMetadata()`) is deferred to a follow-up.
+**Full-replace upsert:** `savePvMetadata()` replaces the ENTIRE record for a given PV name — aliases, tags, attributes, description and modifiedBy are all overwritten, and omitted fields are not preserved. The view states this in the panel — which is why loading an existing record before editing matters, and `loadFromPvMetadata()` now provides it (see the PV Metadata Explore Workflow below).
 
 **Critical Integration Pattern:** aliases/tags/attributes are read from the injected component instances, never from ViewModel properties. `PvMetadataViewModel` holds no collections for them. The component lists are copied on the FX thread before the background task starts, so the task never touches the observable lists off-thread.
+
+### PV Metadata Explore Workflow (Implemented)
+1. **Navigation**: `Explore > PV Metadata` (enabled after ingestion, like the other explore views)
+2. **Query Editor**: PV Name and Alias, each with its own Contains / Starts-with / Exact mode, plus comma-separated tags and an attribute key + optional value
+3. **Search Execution**: background `Task` calling `DpApplication.queryPvMetadata()`, which follows `nextPageToken` internally — no paging UI
+4. **Results Display**: PV name, aliases, tags, attributes, description, modified-by, updated time
+5. **Load for Edit**: the PV name is a hyperlink that opens the pv-metadata editor populated with that record
+6. **Clear**: resets every criterion and the results
+
+**This is not the same thing as `Explore > PV Statistics`.** pv-explore shows per-PV statistics
+*derived* by aggregation over ingested buckets (data type, first/last timestamp, sample period); this
+view shows the *curated* metadata record someone authored. A PV can appear in one and not the other.
+The menu item was named "PVs" before #39 task 4 and is now "PV Statistics", which is why the
+controller's fields are `pvStatsMenuItem` / `pvStatsEnabledProperty` / `onPvStats` — a rename that
+missed one of them would fail at view-load time, which `ViewLoadSmokeTest` covers.
+
+**There is deliberately no free-text search box.** This API's criteria are pvName, aliases, tags and
+attributes — it has **no `TextCriterion`**, unlike the dataset and annotation queries. A
+"search everything" field would have nothing to bind to, so offering one would promise a search that
+silently matched nothing. That is exactly the trap the annotation view's event field fell into before
+dp-grpc #132's removal was reflected in the UI.
+
+**A blank field must contribute NO criterion, not an empty one.** `textMatch()` returns an all-null
+`TextMatch` for a blank field, and the distinction is not cosmetic in either direction: a criterion
+whose lists are present but *empty* is rejected by the server, so an unfilled optional field would
+break an otherwise valid search — while a blank **prefix** value that reached the server compiles to
+a regex matching **everything**, silently turning an unfilled field into a whole-collection scan that
+appears to have honored the criteria the user did fill in. `PvMetadataExploreViewModelTest` asserts
+each of the three lists is null individually rather than only checking `TextMatch.isEmpty()`, because
+`isEmpty()` is true for both the correct all-null match and the broken empty-list one.
+
+**The match mode is an explicit choice, never inferred from the input.** The three modes return very
+different result sets, and a hidden heuristic (treating a trailing `*` as a prefix, say) would make
+the difference look like a server inconsistency rather than a setting the user controls.
+
+**An attribute value with no key is dropped, not promoted to a key.** `AttributeCriterion` requires
+the key; a value alone cannot be expressed. A key with no value is a legitimate key-only existence
+search, which the criterion supports directly.
+
+**The editor is handed the resolved record, not a PV name.** This is the alias trap, and it is the
+sharpest edge in the view. `getPvMetadata()` **resolves aliases**, so searching by a historical name
+returns the record under its **canonical** name — and `savePvMetadata()` is a full-replace upsert
+keyed on `pvName`. A load path that re-resolved from the text the user typed would let an edit of
+`OLD:NAME` write a **new** record under the alias while leaving the original untouched, or overwrite
+a different record entirely. `MainController.navigateToPvMetadataEditor()` therefore takes a
+`PvMetadata`, and `PvMetadataViewModel.loadFromPvMetadata()` populates the form from **that record's**
+canonical name, which makes the mistake unrepresentable rather than merely avoided. The view also
+states the consequence beneath the results table.
+
+**`loadFromPvMetadata()` writes aliases, tags and attributes into the COMPONENTS.** This is the
+Critical Integration Pattern in its load direction, and getting it wrong is silent: the save reads
+those three fields from the component instances, so a load that populated ViewModel properties would
+be write-only, and editing any unrelated field would then write all three back as **absent**. That is
+precisely the Annotation Builder defect documented above, in a view with the same shape.
+`PvMetadataLoadForEditTest` uses real component instances rather than stubs, since the point is the
+integration.
 
 ### Machine Configuration Workflow (Implemented)
 1. **Navigation**: `Metadata > Machine Configuration` menu item (always enabled) opens the machine-configuration view via `switchToView()`
@@ -722,6 +780,14 @@ Wrapper for protobuf Annotation objects in TableView displays:
 - Used in annotation-explore view for annotation discovery and navigation
 - Hyperlink support for the Annotation ID column and for the Calculations presence link
 
+### PvMetadataTableRow (`src/main/java/com/ospreydcs/dp/gui/model/PvMetadataTableRow.java`)
+Wrapper for a protobuf `PvMetadata` record in TableView displays:
+- PV name, aliases, tags, attributes, description, modified-by, formatted updated time
+- Formats the multi-valued fields as comma-separated strings for display, while `getAliasesList()` exposes the underlying list so `HyperlinkListTableCell` links each alias from the **list**, never by re-splitting the rendered string — an alias containing a comma would otherwise split into bogus links
+- `getPvMetadata()` returns the wrapped record, which is what the editor must be loaded from: its `pvName` is the **canonical** name, and `savePvMetadata()` is a full-replace upsert keyed on it
+- The `PROPERTY_*` constants name the properties the `PropertyValueFactory` column bindings resolve reflectively, so a rename that misses the controller fails to compile instead of silently blanking a column; `PvMetadataExploreColumnBindingTest` covers what constants cannot — a column bound to the *wrong* constant, or not bound at all
+- Used in pv-metadata-explore; see the workflow section above for the alias-resolution rationale
+
 ### SampleStatusTableRow (`src/main/java/com/ospreydcs/dp/gui/model/SampleStatusTableRow.java`)
 One sample status — a single `(pvName, timestamp, domain, layer)` identity — flattened out of a `SampleStatusBucket`:
 - PV name, formatted timestamp, domain, layer, raw status code, resolved label, confidence, reason, source, modified-by
@@ -833,6 +899,20 @@ without a service ecosystem — the same reasoning as `accumulatePages()` and `e
 the cases that produce *plausible-looking wrong output* rather than an obvious failure: an off-by-one
 at a bucket edge yields a believable count, and a drifting clock yields timestamps that look right but
 match no sample.
+
+**PV metadata explore tests** (`PvMetadataExploreViewModelTest`, `PvMetadataLoadForEditTest`,
+`PvMetadataExploreColumnBindingTest`): `textMatch()` is pure and static for the same reason as
+`accumulatePages()` and `emptyToNull()` — so the criteria construction is testable without a service
+ecosystem. Every case guarded here fails *silently* rather than loudly: a blank field emitted as an
+empty-list criterion is rejected by the server, a blank field emitted as a prefix scans the whole
+collection while looking like it worked, a load that populates ViewModel properties instead of the
+components erases metadata on the next save, and a column bound to the wrong `PROPERTY_*` constant
+renders a plausible value from the wrong field.
+
+Each of those three guards was mutation-checked against the defect it claims to catch, because a
+guard that cannot fail is worse than no guard — it reads as coverage. The blank-criterion guard
+distinguishes `null` from `[]` (`expected: <null> but was: <[]>`), which is the distinction
+`TextMatch.isEmpty()` alone cannot make, since it reports true for both.
 
 **Calculations import fixture** (`CalculationsWorkbookFixture`, added by #43): generates the
 multi-sheet XLSX used to exercise Annotation Builder → Import Calculations by hand, and through it
@@ -1087,6 +1167,16 @@ without a service ecosystem (`DpApplicationPagingTest`), the same reasoning as `
 `timestampFromInstant()`. The edge cases worth keeping covered: a cap reached exactly on a page
 boundary *with* a next page (truncated) versus a result that exactly fills the cap with no next
 page (not truncated), and a server returning a token alongside an empty page.
+
+**PV Metadata API wrappers** on `DpApplication`:
+- `queryPvMetadata(pvNameMatch, aliasesMatch, tagsAnyOf, attributes)` — pages transparently via
+  `accumulatePages()` up to `QUERY_RESULT_CAP`, returning `PagedResult<PvMetadata>`. Criteria are
+  `TextMatch` (exact / prefix / contains, all ORed within and across the lists) and
+  `AttributeCriterion` (key required, values optional); there is **no `TextCriterion`** on this API.
+  Both criteria types moved to `com.ospreydcs.dp.client.criteria` in dp-service #244.
+- `getPvMetadata(pvName)` — retrieves one record **by canonical name OR alias**. The returned
+  record's `pvName` may therefore differ from what was passed, and callers must save using the name
+  the record carries; see the alias trap in the PV Metadata Explore Workflow above.
 
 **Sample Status API wrappers** on `DpApplication` (the client wrappers themselves already exist on
 `AnnotationClient`, added by dp-service #239 — no dp-service work is needed to use them):

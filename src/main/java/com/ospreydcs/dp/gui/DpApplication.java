@@ -1,6 +1,8 @@
 package com.ospreydcs.dp.gui;
 
 import com.ospreydcs.dp.client.*;
+import com.ospreydcs.dp.client.criteria.AttributeCriterion;
+import com.ospreydcs.dp.client.criteria.TextMatch;
 import com.ospreydcs.dp.client.result.*;
 import com.ospreydcs.dp.grpc.v1.annotation.Annotation;
 import com.ospreydcs.dp.grpc.v1.annotation.Calculations;
@@ -1424,6 +1426,77 @@ public class DpApplication {
 
         // call api method
         return api.annotationClient.savePvMetadata(params);
+    }
+
+    /**
+     * PV metadata search that follows nextPageToken internally, returning every matching record up
+     * to QUERY_RESULT_CAP.  The explore view needs no paging UI, matching queryDataSets() /
+     * queryAnnotations().
+     *
+     * Criteria combine with AND; values within one criterion combine with OR.  The criteria are
+     * pvName, aliases, tags and attributes -- there is deliberately no free-text parameter, because
+     * this API has no TextCriterion.  A search box bound to one would have nothing to send.
+     *
+     * TextMatch fields are passed through UNPROCESSED.  The request builder drops blank entries
+     * itself, and that guard is the point: a blank prefix compiles to a regex matching EVERYTHING,
+     * so pre-filling or padding a field here would silently turn an unset filter into a whole
+     * collection scan.
+     *
+     * A failed page throws QueryFailedException rather than returning what had accumulated, as with
+     * the other paged wrappers.
+     */
+    public PagedResult<PvMetadata> queryPvMetadata(
+            TextMatch pvNameMatch,
+            TextMatch aliasesMatch,
+            List<String> tagsAnyOf,
+            List<AttributeCriterion> attributes
+    ) {
+        return accumulatePages(
+                pageToken -> {
+                    final AnnotationClient.QueryPvMetadataParams params =
+                            new AnnotationClient.QueryPvMetadataParams(
+                                    pvNameMatch,
+                                    aliasesMatch,
+                                    emptyToNull(tagsAnyOf),
+                                    emptyToNull(attributes),
+                                    0,
+                                    emptyToNull(pageToken));
+
+                    final QueryPvMetadataApiResult pageResult =
+                            api.annotationClient.queryPvMetadata(params);
+
+                    if (pageResult == null) {
+                        throw new QueryFailedException(
+                                "PV metadata query failed - null response from service");
+                    }
+                    if (pageResult.resultStatus.isError) {
+                        throw new QueryFailedException(
+                                "PV metadata query failed: " + pageResult.resultStatus.msg);
+                    }
+                    return pageResult;
+                },
+                pageResult -> pageResult.nextPageToken,
+                pageResult -> pageResult.pvMetadata,
+                QUERY_RESULT_CAP);
+    }
+
+    /**
+     * Retrieves one PV metadata record by canonical name OR alias.
+     *
+     * <strong>The returned record's pvName may differ from what was passed.</strong>  The server
+     * resolves aliases, so looking up a historical name returns the record under its CANONICAL name.
+     * This matters because savePvMetadata() is a full-replace upsert keyed on pvName: a caller that
+     * loads by alias, edits, and then saves using the name the user typed would write a NEW record
+     * under the alias rather than updating the one it loaded.  Always save using the pvName carried
+     * by the record this returns.
+     *
+     * A missing record is reported as a REJECTION, not an empty successful result, so an existence
+     * check must branch on isReject() rather than isError() -- an unreachable service also sets
+     * isError.  REJECT also covers request validation failures, so reading it as not-found is only
+     * safe for a request already known to be well formed.
+     */
+    public GetPvMetadataApiResult getPvMetadata(String pvNameOrAlias) {
+        return api.annotationClient.getPvMetadata(pvNameOrAlias);
     }
 
     /**

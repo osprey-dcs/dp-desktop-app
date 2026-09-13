@@ -119,7 +119,10 @@ accept that it stays unpaged (and say so at the view), or file/land #265's proto
 plan accepts it as unpaged** and treats it as out of scope; the honest-truncation requirement below
 applies only to views whose API can express truncation.
 
-### C4 — "Explore → PVs" is already `pvMetadataMenuItem`
+### C4 — "Explore → PVs" is already `pvMetadataMenuItem` — **DONE (task 4)**
+
+Renamed as planned; `ViewLoadSmokeTest` validated it by loading `main-window.fxml`, which is what a
+partial rename would have broken.
 
 The ticket renames Explore→PVs to "PV Statistics" and adds a new "PV Metadata" view. The existing
 menu item for the *statistics* view is already named `pvMetadataMenuItem`
@@ -384,9 +387,39 @@ Three things the ticket understates:
    `epics_alarm`; the domain registry is unimplemented server-side and deferred. A status in any
    other domain must render its raw code, never a guessed label.
 
-### Task 4 — PV metadata explore + load-for-edit
+### Task 4 — PV metadata explore + load-for-edit — **DONE**
 
-Unblocked by #243/#245. Beyond the ticket:
+Shipped as `pv-metadata-explore.fxml` / `PvMetadataExploreController` / `PvMetadataExploreViewModel`
+/ `PvMetadataTableRow`, plus `DpApplication.queryPvMetadata()` and `getPvMetadata()`, plus
+`PvMetadataViewModel.loadFromPvMetadata()` and the C4 rename. 25 tests added; suite at 254.
+
+All four triage points below were verified against current source before implementing, and all four
+held — the only drift was line numbers, since #244 moved `TextMatch` / `AttributeCriterion` into
+`com.ospreydcs.dp.client.criteria`.
+
+**The alias trap is closed structurally, not by warning.** `MainController.navigateToPvMetadataEditor()`
+takes a `PvMetadata` rather than a name, and `loadFromPvMetadata()` populates from *that record's*
+canonical `pvName`. Re-resolving from typed text is what would let an edit of `OLD:NAME` write a new
+record under the alias; passing the record makes that unrepresentable. The view states the
+consequence too, but the type signature is what enforces it.
+
+**One thing the triage did not list:** `loadFromPvMetadata()` had to write aliases/tags/attributes
+into the injected **components**, not into ViewModel properties — the save reads them from the
+components. Getting it wrong would be write-only and silent, erasing all three on the next save.
+Identical to the Annotation Builder defect, in a view with the same shape. Guarded by
+`PvMetadataLoadForEditTest` using real component instances.
+
+**Testing.** Three classes, each mutation-checked against the defect it claims to catch:
+`PvMetadataExploreViewModelTest` (16), `PvMetadataLoadForEditTest` (6),
+`PvMetadataExploreColumnBindingTest` (3). The blank-criterion guard asserts each `TextMatch` list is
+`null` individually rather than relying on `TextMatch.isEmpty()`, which reports true for both the
+correct all-null match and the broken empty-list one — the mutation produced exactly
+`expected: <null> but was: <[]>`.
+
+**Still unverified end to end.** Neither task 3 nor task 4 has been exercised against live data
+through the UI; `AnnotationApiLiveIT` covers the Annotation API but not these two query paths.
+
+Original triage notes, for the record:
 
 - **`getPvMetadata()` resolves aliases** (`AnnotationClient.java:2380-2391` — "canonical PV name or
   alias"). So load-for-edit has a trap: typing an *alias* loads a record whose canonical `pvName`

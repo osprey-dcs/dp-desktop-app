@@ -335,6 +335,33 @@ Fix these as part of T2b rather than building on them. All verified by reading t
 Only the parts where triage found something the ticket does not say. The ticket's own descriptions
 stand otherwise.
 
+### Task 3 — sample status explore view. DONE
+
+Shipped: `sample-status-explore.fxml`, `SampleStatusExploreController`,
+`SampleStatusExploreViewModel`, `SampleStatusTableRow`, and
+`DpApplication.querySampleStatusBuckets()` (a paged wrapper over the existing single-page
+`querySampleStatuses()`). Menu item added under Explore, enabled on ingestion like its siblings.
+228 tests green.
+
+All three hazards below were real and are handled; two additions triage did not list:
+
+- **A second cap was required.** The bucket cap in `querySampleStatusBuckets()` cannot bound the
+  table, because paging is by whole buckets and one bucket may hold thousands of statuses. Without
+  `MAX_DISPLAYED_STATUSES` the view would have moved the unbounded read from the server to the
+  client, which is what server paging exists to prevent. The two truncation causes are reported
+  distinctly because they have different remedies.
+- **`confidence` / `reasons` are optional parallel arrays.** Each is empty or has exactly one entry
+  per timestamp. Indexing blindly throws on the common codes-only case; rendering a *partial* array
+  positionally would attach the wrong confidence to a status. Length is checked against the status
+  count, and a malformed array is ignored rather than misaligned.
+
+Written in the T2b vocabulary from the start, which is what that sequencing was for. T2a's
+`HyperlinkListTableCell` is **not** used here after all: no column in this view navigates anywhere —
+a status has no target view to link to — so every column is plain text. That does not retire the T2a
+dependency for tasks 4 and 5, whose rows do carry ids.
+
+Original notes follow.
+
 ### Task 3 — sample status explore view (unblocked, start here)
 
 `DpApplication.querySampleStatuses()` (`:1565`) already exists with full javadoc. No upstream

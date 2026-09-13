@@ -36,6 +36,7 @@ public class MainController implements Initializable {
     @FXML private MenuItem providerMetadataMenuItem;
     @FXML private MenuItem datasetsMenuItem;
     @FXML private MenuItem annotationsMenuItem;
+    @FXML private MenuItem sampleStatusesMenuItem;
     @FXML private MenuItem dataEventsMenuItem;
     // note: distinct from pvMetadataMenuItem above, which opens the read-only Explore > PVs view
     @FXML private MenuItem pvMetadataCreateMenuItem;
@@ -77,6 +78,7 @@ public class MainController implements Initializable {
         providerMetadataMenuItem.disableProperty().bind(viewModel.providerMetadataEnabledProperty().not());
         datasetsMenuItem.disableProperty().bind(viewModel.datasetsEnabledProperty().not());
         annotationsMenuItem.disableProperty().bind(viewModel.annotationsEnabledProperty().not());
+        sampleStatusesMenuItem.disableProperty().bind(viewModel.sampleStatusesEnabledProperty().not());
         dataEventsMenuItem.disableProperty().bind(viewModel.dataEventsEnabledProperty().not());
         // pvMetadataCreateMenuItem and machineConfigCreateMenuItem are always enabled (no binding
         // needed) - creating metadata does not depend on data having been ingested in this session
@@ -166,6 +168,12 @@ public class MainController implements Initializable {
     }
     
     @FXML
+    private void onSampleStatuses() {
+        viewModel.handleSampleStatuses();
+        switchToView("/fxml/sample-status-explore.fxml");
+    }
+
+    @FXML
     private void onDataEvents() {
         viewModel.handleDataEvents();
         switchToView("/fxml/data-event-explore.fxml");
@@ -248,6 +256,11 @@ public class MainController implements Initializable {
                 mcController.setDpApplication(dpApplication);
                 mcController.setPrimaryStage(primaryStage);
                 mcController.setMainController(this);
+            } else if (controller instanceof SampleStatusExploreController) {
+                SampleStatusExploreController ssController = (SampleStatusExploreController) controller;
+                ssController.setDpApplication(dpApplication);
+                ssController.setPrimaryStage(primaryStage);
+                ssController.setMainController(this);
             }
             
             viewModel.updateStatus("View loaded successfully");

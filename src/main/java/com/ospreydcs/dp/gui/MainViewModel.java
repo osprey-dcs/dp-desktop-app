@@ -28,6 +28,7 @@ public class MainViewModel {
     private final BooleanProperty providerMetadataEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty datasetsEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty annotationsEnabled = new SimpleBooleanProperty(false);
+    private final BooleanProperty sampleStatusesEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty dataEventsEnabled = new SimpleBooleanProperty(false);
 
     private DpApplication dpApplication;
@@ -96,6 +97,10 @@ public class MainViewModel {
         return datasetsEnabled;
     }
 
+    public BooleanProperty sampleStatusesEnabledProperty() {
+        return sampleStatusesEnabled;
+    }
+
     public BooleanProperty annotationsEnabledProperty() {
         return annotationsEnabled;
     }
@@ -138,6 +143,10 @@ public class MainViewModel {
             // Enable annotations menu if data has been ingested
             annotationsEnabled.set(dpApplication.hasIngestedData());
             
+            // Sample statuses are written by the demo generator during ingestion, so like the
+            // other explore views this has nothing to show until data exists
+            sampleStatusesEnabled.set(dpApplication.hasIngestedData());
+
             // Enable data events menu if data has been ingested
             dataEventsEnabled.set(dpApplication.hasIngestedData());
             
@@ -202,6 +211,10 @@ public class MainViewModel {
     public void handleDatasets() {
         logger.info("Datasets action triggered");
         updateStatus("Opening datasets browser...");
+    }
+
+    public void handleSampleStatuses() {
+        updateStatus("Opening sample status browser...");
     }
 
     public void handleAnnotations() {

@@ -98,7 +98,7 @@ These track the upstream `osprey-dcs` org and are the checkouts to build from.
 File → Connection, Preferences, Exit
 Ingest → Generate, Import (Fixed and Subscribe removed)
 Metadata → PV, Machine Configuration
-Explore → Data, PVs, Providers, Datasets, Annotations, Data Events
+Explore → Data, PVs, Providers, Datasets, Annotations, Sample Statuses, Data Events
 ```
 
 **Menu Item Logic:**
@@ -111,6 +111,7 @@ Explore → Data, PVs, Providers, Datasets, Annotations, Data Events
 - **Providers**: Navigate to provider-explore view for provider discovery and management
 - **Datasets**: Navigate to dataset-explore view for dataset discovery and Dataset Builder navigation
 - **Annotations**: Navigate to annotation-explore view for annotation discovery and management
+- **Sample Statuses**: Navigate to sample-status-explore view for querying stored sample statuses
 - **Data Events**: Navigate to data-event-explore view for data event subscription management and monitoring
 
 ## Development Guidelines
@@ -192,7 +193,7 @@ Explore → Data, PVs, Providers, Datasets, Annotations, Data Events
 - ✅ Event timestamp hyperlinks with automatic query editor navigation and time window setup
 - ✅ PV Metadata view for creating/updating PV metadata records via savePvMetadata() (aliases, tags, attributes, description)
 - ✅ Machine Configuration view for creating configuration records and activation intervals via saveConfiguration() / saveConfigurationActivation(), with getConfiguration() and getConfigurationActivationById() overwrite warnings
-- ✅ Demo sample status generation in the data-generation view via saveSampleStatuses(), plus an unwired querySampleStatuses() read-back wrapper
+- ✅ Demo sample status generation in the data-generation view via saveSampleStatuses(), with the read-back now wired to the Sample Status Explore view via querySampleStatusBuckets()
 
 ## GUI Architecture
 
@@ -421,6 +422,57 @@ builder with no calculations, and saving any unrelated edit would then destroy t
 Calculations — no error, no warning, and nothing in the UI indicating a loss. The comment at
 `AnnotationBuilderViewModel.loadFromAnnotation()` guards this, since the read there looks like an
 ordinary embedded-content read and is only safe because of who calls it.
+
+### Sample Status Explore Workflow (Implemented)
+1. **Navigation**: `Explore > Sample Statuses` (enabled after ingestion, like the other explore views)
+2. **Query Editor**: required start/end time (date picker + hour/minute/second spinners), plus optional comma-separated PV names, domains, and layers
+3. **Search Execution**: background `Task` calling `DpApplication.querySampleStatusBuckets()`, which follows `nextPageToken` internally — no paging UI
+4. **Results Display**: one row per *status*, with PV name, timestamp, domain, layer, raw code, label, confidence, reason, source, modified-by
+5. **Clear**: resets the criteria and restores the default one-hour window
+
+**A bucket is not a row.** `querySampleStatuses()` returns `SampleStatusBucket`s, each holding
+statuses for one PV in one `(domain, layer)` over a contiguous period. `SampleStatusTableRow.expand()`
+flattens each bucket into one row per status; rendering buckets directly would show a row count
+unrelated to the number of statuses.
+
+**The time axis is usually a `SamplingClock`, not a list of timestamps.**
+`SampleStatusBucket.dataTimestamps` is a full `DataTimestamps` — a oneof of `SamplingClock` or
+`TimestampList` — and the demo generator writes a clock, because dense labeling of a regularly-sampled
+range is exactly what a clock is for. So there is frequently **no timestamp list to read** and the
+clock must be expanded arithmetically. Both arms are handled, since either can arrive from a producer
+this app did not write.
+
+Expansion computes `start + index * periodNanos` in integer nanoseconds, never by accumulating onto a
+running `Instant`. Status identity is exact `(pvName, timestamp)` equality at nanosecond precision, so
+a timestamp that drifts even one nanosecond silently fails to match the sample it labels — the same
+hazard documented for the *save* side, in the other direction.
+
+**Boundary trimming is required, not cosmetic.** Bucket selection is a `TimeRange` overlap test and
+boundary buckets are returned **whole**, so a bucket at either edge of the requested window carries
+statuses outside it. `expand()` drops statuses outside `[begin, end)` — half-open, so a status exactly
+at `endTime` is excluded. Without the trim the view would display statuses the user did not ask for
+and report a count that does not match the query.
+
+**There are two independent caps, and they mean different things.**
+`DpApplication.querySampleStatusBuckets()` caps *buckets* at `QUERY_RESULT_CAP`, because paging
+boundaries fall between whole buckets — but one bucket can hold thousands of statuses, so a capped
+bucket list does **not** bound the row count. `SampleStatusExploreViewModel.MAX_DISPLAYED_STATUSES`
+(10,000) is the bound that actually limits the table. Either tripping is reported as truncation, and
+the status message names which: more buckets on the server wants a narrower filter, more statuses in
+the fetched buckets wants a narrower time range.
+
+**Status code labels are resolved locally, for `epics_alarm` only.** The domain registry is
+unimplemented server-side (`saveSampleStatusDomain()` / `querySampleStatusDomains()` are reserved and
+deferred), so **nothing can resolve a code to a label from the archive**. The mapping in
+`SampleStatusExploreViewModel.CODE_LABELS` covers only the domain this app's own demo generator
+writes. A status in any other domain renders its raw code with an **empty** label rather than a guess,
+and the view states this beneath the table — a blank Label column would otherwise read as missing data
+rather than as an unknown domain.
+
+**`confidence` and `reasons` are optional parallel arrays** — each either empty or exactly one entry
+per timestamp. `expand()` checks the length against the status count rather than assuming presence:
+indexing blindly throws on the common codes-only case, and rendering a *partial* array positionally
+would attach the wrong confidence to a status, which is worse than omitting it.
 
 ### Data Event Explore Workflow (Implemented)
 1. **Data Event Subscriptions Management**: Left panel ListView displaying active subscriptions with custom ListCell format
@@ -670,6 +722,14 @@ Wrapper for protobuf Annotation objects in TableView displays:
 - Used in annotation-explore view for annotation discovery and navigation
 - Hyperlink support for the Annotation ID column and for the Calculations presence link
 
+### SampleStatusTableRow (`src/main/java/com/ospreydcs/dp/gui/model/SampleStatusTableRow.java`)
+One sample status — a single `(pvName, timestamp, domain, layer)` identity — flattened out of a `SampleStatusBucket`:
+- PV name, formatted timestamp, domain, layer, raw status code, resolved label, confidence, reason, source, modified-by
+- `expand(bucket, rangeBegin, rangeEnd, codeLabels)` is the decode: it expands the time axis (`SamplingClock` **or** `TimestampList`), trims to the half-open range, and resolves labels only for known domains
+- `getTimestampInstant()` / `getRawStatusCode()` expose the unformatted values for callers that need identity rather than display
+- The `PROPERTY_*` constants name the properties the `PropertyValueFactory` column bindings resolve reflectively, so a rename that misses the controller fails to compile instead of silently blanking a column; `SampleStatusExploreColumnBindingTest` covers what constants cannot — a column bound to the *wrong* constant, or not bound at all
+- Used in sample-status-explore; see the workflow section above for the clock-expansion, trimming, and labelling rationale
+
 ### DataEventSubscription (`src/main/java/com/ospreydcs/dp/gui/model/DataEventSubscription.java`)
 Wrapper for data event subscription management in data-event-explore view:
 - Contains SubscribeDataEventDetail and subscription metadata
@@ -766,6 +826,13 @@ injected afterward via setters.
 
 Post-injection behavior (button handlers calling `DpApplication`, background tasks, navigation) is
 not covered — that needs an injection seam and robot-driven interaction testing.
+
+**Sample status decode tests** (`SampleStatusTableRowTest`, `SampleStatusExploreViewModelTest`): the
+clock expansion, boundary trimming and cap behavior are pure and static precisely so they are testable
+without a service ecosystem — the same reasoning as `accumulatePages()` and `emptyToNull()`. These are
+the cases that produce *plausible-looking wrong output* rather than an obvious failure: an off-by-one
+at a bucket edge yields a believable count, and a drifting clock yields timestamps that look right but
+match no sample.
 
 **Calculations import fixture** (`CalculationsWorkbookFixture`, added by #43): generates the
 multi-sheet XLSX used to exercise Annotation Builder → Import Calculations by hand, and through it

@@ -35,6 +35,7 @@
                   <MenuItem fx:id="providerMetadataMenuItem" disable="true" onAction="#onProviderMetadata" text="Providers" />
                   <MenuItem fx:id="datasetsMenuItem" disable="true" onAction="#onDatasets" text="Datasets" />
                   <MenuItem fx:id="annotationsMenuItem" disable="true" onAction="#onAnnotations" text="Annotations" />
+                  <MenuItem fx:id="sampleStatusesMenuItem" disable="true" onAction="#onSampleStatuses" text="Sample Statuses" />
                   <MenuItem fx:id="dataEventsMenuItem" disable="true" onAction="#onDataEvents" text="Data Events" />
                </items>
             </Menu>

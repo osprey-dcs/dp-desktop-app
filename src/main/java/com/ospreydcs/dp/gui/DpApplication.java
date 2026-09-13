@@ -1610,6 +1610,49 @@ public class DpApplication {
         return api.annotationClient.querySampleStatuses(params);
     }
 
+    /**
+     * Sample status query that follows nextPageToken internally, returning every matching bucket up
+     * to QUERY_RESULT_CAP.  The explore view uses this rather than the single-page wrapper above, so
+     * it needs no paging UI, matching queryDataSets() / queryAnnotations().
+     *
+     * <strong>The cap counts buckets, not statuses.</strong>  Paging boundaries always fall between
+     * whole buckets, so a bucket is the smallest unit that can be capped -- but one bucket can carry
+     * thousands of statuses, so a capped bucket list does NOT bound the number of rows a caller
+     * derives from it.  A caller displaying individual statuses must bound its own row count and say
+     * so; truncated here means "more buckets existed", which is a weaker statement than the
+     * record-level truncation the annotation queries report.
+     *
+     * A failed page throws QueryFailedException rather than returning what had accumulated, for the
+     * same reason as the other paged wrappers: a partial list presented as a complete one is the bug
+     * this design prevents, not an acceptable degradation.
+     */
+    public PagedResult<SampleStatusBucket> querySampleStatusBuckets(
+            Instant beginTime,
+            Instant endTime,
+            List<String> pvNames,
+            List<String> domains,
+            List<String> layers
+    ) {
+        return accumulatePages(
+                pageToken -> {
+                    final QuerySampleStatusesApiResult pageResult = querySampleStatuses(
+                            beginTime, endTime, pvNames, domains, layers, 0, pageToken);
+
+                    if (pageResult == null) {
+                        throw new QueryFailedException(
+                                "Sample status query failed - null response from service");
+                    }
+                    if (pageResult.resultStatus.isError) {
+                        throw new QueryFailedException(
+                                "Sample status query failed: " + pageResult.resultStatus.msg);
+                    }
+                    return pageResult;
+                },
+                pageResult -> pageResult.nextPageToken,
+                pageResult -> pageResult.sampleStatusBuckets,
+                QUERY_RESULT_CAP);
+    }
+
     public ResultStatus subscribeDataEvent(
             SubscribeDataEventDetail subscriptionDetail,
             IngestionClient.IngestionDataType dataType

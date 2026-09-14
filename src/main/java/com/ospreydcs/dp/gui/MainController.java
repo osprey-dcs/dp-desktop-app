@@ -77,7 +77,7 @@ public class MainController implements Initializable {
         connectionMenuItem.disableProperty().bind(viewModel.connectionEnabledProperty().not());
         preferencesMenuItem.disableProperty().bind(viewModel.preferencesEnabledProperty().not());
         generateMenuItem.disableProperty().bind(viewModel.generateEnabledProperty().not());
-        // importMenuItem is now always enabled (no binding needed)
+        importMenuItem.disableProperty().bind(viewModel.importEnabledProperty().not());
         dataMenuItem.disableProperty().bind(viewModel.dataEnabledProperty().not());
         pvStatsMenuItem.disableProperty().bind(viewModel.pvStatsEnabledProperty().not());
         pvMetadataExploreMenuItem.disableProperty().bind(viewModel.pvMetadataExploreEnabledProperty().not());
@@ -88,8 +88,13 @@ public class MainController implements Initializable {
                 .bind(viewModel.configurationsExploreEnabledProperty().not());
         sampleStatusesMenuItem.disableProperty().bind(viewModel.sampleStatusesEnabledProperty().not());
         dataEventsMenuItem.disableProperty().bind(viewModel.dataEventsEnabledProperty().not());
-        // pvMetadataCreateMenuItem and machineConfigCreateMenuItem are always enabled (no binding
-        // needed) - creating metadata does not depend on data having been ingested in this session
+        // These three were unbound and default-enabled before #4, on the reasoning that creating
+        // metadata and importing real data do not depend on this session having ingested anything.
+        // That is still true -- but it was never the only question, and deployment mode is where
+        // the other one appears: all three write to the archive.  Unbound items are invisible to
+        // the mode rule in MainViewModel, so the FXML defaults would have silently survived it.
+        pvMetadataCreateMenuItem.disableProperty().bind(viewModel.pvMetadataCreateEnabledProperty().not());
+        machineConfigCreateMenuItem.disableProperty().bind(viewModel.machineConfigCreateEnabledProperty().not());
     }
 
     // Dependency injection methods

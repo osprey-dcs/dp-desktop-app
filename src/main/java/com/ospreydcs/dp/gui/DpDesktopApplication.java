@@ -53,8 +53,11 @@ public class DpDesktopApplication extends Application {
         controller.setDpApplication(dpApplication);
         controller.setPrimaryStage(primaryStage);
         
-        // Configure the stage
-        stage.setTitle(APPLICATION_TITLE);
+        // Configure the stage.  The mode goes in the title as well as the status bar because the
+        // title is what identifies a window among several -- running a demo beside a deployment is
+        // exactly when confusing the two is costly, and it is the case the window list has to
+        // disambiguate.
+        stage.setTitle(APPLICATION_TITLE + " -- " + dpApplication.getConfiguration().describe());
         stage.setScene(scene);
         stage.setMinWidth(800);
         stage.setMinHeight(600);

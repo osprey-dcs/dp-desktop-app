@@ -60,6 +60,28 @@ public class HomeController implements Initializable {
         String hintsText = viewModel.hintsTextProperty().get();
         if (hintsText == null) return;
         
+        // Deployment mode is checked FIRST, before the substring tests below.  Those tests match on
+        // fragments and then render sentences built from their own literals, so a deployment hint
+        // mentioning "Explore→Data" would be displayed as the post-ingestion sentence -- text this
+        // controller invented rather than text the view model wrote.  Matching the whole string
+        // makes that unreachable rather than merely unlikely.
+        if (HomeViewModel.DEPLOYMENT_HINT.equals(hintsText)) {
+
+            Text startText = new Text("Connected to a deployment. Use ");
+            startText.getStyleClass().add("text-info");
+
+            Hyperlink dataLink = new Hyperlink("Explore→Data");
+            dataLink.getStyleClass().addAll("text-info");
+            dataLink.setStyle("-fx-underline: true; -fx-focus-color: transparent; -fx-faint-focus-color: transparent;");
+            dataLink.setOnAction(e -> navigateToDataExplore());
+
+            Text endText = new Text(" to query the archive, or the other Explore menus to browse its metadata.");
+            endText.getStyleClass().add("text-info");
+
+            hintsContainer.getChildren().addAll(startText, dataLink, endText);
+            return;
+        }
+
         // Check if this is the initial state that needs hyperlinks
         if (hintsText.contains("Ingest→Generate") || hintsText.contains("Ingest->Generate") || 
             hintsText.contains("Ingest→Import") || hintsText.contains("Ingest->Import")) {

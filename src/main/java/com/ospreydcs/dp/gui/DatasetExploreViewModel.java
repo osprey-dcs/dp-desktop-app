@@ -23,15 +23,16 @@ public class DatasetExploreViewModel {
     
     // Results properties
     private final ObservableList<DatasetInfoTableRow> datasetResults = FXCollections.observableArrayList();
-    private final IntegerProperty resultCount = new SimpleIntegerProperty(0);
     
     /**
      * The result count as displayed, which says "first N" rather than a bare count when the query
      * stopped at the cap.  A count presented as a total when it is not is the bug transparent
-     * paging exists to fix, so the label cannot be a plain rendering of resultCount.
+     * paging exists to fix, so the label cannot be a plain rendering of the record count.  This
+     * replaced a separate IntegerProperty that nothing bound: the two counts could disagree, and the
+     * int could not express truncation at all.
      */
     private final StringProperty resultCountMessage = new SimpleStringProperty("0 dataset(s)");
-    private final BooleanProperty isSearching = new SimpleBooleanProperty(false);
+    private final BooleanProperty searchInProgress = new SimpleBooleanProperty(false);
     
     // Status properties
     private final StringProperty statusMessage = new SimpleStringProperty("Ready to search for datasets");
@@ -64,9 +65,8 @@ public class DatasetExploreViewModel {
     
     // Property getters for results
     public ObservableList<DatasetInfoTableRow> getDatasetResults() { return datasetResults; }
-    public IntegerProperty resultCountProperty() { return resultCount; }
     public StringProperty resultCountMessageProperty() { return resultCountMessage; }
-    public BooleanProperty isSearchingProperty() { return isSearching; }
+    public BooleanProperty searchInProgressProperty() { return searchInProgress; }
     
     // Property getters for status
     public StringProperty statusMessageProperty() { return statusMessage; }
@@ -81,31 +81,32 @@ public class DatasetExploreViewModel {
             return;
         }
 
-        isSearching.set(true);
+        searchInProgress.set(true);
         searchStatusMessage.set("Searching datasets...");
         datasetResults.clear();
-        resultCount.set(0);
         resultCountMessage.set("0 dataset(s)");
 
-        // Create background task for search
-        Task<Void> searchTask = new Task<Void>() {
+        // The task RETURNS its result rather than publishing it from call(): setOnSucceeded already
+        // runs on the FX thread.  The earlier version mutated datasetResults from inside call() via
+        // Platform.runLater and then logged the count in setOnSucceeded -- which ran BEFORE that
+        // queued block, so it always logged the pre-search count.
+        Task<DpApplication.PagedResult<DataSet>> searchTask =
+                new Task<DpApplication.PagedResult<DataSet>>() {
             @Override
-            protected Void call() throws Exception {
-                executeDatasetSearch();
-                return null;
+            protected DpApplication.PagedResult<DataSet> call() throws Exception {
+                return executeDatasetSearch();
             }
         };
 
         searchTask.setOnSucceeded(e -> {
-            isSearching.set(false);
-            searchStatusMessage.set("Search completed");
-            logger.info("Dataset search completed with {} results", resultCount.get());
+            processSearchResults(searchTask.getValue());
+            searchInProgress.set(false);
         });
 
         searchTask.setOnFailed(e -> {
             logger.error("Dataset search failed", searchTask.getException());
             searchStatusMessage.set("Search failed: " + searchTask.getException().getMessage());
-            isSearching.set(false);
+            searchInProgress.set(false);
         });
 
         Thread searchThread = new Thread(searchTask);
@@ -113,12 +114,14 @@ public class DatasetExploreViewModel {
         searchThread.start();
     }
 
-    private void executeDatasetSearch() throws Exception {
+    private DpApplication.PagedResult<DataSet> executeDatasetSearch() throws Exception {
         // Get form values (convert empty strings to null for API)
-        String datasetIdParam = datasetId.get().trim().isEmpty() ? null : datasetId.get().trim();
-        String ownerParam = owner.get().trim().isEmpty() ? null : owner.get().trim();
-        String nameDescParam = nameDescription.get().trim().isEmpty() ? null : nameDescription.get().trim();
-        String pvNameParam = pvName.get().trim().isEmpty() ? null : pvName.get().trim();
+        // DpApplication.emptyToNull() does NOT trim, so trim first: a whitespace-only field must be
+        // omitted from the request, not sent as a criterion matching nothing.
+        String datasetIdParam = DpApplication.emptyToNull(datasetId.get().trim());
+        String ownerParam = DpApplication.emptyToNull(owner.get().trim());
+        String nameDescParam = DpApplication.emptyToNull(nameDescription.get().trim());
+        String pvNameParam = DpApplication.emptyToNull(pvName.get().trim());
         
         logger.debug("Searching datasets with parameters: datasetId={}, owner={}, nameDescription={}, pvName={}", 
             datasetIdParam, ownerParam, nameDescParam, pvNameParam);
@@ -126,54 +129,36 @@ public class DatasetExploreViewModel {
         // queryDataSets() follows nextPageToken internally and reports whether it stopped at the
         // cap.  A failed page throws rather than returning a partial list, so there is no
         // partial-success case to check here.
-        DpApplication.PagedResult<DataSet> pagedResult = dpApplication.queryDataSets(
+        return dpApplication.queryDataSets(
             datasetIdParam, ownerParam, nameDescParam, pvNameParam);
-        
-        processSearchResults(pagedResult);
     }
 
+    /**
+     * Publishes the search results.  Called from setOnSucceeded, which already runs on the FX
+     * thread, so no Platform.runLater is needed or wanted -- queueing here would let the caller's
+     * searchInProgress reset run before the results appear.
+     */
     private void processSearchResults(DpApplication.PagedResult<DataSet> pagedResult) {
-        // Create table rows from dataset info on JavaFX thread
-        javafx.application.Platform.runLater(() -> {
-            datasetResults.clear();
-            
-            for (DataSet dataset : pagedResult.records) {
-                DatasetInfoTableRow tableRow = new DatasetInfoTableRow(dataset);
-                datasetResults.add(tableRow);
-            }
-            
-            resultCount.set(datasetResults.size());
-            resultCountMessage.set(pagedResult.truncated
-                    ? "first " + datasetResults.size() + " dataset(s)"
-                    : datasetResults.size() + " dataset(s)");
-            // report the count as a total only when the query was not capped, so a truncated
-            // result is never presented as a complete one
-            statusMessage.set(capitalize(pagedResult.describeCount("dataset")));
-            
-            logger.debug("Processed {} dataset search results (truncated={})",
-                         datasetResults.size(), pagedResult.truncated);
-        });
+        datasetResults.clear();
+
+        for (DataSet dataset : pagedResult.records) {
+            datasetResults.add(new DatasetInfoTableRow(dataset));
+        }
+
+        resultCountMessage.set(pagedResult.truncated
+                ? "first " + datasetResults.size() + " dataset(s)"
+                : datasetResults.size() + " dataset(s)");
+        // report the count as a total only when the query was not capped, so a truncated
+        // result is never presented as a complete one
+        searchStatusMessage.set("Search completed");
+        statusMessage.set(capitalize(pagedResult.describeCount("dataset")));
+
+        logger.info("Dataset search completed with {} results (truncated={})",
+                    datasetResults.size(), pagedResult.truncated);
     }
 
     private static String capitalize(String text) {
         return text.isEmpty() ? text : Character.toUpperCase(text.charAt(0)) + text.substring(1);
-    }
-
-    /**
-     * Navigate to data-explore view and load dataset in Dataset Builder
-     */
-    public void navigateToDatasetBuilder(String datasetId) {
-        if (mainController != null) {
-            // TODO: Implement navigation to data-explore Dataset Builder with dataset loading
-            logger.debug("Navigation to Dataset Builder with dataset ID: {}", datasetId);
-        } else {
-            logger.warn("MainController is null, cannot navigate to Dataset Builder");
-        }
-    }
-
-    public void cancel() {
-        logger.info("Dataset search cancelled by user");
-        statusMessage.set("Operation cancelled");
     }
 
     public void updateStatus(String message) {

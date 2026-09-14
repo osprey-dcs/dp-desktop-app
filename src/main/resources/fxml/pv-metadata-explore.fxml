@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.geometry.Insets?>
+
+<VBox xmlns="http://javafx.com/javafx/11.0.1" xmlns:fx="http://javafx.com/fxml/1"
+      fx:controller="com.ospreydcs.dp.gui.PvMetadataExploreController"
+      styleClass="container-fluid"
+      spacing="10.0">
+
+   <!-- PV Metadata Query Editor Section -->
+   <VBox spacing="10.0" styleClass="panel, panel-default">
+      <children>
+         <Label styleClass="panel-heading" text="PV Metadata Query Editor" />
+
+         <GridPane hgap="10.0" vgap="10.0">
+            <columnConstraints>
+               <ColumnConstraints hgrow="NEVER" minWidth="120.0" prefWidth="120.0" />
+               <ColumnConstraints hgrow="ALWAYS" />
+               <ColumnConstraints hgrow="NEVER" minWidth="120.0" prefWidth="120.0" />
+            </columnConstraints>
+            <rowConstraints>
+               <RowConstraints />
+               <RowConstraints />
+               <RowConstraints />
+               <RowConstraints />
+               <RowConstraints />
+            </rowConstraints>
+
+            <!-- PV name, with its match mode -->
+            <Label text="PV Name:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+            <TextField fx:id="pvNameField"
+                      GridPane.columnIndex="1" GridPane.rowIndex="0"
+                      styleClass="form-control"
+                      promptText="Comma-separated; leave blank to match all..." />
+            <ComboBox fx:id="pvNameMatchModeCombo"
+                     GridPane.columnIndex="2" GridPane.rowIndex="0"
+                     prefWidth="120.0" />
+
+            <!-- Alias, with its match mode -->
+            <Label text="Alias:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+            <TextField fx:id="aliasField"
+                      GridPane.columnIndex="1" GridPane.rowIndex="1"
+                      styleClass="form-control"
+                      promptText="Comma-separated; leave blank to match all..." />
+            <ComboBox fx:id="aliasMatchModeCombo"
+                     GridPane.columnIndex="2" GridPane.rowIndex="1"
+                     prefWidth="120.0" />
+
+            <!-- Tags -->
+            <Label text="Tags:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+            <TextField fx:id="tagsField"
+                      GridPane.columnIndex="1" GridPane.rowIndex="2"
+                      styleClass="form-control"
+                      promptText="Comma-separated; a record matching any tag is returned..." />
+
+            <!-- Attribute key / value -->
+            <Label text="Attribute:" GridPane.columnIndex="0" GridPane.rowIndex="3" />
+            <HBox spacing="10.0" alignment="CENTER_LEFT"
+                  GridPane.columnIndex="1" GridPane.rowIndex="3" GridPane.columnSpan="2">
+               <children>
+                  <TextField fx:id="attributeKeyField" styleClass="form-control"
+                            promptText="Key (required for an attribute search)..." HBox.hgrow="ALWAYS" />
+                  <TextField fx:id="attributeValueField" styleClass="form-control"
+                            promptText="Value (optional; blank matches any value)..." HBox.hgrow="ALWAYS" />
+               </children>
+            </HBox>
+
+            <!-- Buttons and search status -->
+            <HBox spacing="10.0" alignment="CENTER_LEFT"
+                  GridPane.columnIndex="1" GridPane.rowIndex="4" GridPane.columnSpan="2">
+               <children>
+                  <Button fx:id="searchButton" onAction="#onSearch" text="Search"
+                         styleClass="btn, btn-primary" />
+                  <Button fx:id="clearButton" onAction="#onClear" text="Clear"
+                         styleClass="btn, btn-default" />
+                  <ProgressIndicator fx:id="searchProgressIndicator" visible="false"
+                                    prefHeight="20.0" prefWidth="20.0" />
+                  <Label fx:id="searchStatusLabel" styleClass="text-info" />
+                  <Label fx:id="resultCountLabel" styleClass="text-success" />
+               </children>
+            </HBox>
+
+         </GridPane>
+      </children>
+      <padding>
+         <Insets bottom="15.0" left="15.0" right="15.0" top="15.0" />
+      </padding>
+   </VBox>
+
+   <!-- PV Metadata Results Section -->
+   <VBox spacing="10.0" styleClass="panel, panel-default" VBox.vgrow="ALWAYS">
+      <children>
+         <Label styleClass="panel-heading" text="PV Metadata Results" />
+
+         <TableView fx:id="resultsTable" VBox.vgrow="ALWAYS" styleClass="table, table-striped">
+            <columns>
+               <TableColumn fx:id="pvNameColumn" prefWidth="170.0" text="PV Name" />
+               <TableColumn fx:id="aliasesColumn" prefWidth="170.0" text="Aliases" />
+               <TableColumn fx:id="tagsColumn" prefWidth="140.0" text="Tags" />
+               <TableColumn fx:id="attributesColumn" prefWidth="180.0" text="Attributes" />
+               <TableColumn fx:id="descriptionColumn" prefWidth="200.0" text="Description" />
+               <TableColumn fx:id="modifiedByColumn" prefWidth="120.0" text="Modified By" />
+               <TableColumn fx:id="updatedTimeColumn" prefWidth="150.0" text="Updated" />
+            </columns>
+         </TableView>
+
+         <HBox spacing="10.0" alignment="CENTER_LEFT">
+            <children>
+               <Label fx:id="resultsStatusLabel" styleClass="text-muted"
+                     text="Ready to search for PV metadata" />
+            </children>
+         </HBox>
+
+         <!-- savePvMetadata() is a full-replace upsert keyed on the canonical pvName, and a search by
+              alias returns the record under that canonical name.  Saying so here is what keeps a user
+              from assuming an edit targets the name they searched for. -->
+         <Label styleClass="text-muted"
+               text="Click a PV name to edit its record. Editing replaces the entire record under its canonical PV name, which may differ from an alias you searched for." />
+      </children>
+      <padding>
+         <Insets bottom="15.0" left="15.0" right="15.0" top="15.0" />
+      </padding>
+   </VBox>
+
+</VBox>

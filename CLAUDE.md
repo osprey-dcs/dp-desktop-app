@@ -98,7 +98,7 @@ These track the upstream `osprey-dcs` org and are the checkouts to build from.
 File → Connection, Preferences, Exit
 Ingest → Generate, Import (Fixed and Subscribe removed)
 Metadata → PV, Machine Configuration
-Explore → Data, PVs, Providers, Datasets, Annotations, Data Events
+Explore → Data, PV Statistics, PV Metadata, Providers, Datasets, Annotations, Machine Configurations, Sample Statuses, Data Events
 ```
 
 **Menu Item Logic:**
@@ -107,10 +107,13 @@ Explore → Data, PVs, Providers, Datasets, Annotations, Data Events
 - **Metadata > PV**: Always enabled (creating PV metadata does not depend on session data ingestion); navigates to pv-metadata view for creating/updating PV metadata records
 - **Metadata > Machine Configuration**: Always enabled (same rationale); navigates to machine-configuration view for creating machine configuration records and their activation intervals
 - **Explore menu items**: Enabled after data ingestion (in-process mode) or immediately (remote production mode), because they browse metadata derived by aggregation over ingested documents and have nothing to show until data exists
-- **PVs**: Navigate to pv-explore view for PV discovery and management
+- **PV Statistics**: Navigate to pv-explore view for PV discovery and management — the *derived* per-PV statistics (data type, first/last timestamp, sample period), aggregated over ingested buckets
+- **PV Metadata**: Navigate to pv-metadata-explore view for searching *curated* PV metadata records (aliases, tags, attributes, description) and loading one for editing
 - **Providers**: Navigate to provider-explore view for provider discovery and management
 - **Datasets**: Navigate to dataset-explore view for dataset discovery and Dataset Builder navigation
 - **Annotations**: Navigate to annotation-explore view for annotation discovery and management
+- **Machine Configurations**: Navigate to configuration-explore view for searching configuration records and their activation intervals, and loading a configuration for editing
+- **Sample Statuses**: Navigate to sample-status-explore view for querying stored sample statuses
 - **Data Events**: Navigate to data-event-explore view for data event subscription management and monitoring
 
 ## Development Guidelines
@@ -192,7 +195,11 @@ Explore → Data, PVs, Providers, Datasets, Annotations, Data Events
 - ✅ Event timestamp hyperlinks with automatic query editor navigation and time window setup
 - ✅ PV Metadata view for creating/updating PV metadata records via savePvMetadata() (aliases, tags, attributes, description)
 - ✅ Machine Configuration view for creating configuration records and activation intervals via saveConfiguration() / saveConfigurationActivation(), with getConfiguration() and getConfigurationActivationById() overwrite warnings
-- ✅ Demo sample status generation in the data-generation view via saveSampleStatuses(), plus an unwired querySampleStatuses() read-back wrapper
+- ✅ Demo sample status generation in the data-generation view via saveSampleStatuses(), with the read-back now wired to the Sample Status Explore view via querySampleStatusBuckets()
+- ✅ PV Metadata Explore view with search by name/alias (contains, prefix or exact), tags and attributes via queryPvMetadata(), and load-for-edit into the PV Metadata editor
+- ✅ Modal PV selector in the Query Editor (Name list / Name pattern / Metadata criteria) driving the V2 `PvSelector`, with the PV name list preserved as the default and identity path
+- ✅ Modal query filters in the Query Editor (machine configuration activations, sample status) driving the V2 `configurationSelector` and `sampleStatusSelector`, both off by default
+- ✅ Configuration Explore view with two independent searches (configurations and activations) via queryConfigurations() / queryConfigurationActivations(), and load-for-edit into the Machine Configuration editor
 
 ## GUI Architecture
 
@@ -202,17 +209,17 @@ The application follows the Model-View-ViewModel pattern:
 **Controllers** (`src/main/java/com/ospreydcs/dp/gui/*Controller.java`)
 - Handle FXML UI binding and user interactions
 - Delegate business logic to ViewModels
-- Example: `DataGenerationController`, `DataExploreController`, `DataImportController`, `PvExploreController`, `ProviderExploreController`, `DatasetExploreController`, `AnnotationExploreController`, `DataEventExploreController`, `PvMetadataController`, `MachineConfigurationController`, `MainController`
+- Example: `DataGenerationController`, `DataExploreController`, `DataImportController`, `PvExploreController`, `ProviderExploreController`, `DatasetExploreController`, `AnnotationExploreController`, `DataEventExploreController`, `PvMetadataController`, `PvMetadataExploreController`, `SampleStatusExploreController`, `ConfigurationExploreController`, `MachineConfigurationController`, `MainController`
 
 **ViewModels** (`src/main/java/com/ospreydcs/dp/gui/*ViewModel.java`)
 - Contain UI state and business logic
 - Use JavaFX properties for data binding
-- Example: `DataGenerationViewModel`, `DataExploreViewModel`, `DataImportViewModel`, `PvExploreViewModel`, `ProviderExploreViewModel`, `DatasetExploreViewModel`, `AnnotationExploreViewModel`, `DataEventExploreViewModel`, `PvMetadataViewModel`, `MachineConfigurationViewModel`, `MainViewModel`
+- Example: `DataGenerationViewModel`, `DataExploreViewModel`, `DataImportViewModel`, `PvExploreViewModel`, `ProviderExploreViewModel`, `DatasetExploreViewModel`, `AnnotationExploreViewModel`, `DataEventExploreViewModel`, `PvMetadataViewModel`, `PvMetadataExploreViewModel`, `SampleStatusExploreViewModel`, `ConfigurationExploreViewModel`, `MachineConfigurationViewModel`, `MainViewModel`
 
 **Views** (`src/main/resources/fxml/*.fxml`)
 - FXML layout definitions
 - Styled with BootstrapFX and custom CSS
-- Example: `data-generation.fxml`, `data-explore.fxml`, `data-import.fxml`, `pv-explore.fxml`, `provider-explore.fxml`, `dataset-explore.fxml`, `annotation-explore.fxml`, `data-event-explore.fxml`, `pv-metadata.fxml`, `machine-configuration.fxml`, `main-window.fxml`
+- Example: `data-generation.fxml`, `data-explore.fxml`, `data-import.fxml`, `pv-explore.fxml`, `provider-explore.fxml`, `dataset-explore.fxml`, `annotation-explore.fxml`, `data-event-explore.fxml`, `pv-metadata.fxml`, `pv-metadata-explore.fxml`, `sample-status-explore.fxml`, `configuration-explore.fxml`, `machine-configuration.fxml`, `main-window.fxml`
 
 ### Data Generation Workflow (Implemented)
 1. **Provider Registration**: Users fill provider details (name, description, tags, attributes)
@@ -298,6 +305,236 @@ are reserved in the proto but deferred server-side, so the `epics_alarm` code ma
 8. **Chart Visualization**: TabPane with Table and Chart views, LineChart with NumberAxis scaling
 9. **Interactive Features**: Mouse tracking tooltips, dynamic data sampling for performance
 
+**The query runs on Query API V2 (`querySamples`), migrated from `queryTable` in #39 task 6.**
+`DpApplication.querySamples()` returns ONE page; `DataExploreViewModel.executeSamplesQuery()` drives
+the `nextPageToken` loop and publishes each page as it arrives. That per-page display is deliberate
+and is why this wrapper does not use `accumulatePages()` like every other paged wrapper on
+`DpApplication`: accumulating would withhold every row until the last page landed, where the
+retired code displayed incrementally.
+
+**The query chooses its PVs three ways, via the modal PV selector** (#39 task 6 part 2). The
+"Select PVs..." button opens `PvSelectorDialogController`, which edits a `PvSelection` — the app's
+counterpart to the client's sealed `PvSelectorParams` — covering the three arms of the V2
+`PvSelector`: **Name list** (the default), **Name pattern** (a regex, not a glob) and **Metadata
+criteria** (resolved against curated `PvMetadata`).
+
+**The name list stays the identity path, and the other two modes never write into it.** That
+`ObservableList<String>` is wired into six flows — global-state restore, `populateFromDataBlock`,
+`QueryPvsComponent`, `DpApplication.get/setPvNames()`, the data-event-explore hyperlink and
+`DataExploreController`'s PV cell — every one of them a *name-list* flow. A selector that resolved a
+pattern or a metadata query into that list would make a query-scoped choice silently rewrite state
+five other views read and write. So `PvSelection` does not even hold the names: name-list mode reads
+the live list at `toSelectorParams()` time, which also means a PV added after the dialog was last
+closed is still queried.
+
+**The PV ListView stays visible in every mode, so the Query Editor states which mode is active.**
+The list is populated in all three modes because it is shared state, so without the summary label a
+pattern query would run beside a list of PVs it had nothing to do with, and that list would read as
+the query's scope. The label says so explicitly ("the list below is not used by this query").
+
+**Add to Dataset is refused for a pattern or metadata selection.** A `DataBlock` *is* a PV name
+list, and this view does not resolve a selector client-side. The refusal is the point: the name list
+is still populated in those modes, so an unguarded read would build a data block out of PVs the
+query never covered and save it with no error at all — the same silent-wrong-data shape as the
+Annotation Builder's calculations loss.
+
+**An empty metadata query is NOT an error — it matches every PV in the archive.** This is the
+opposite of `configurationSelector`, whose empty form the server rejects, and it is the sharpest
+edge in the selector. A user who opens the metadata tab and types nothing gets a whole-archive scan
+that *looks* like a filter. Nothing downstream complains, so `PvSelection.describe()` names the case
+in words and the dialog shows a live warning while the fields are still being edited. Query
+validation deliberately does **not** refuse it: inventing a client-side rule the server does not
+have would make the app disagree with the service about what is a legal query. A whole-archive query
+is instead rejected only if it resolves past `maxResolvedPvCount`.
+
+**A blank pattern IS refused**, because the server rejects one and a blank field is an unfilled
+control rather than an intent to match nothing. It is the only client-checkable rule of the three.
+
+**Two optional filters narrow the query further** (#39 task 6 part 3), reached from the
+"Query Filters..." button and edited in one modal (`QueryFiltersDialogController`). Both default to
+off, and they narrow **different axes**, composing by intersection: `ConfigurationFilter` restricts
+the TIME axis to the intervals during which matching machine configuration activations were live,
+and `SampleStatusFilter` then drops individual samples from whatever survives. A status attached to
+a sample outside the activation intervals has no effect, because that sample is already gone.
+
+**An empty configuration filter must send NO selector, never an empty one — the exact inverse of
+the empty metadata PV selector.** The server *accepts* an empty metadata query (whole archive) and
+*rejects* an empty configuration selector ("configurationSelector.criteria list must not be empty").
+Worse, the client wrapper reads the two empty forms differently on purpose: null or an empty list
+means "no restriction asked for" and drops the selector, while a **non-empty** list from which no
+criterion survives emits the empty selector for the server to reject. That asymmetry is the #243
+rule with its sign flipped — dropping a criterion the user filled in would *widen* the query from
+"only while configuration X was active" to the whole time range, handing back more data than they
+asked for. `ConfigurationFilter.toCriteria()` therefore returns **null**, not `List.of()`, and the
+`querySamples()` call site must not substitute one.
+
+**Each configuration criterion sets exactly one arm.** The proto criterion is a oneof, and the
+client's builder returns null for a multi-arm criterion, which `buildQuerySpec` turns into a
+rejected request rather than a silently preferred arm. The filter emits **one criterion per
+populated field**, which is also the semantics a user expects: criteria AND, values within one OR.
+
+**The sample status mode is not a polarity switch, and the difference is in the UNLABELED samples.**
+A status labels a sample only by exact `(pvName, timestamp)` equality at nanosecond precision, so
+most samples are unlabeled. `INCLUDE` returns matching samples and **excludes** unlabeled ones;
+`EXCLUDE` drops matching samples and **returns** unlabeled ones. The two are therefore not
+complements over a partially-labeled archive, and choosing wrong is silent: `INCLUDE` over a sparsely
+labeled PV returns a nearly empty table that reads as "no data in this window" rather than as
+"almost nothing here is labeled". `SampleStatusFilter.Mode`'s labels and `describe()` both state the
+unlabeled behavior in words for exactly this reason.
+
+**A filtered-out sample becomes a missing VALUE, not a missing row.** The server blanks it at its
+`(PV, timestamp)` position; a timestamp disappears only when every selected PV is filtered out at
+it. Those blanks render exactly like genuinely-missing V2 values, which is why the summary label is
+load-bearing — nothing else in the view says a filter was applied.
+
+**Only the status filter has a client-checkable rule**: the server rejects a blank domain. The
+configuration filter has none, because its inactive form is *sending no selector*, so there is no
+incomplete state for it to be in — adding a rule there would disable Submit for a query the server
+would happily run. A ticked-but-empty configuration filter is refused **in the dialog** (it is the
+empty-selector case), not by query validation.
+
+**Each filter is gated by its own checkbox rather than inferred from its fields**, because
+inferring would make the two behave oppositely for the same gesture — all-blank means "no
+restriction" for one and "rejected request" for the other. An unticked box drops its filter
+regardless of what the fields still hold, so criteria left by a previous visit cannot leak into a
+filter the user turned off.
+
+**Status codes are refused when they do not parse, never dropped.** A dropped code silently widens
+the filter — in `INCLUDE` mode "samples with code 2" becomes "samples labeled at all" — and returns
+a plausible table, so nothing downstream would say the typed code never reached the server.
+
+**Add to Dataset is also refused for an active configuration filter**, on the time axis rather than
+the PV axis. A `DataBlock` is a **contiguous** `[beginTime, endTime)`, while the filter resolves to
+the union of matching activation intervals intersected with that range — normally fragmented, always
+narrower. The block built here carries the OUTER range, so the saved dataset would claim intervals
+the query deliberately excluded. The *status* filter is deliberately not refused: it blanks samples
+inside the block rather than changing which interval the block covers.
+
+**A configuration selector matching no activations is a well-formed empty result, not a rejection.**
+The server distinguishes it from a malformed selector on purpose, so a mis-built selector is never
+indistinguishable from "no data in this window".
+
+**Each mode reads only its own controls.** Text left in the pattern field by an earlier visit is
+ignored while metadata is selected, rather than being carried into a selection the user abandoned —
+the same reasoning that clears the machine-configuration activation spinners rather than reusing
+whatever time they hold.
+
+`PvMetadataExploreViewModel.textMatch()` and `parseCommaSeparatedList()` are **public** and reused by
+the dialog rather than reimplemented. Two copies would be free to drift on exactly the blank-field
+handling those methods exist to pin down: a blank field emitted as an empty-list criterion is
+rejected by the server, while a blank *prefix* compiles to a regex matching everything.
+
+**The 1-minute interval chopping is gone, not relocated.** It existed only to keep each response
+under the gRPC message size limit by guessing a window small enough to fit. The server now bounds a
+page itself — by a row count and an outgoing byte budget, whichever trips first — and returns a
+resume token. Guessing was wrong in both directions anyway: a minute of a fast PV could still
+overflow, while a minute of a slow one cost a round trip to return nothing.
+
+**The timestamp column is synthesized, not received.** A V2 `ColumnTable` has no timestamp column —
+the axis lives only in `timestampList` — whereas the V1 ROW_MAP table carried `"timestamp"` as an
+ordinary column. Both the results table and the chart locate the time axis by that literal name, so
+`columnNamesOf()` prepends it rather than changing them. The name is
+`DataExploreViewModel.TIMESTAMP_COLUMN_NAME`, referenced by all four consumer sites in
+`DataExploreController`, so a rename cannot silently orphan the chart — whose failure mode is a
+logged "No timestamp column found" and an empty chart beside a table that still renders.
+
+**A missing value renders BLANK, not "N/A".** V2 encodes "this PV had no sample at this timestamp"
+as an **unset** `DataValue` oneof — a real distinction the V1 path could not make, where a column
+absent from a row map and a value the decoder did not recognize both became the string `"N/A"`.
+Blank now means genuinely missing; anything else in a cell means a decode gap.
+
+**`uint32` / `uint64` are widened rather than rendered signed.** They are unsigned on the wire and
+signed in Java, so the signed accessors would display a large unsigned reading as a negative number
+— a wrong value that looks like a real one.
+
+The two are **deliberately asymmetric**, and it is not an oversight: `uint32` widens into a `long`
+without loss and stays a `Number`, but `uint64` has no Java integral type that can hold its upper
+half, so it is rendered as an unsigned decimal **String**. Both alternatives are worse — the signed
+long displays a large reading as negative, and a `double` silently rounds past 2^53, turning an
+exact archived reading into a nearby wrong one. The chart's `parseNumericValue()` still parses the
+string, so such a column plots (as a double, with that rounding) while the **table** — which is what
+a reading is actually read from — keeps every digit exact.
+
+**The row count comes from the timestamp axis, never from a column.** The server guarantees one
+`DataValue` per column per timestamp, but reading the count from a column would silently truncate
+the whole page if that guarantee broke, whereas over-indexing a short column is caught per cell.
+
+**Three server-side failures are surfaced verbatim and never retried**: a single row whose values
+across all PVs exceed the byte budget (narrowing the *time range* cannot help — only fewer PVs);
+a non-scalar PV, rejected **mid-assembly** rather than pre-flight (dp-service #194 is open), so a
+non-scalar PV with no buckets in the window passes silently and the same PV set can succeed on one
+page and reject on the next, **after rows are already displayed**; and a selector resolving past
+`maxResolvedPvCount`. `executeSamplesQuery()` reports the rows already kept when a later page fails,
+rather than implying the table is empty.
+
+**A page token is never carried across queries.** It encodes a position only, and nothing binds it
+to the `QuerySpec` that produced it beyond a coarse bucket-vs-sample kind check, so replaying one
+against an edited time range or PV list yields a well-formed but **semantically wrong** result
+rather than an error. Every query starts from null.
+
+**The paging loop is bounded twice, and neither bound is the server's.** It stops at
+`DataExploreViewModel.MAX_DISPLAYED_ROWS` (50,000), and it stops when the task is cancelled. The
+server's page bound cannot stand in for either: it bounds a single *page* and then hands back a
+resume token, so following tokens to exhaustion is an unbounded read however small each page is.
+
+**The V2 selector arms are what made that reachable.** The retired V1 path was bounded in practice
+because the only way to choose PVs was to type them into the name list — the row count was the
+user's own PV list times their own time range. A pattern or metadata selection removes that implicit
+ceiling, and an all-empty metadata query is *not* rejected: it matches every PV in the archive. The
+server's `maxResolvedPvCount` catches only the extreme; a selector resolving to just under it over a
+wide window is accepted, and would otherwise accumulate without end into an `ObservableList` on the
+FX thread.
+
+**Rows are capped, not pages**, because a page is a server-side accounting unit whose size the
+client does not control. The page crossing the boundary is **trimmed rather than dropped whole** —
+the rows before the boundary are as real as any other.
+
+**`cancel()` now actually cancels.** It previously set a status message and nothing else, so a query
+in flight kept following resume tokens after the user asked it to stop, and the message claimed
+otherwise. Cancellation is polled **between pages**: a page is one unary round trip that cannot be
+interrupted once issued, so the finest honest granularity is per page, and the rows from a page
+already received are kept rather than discarded. The Query Editor carries a **Stop Query** button,
+visible only while a query runs and distinct from **Cancel**, which leaves the view entirely.
+
+**Both bounds, and a mid-query failure, set `resultsTruncated`** — and the completion message is
+built by `describeResult()`, which never states a bare count for a partial result. A capped table
+reported as a total is indistinguishable, from the table alone, from a query that genuinely had
+nothing more to return; that is the same defect transparent paging exists to prevent.
+
+**The outcome is RETURNED from `call()` and applied in `setOnSucceeded`, never published from inside
+the loop via `Platform.runLater`** — and applied *before* `isQuerying` clears. Both halves are the
+D-2 ordering rule (see the explore-view search vocabulary above) in this view: `setOnSucceeded` runs
+on the FX thread and therefore runs *before* a block queued from the background thread, and setting
+a JavaFX property notifies its listeners synchronously, so anything watching `isQuerying` — the
+progress indicator, the row-count label — would otherwise read a stale count and a stale truncation
+flag. `DataExploreQueryBoundsTest` observes the count at the moment the flag clears rather than
+asserting the final value, which would pass against both the fixed and the broken version.
+
+**The chart rebuild is coalesced, not run per page.** `updateChart()` re-reads every accumulated row
+and rebuilds every series, so running it once per arriving page makes the total work quadratic in
+the number of pages, on the FX thread, while rows are still being added. It cannot be made
+incremental instead: the dynamic sample interval is computed from the *total* row count, so
+appending one page's points to series sampled for a smaller total would mix two sampling rates in
+one line. `requestChartUpdate()` collapses the rebuilds queued within a pulse into one, against the
+fully accumulated data.
+
+**`limit` is deliberately left unset.** The server does not `.limit()` the Mongo cursor — it drains
+buckets until the byte budget trips and then truncates — so a small limit causes repeated near-full
+re-scans without reducing server work. Unset selects the server default; an over-maximum value is
+silently clamped, not rejected. None of those numbers are hardcoded, since all are
+environment-overridable server-side.
+
+**`useSerializedColumns` stays off.** Serialized columns cannot be merged across pages, so enabling
+it would require checking `serializedColumnsFragmented` before reading the table; a consumer that
+ignored the flag would get silently misaligned columns rather than an error.
+
+**The in-process channel's `maxInboundMessageSize` is raised above gRPC's 4 MB default**
+(`InprocessServiceBase`). The server's own per-page budget is 4,096,000 bytes and is measured on
+sample **values only** — excluding the timestamp list, column framing, names and the response
+envelope — and accounts per whole bucket, so a page can overshoot by up to one bucket. A client at
+the default has no headroom, and the failure is a `RESOURCE_EXHAUSTED` on the overshooting page with
+nothing identifying the cause.
+
 ### PV Explore Workflow (Implemented)
 1. **Query PVs Component**: Reusable component displaying current PV selection with individual remove buttons
 2. **PV Query Editor**: Search form with pattern matching and name list options
@@ -310,6 +547,11 @@ are reserved in the proto but deferred server-side, so the `epics_alarm` code ma
 9. **Provider Navigation**: Provider Name hyperlinks navigate to provider-explore view with automatic search
 10. **State Synchronization**: PV additions/removals automatically sync with global application state
 
+**pv-explore gained a search status row in T2b.** It previously had only `resultsStatusLabel`, so
+search progress and the result summary competed for one label and the search state was overwritten by
+the result. The view now carries `searchStatusLabel`, `resultCountLabel` and `searchProgressIndicator`
+like the other three.
+
 **The "Add Selected" button state is driven by exactly one listener, registered in
 `bindUIToViewModel()`.** `resultsTable.setItems(viewModel.getSearchResults())` makes the table's
 item list and the ViewModel's `searchResults` the same `ObservableList` instance, so a listener
@@ -319,6 +561,51 @@ permanently-retained copy re-doing work the first listener already did. That cop
 *after* `searchPvMetadata()` started its background task, so it could never observe the results of
 the search that registered it — the visible behavior was correct only because the
 `bindUIToViewModel()` listener was doing the job all along.
+
+**The explore views share one search vocabulary** (normalized by #39 T2b). A new explore view
+should use these names rather than inventing another spelling:
+
+| Concept | Property | Bound to |
+|---|---|---|
+| status beside the search controls | `searchStatusMessage` | `searchStatusLabel` |
+| status beside the results table | `statusMessage` | `resultsStatusLabel` |
+| result count as displayed | `resultCountMessage` | `resultCountLabel` |
+| a search is running | `searchInProgress` | progress indicator + disabled search button |
+
+`statusMessage` keeps the app-wide name rather than being folded into `searchStatusMessage`: eleven
+other view models expose `statusMessageProperty()`, and four controllers forward it to
+`MainViewModel.updateStatus()` to drive the application status bar. The two status properties are
+**two distinct labels**, not two spellings of one — every explore FXML declares both.
+
+**The vocabulary scopes to a SEARCH, not to a view.** `ConfigurationExploreViewModel` hosts two
+independent searches and therefore carries two of each property, prefixed by search
+(`configurationSearchInProgress` / `activationSearchInProgress`, and so on). Sharing one set between
+them would let either search clear the other's results or overwrite its count.
+
+`resultCountMessage` is a `String` in every view, never an `IntegerProperty`. A count label bound
+to a bare int cannot say "first N of more", so it would read "5000 results" beside a status message
+saying the query was capped — the exact dishonesty transparent paging exists to prevent.
+
+**Clear supersedes an in-flight search.** Each search carries a generation counter, incremented by
+both the search and its Clear, and a completion handler whose generation no longer matches drops its
+result. Without it, Clear pressed during a slow search empties the table and sets "Search cleared",
+and then the old query's rows arrive and repopulate it — which reads as a bug in Clear rather than in
+the search. The Search button is disabled during a search but Clear deliberately is not: abandoning a
+slow search is exactly when it is reached for.
+
+**The counter is per SEARCH, not per view**, for the same reason the T2b vocabulary is:
+`ConfigurationExploreViewModel` hosts two independent searches, so one shared counter would let
+either Clear silently discard the other search's results.
+
+**Search results are returned from `call()` and published in `setOnSucceeded`, never from a
+`Platform.runLater` inside the task.** `setOnSucceeded` and `setOnFailed` already run on the FX
+thread. Publishing from inside `call()` via `runLater` does not order anything — it *queues* the
+update behind whatever is already pending, including the handler's own `searchInProgress` reset. That
+was a live defect (D-2): Provider and Dataset mutated their result lists from a queued block and then
+read the count in `setOnSucceeded`, which runs first, so the completion log always reported the
+pre-search count. `ExploreViewModelSearchTest` pins the ordering by observing state from a listener on
+`searchInProgress` at the moment it clears — asserting on the final table contents instead would pass
+against both the fixed and broken versions.
 
 ### Provider Explore Workflow (Implemented)
 1. **Query PVs Component**: Reusable component on left side for PV selection management (same as pv-explore)
@@ -388,6 +675,130 @@ Calculations — no error, no warning, and nothing in the UI indicating a loss. 
 `AnnotationBuilderViewModel.loadFromAnnotation()` guards this, since the read there looks like an
 ordinary embedded-content read and is only safe because of who calls it.
 
+### Configuration Explore Workflow (Implemented)
+1. **Navigation**: `Explore > Machine Configurations` (enabled after ingestion, like the other explore views)
+2. **Two tabs, two searches**: Configurations and Activations, each with its own criteria, progress indicator and status labels
+3. **Configuration criteria**: name (Contains / Starts-with / Exact), category, parent, tags, attribute key + optional value
+4. **Activation criteria**: configuration names, activation ids, category, tags, attributes, plus two optional time criteria
+5. **Search Execution**: background `Task`s calling `DpApplication.queryConfigurations()` / `queryConfigurationActivations()`, both following `nextPageToken` internally — no paging UI
+6. **Load for Edit**: a configuration name is a hyperlink that opens the machine-configuration editor populated with that record
+7. **Cross-search navigation**: an activation row's configuration name resolves through `getConfiguration()` and opens the editor
+
+**Two independent searches, not one search with two result tables.** A `Configuration` and a
+`ConfigurationActivation` are separate records with disjoint criteria, and either question is useful
+on its own — "what configurations exist in this category" and "what was active during this window"
+are asked separately. Each therefore carries the full T2b vocabulary (`searchStatusMessage`,
+`statusMessage`, `resultCountMessage`, `searchInProgress`) **per search rather than per view**, so
+one search cannot clear the other's results or overwrite its count.
+
+**A half-filled time range is refused, not passed through.** This is the sharpest edge in the view.
+`TimeRangeCriterion` requires **both** bounds, and the dp-service request builder responds to a
+half-filled pair by emitting **no criterion at all** rather than by rejecting the request
+(`AnnotationClient.buildQueryConfigurationActivationsRequest`). So a user who fills in only a start
+date gets a result set silently *broader* than what they asked for, with every other criterion still
+applied — which reads as a working search rather than a dropped filter. `hasPartialRange()` refuses
+the search and says why. The view states the constraint beneath the controls too, but the refusal is
+what enforces it.
+
+`activeAt` is an independent criterion and may be combined with a range, so `activeAt` alone is a
+complete search rather than half of one.
+
+**A ticked-but-blank temporal criterion is refused too, and it is a distinct case from the half-filled
+range.** An unticked checkbox and a ticked one whose date picker is still blank both reach the view
+model as `null`, but they mean opposite things — "no restriction" versus an incomplete criterion the
+user intends to apply — and a null criterion is simply dropped, silently widening the search with
+every other criterion still applied. The controller therefore passes the checkbox states alongside
+the instants, and `hasIncompleteTemporalCriteria()` refuses the search. `hasPartialRange()` is checked
+**first**, because it names the more specific problem when both apply.
+
+**Clearing resets those enabled flags with the instants.** Leaving them set makes the next search
+look like it has two ticked-but-blank criteria and be refused — a cleared form that will not search,
+which is the stale-state bug the flags exist to prevent, reintroduced one level up.
+
+**The configurations table has an Activations column**, a fixed action link that populates and runs
+the activation search for that configuration and switches to its tab. It is a separate column rather
+than a second action on the name, because the name already means "edit this record" and one link
+cannot carry both meanings. Before it existed, `searchActivationsForConfiguration()` was unreachable
+and the panel's help text promised an action nothing could invoke.
+
+**The temporal controls are read only when their checkbox is ticked.** An unticked criterion is
+published as null rather than as whatever its date picker happens to hold, so a date left behind by
+an earlier search cannot silently narrow the next one. Clearing resets the spinners explicitly as
+well as the dates, for the same reason the activation editor does: clearing only the dates leaves a
+time of day to be silently reused.
+
+**An absent `endTime` is open-ended, not epoch.** `ConfigurationActivation.endTime` has real protobuf
+field presence, and `getEndTime()` on an absent field returns a zero-valued `Timestamp` — which
+renders as a 1970 date and reads as an activation that ended before it began.
+`ConfigurationActivationTableRow` branches on `hasEndTime()` and renders `OPEN_ENDED` instead.
+`getEndInstant()` reports absence as null for the same reason, so the display string
+(`getEndTime()`, which can be the literal "open-ended") is never mistaken for a value.
+
+**An activation carries only its configuration's name, not the record.** So the activations table's
+configuration link resolves the name through `getConfiguration()` before navigating, branching on
+`isReject()` for not-found — `isError()` alone cannot tell a missing record from an unreachable
+service. A name that no longer resolves is reported rather than opening an empty editor, which would
+invite creating a new record under a name the user believed already existed.
+
+**There is deliberately no free-text field**, for the same reason as the PV metadata explore view:
+these criteria are name / category / parent / tags / attributes, with no `TextCriterion`.
+
+### Sample Status Explore Workflow (Implemented)
+1. **Navigation**: `Explore > Sample Statuses` (enabled after ingestion, like the other explore views)
+2. **Query Editor**: required start/end time (date picker + hour/minute/second spinners), plus optional comma-separated PV names, domains, and layers
+3. **Search Execution**: background `Task` calling `DpApplication.querySampleStatusBuckets()`, which follows `nextPageToken` internally — no paging UI
+4. **Results Display**: one row per *status*, with PV name, timestamp, domain, layer, raw code, label, confidence, reason, source, modified-by
+5. **Clear**: resets the criteria and restores the default one-hour window
+
+**A bucket is not a row.** `querySampleStatuses()` returns `SampleStatusBucket`s, each holding
+statuses for one PV in one `(domain, layer)` over a contiguous period. `SampleStatusTableRow.expand()`
+flattens each bucket into one row per status; rendering buckets directly would show a row count
+unrelated to the number of statuses.
+
+**The time axis is usually a `SamplingClock`, not a list of timestamps.**
+`SampleStatusBucket.dataTimestamps` is a full `DataTimestamps` — a oneof of `SamplingClock` or
+`TimestampList` — and the demo generator writes a clock, because dense labeling of a regularly-sampled
+range is exactly what a clock is for. So there is frequently **no timestamp list to read** and the
+clock must be expanded arithmetically. Both arms are handled, since either can arrive from a producer
+this app did not write.
+
+Expansion computes `start + index * periodNanos` in integer nanoseconds, never by accumulating onto a
+running `Instant`. Status identity is exact `(pvName, timestamp)` equality at nanosecond precision, so
+a timestamp that drifts even one nanosecond silently fails to match the sample it labels — the same
+hazard documented for the *save* side, in the other direction.
+
+**The selected end second is INCLUDED.** The spinners select whole seconds, but the trim is
+half-open, so passing the selected end straight through would drop every status stamped within the
+second the user just named. The controller extends it to `.999999999`, the same adjustment
+`DataExploreViewModel.getQueryEndDateTime()` makes, so the two views agree on what an end time means.
+
+**Boundary trimming is required, not cosmetic.** Bucket selection is a `TimeRange` overlap test and
+boundary buckets are returned **whole**, so a bucket at either edge of the requested window carries
+statuses outside it. `expand()` drops statuses outside `[begin, end)` — half-open, so a status exactly
+at `endTime` is excluded. Without the trim the view would display statuses the user did not ask for
+and report a count that does not match the query.
+
+**There are two independent caps, and they mean different things.**
+`DpApplication.querySampleStatusBuckets()` caps *buckets* at `QUERY_RESULT_CAP`, because paging
+boundaries fall between whole buckets — but one bucket can hold thousands of statuses, so a capped
+bucket list does **not** bound the row count. `SampleStatusExploreViewModel.MAX_DISPLAYED_STATUSES`
+(10,000) is the bound that actually limits the table. Either tripping is reported as truncation, and
+the status message names which: more buckets on the server wants a narrower filter, more statuses in
+the fetched buckets wants a narrower time range.
+
+**Status code labels are resolved locally, for `epics_alarm` only.** The domain registry is
+unimplemented server-side (`saveSampleStatusDomain()` / `querySampleStatusDomains()` are reserved and
+deferred), so **nothing can resolve a code to a label from the archive**. The mapping in
+`SampleStatusExploreViewModel.CODE_LABELS` covers only the domain this app's own demo generator
+writes. A status in any other domain renders its raw code with an **empty** label rather than a guess,
+and the view states this beneath the table — a blank Label column would otherwise read as missing data
+rather than as an unknown domain.
+
+**`confidence` and `reasons` are optional parallel arrays** — each either empty or exactly one entry
+per timestamp. `expand()` checks the length against the status count rather than assuming presence:
+indexing blindly throws on the common codes-only case, and rendering a *partial* array positionally
+would attach the wrong confidence to a status, which is worse than omitting it.
+
 ### Data Event Explore Workflow (Implemented)
 1. **Data Event Subscriptions Management**: Left panel ListView displaying active subscriptions with custom ListCell format
 2. **Subscription Builder**: Top-right form with PV Name, Trigger Condition, Trigger Value, and PV Data Type fields
@@ -413,9 +824,78 @@ ordinary embedded-content read and is only safe because of who calls it.
 8. **Error Surfacing**: Server rejections reported verbatim from `apiResult.resultStatus.msg`
 9. **Reset**: Clears all fields and all three list components
 
-**Full-replace upsert:** `savePvMetadata()` replaces the ENTIRE record for a given PV name — aliases, tags, attributes, description and modifiedBy are all overwritten, and omitted fields are not preserved. The view states this in the panel. Loading an existing record before editing (`getPvMetadata()`) is deferred to a follow-up.
+**Full-replace upsert:** `savePvMetadata()` replaces the ENTIRE record for a given PV name — aliases, tags, attributes, description and modifiedBy are all overwritten, and omitted fields are not preserved. The view states this in the panel — which is why loading an existing record before editing matters, and `loadFromPvMetadata()` now provides it (see the PV Metadata Explore Workflow below).
+
+**An overwrite is confirmed before it happens.** `savePvMetadata()` is a full-replace upsert, so
+after a load-for-edit, clearing any field and saving erases that stored metadata with no error — the
+likeliest way to lose data in this view. The save now runs the same pre-save existence check as the
+machine-configuration editor: `getPvMetadata()`, branching on `isReject()` for not-found (an
+unreachable service sets `isError`, and reading that as "no existing record" would suppress the
+warning exactly when the system is unhealthy), then an FX-thread confirmation raised through a
+bounded wait, with a failed check aborting the save.
+
+**The confirmation names the record that was FOUND, not what was typed.** `getPvMetadata()` resolves
+aliases, so looking up a historical name returns the record under its canonical one — while the save
+targets the typed name, which would create a NEW record rather than replace the one found. Showing
+the found name is what lets a user notice that.
 
 **Critical Integration Pattern:** aliases/tags/attributes are read from the injected component instances, never from ViewModel properties. `PvMetadataViewModel` holds no collections for them. The component lists are copied on the FX thread before the background task starts, so the task never touches the observable lists off-thread.
+
+### PV Metadata Explore Workflow (Implemented)
+1. **Navigation**: `Explore > PV Metadata` (enabled after ingestion, like the other explore views)
+2. **Query Editor**: PV Name and Alias, each with its own Contains / Starts-with / Exact mode, plus comma-separated tags and an attribute key + optional value
+3. **Search Execution**: background `Task` calling `DpApplication.queryPvMetadata()`, which follows `nextPageToken` internally — no paging UI
+4. **Results Display**: PV name, aliases, tags, attributes, description, modified-by, updated time
+5. **Load for Edit**: the PV name is a hyperlink that opens the pv-metadata editor populated with that record
+6. **Clear**: resets every criterion and the results
+
+**This is not the same thing as `Explore > PV Statistics`.** pv-explore shows per-PV statistics
+*derived* by aggregation over ingested buckets (data type, first/last timestamp, sample period); this
+view shows the *curated* metadata record someone authored. A PV can appear in one and not the other.
+The menu item was named "PVs" before #39 task 4 and is now "PV Statistics", which is why the
+controller's fields are `pvStatsMenuItem` / `pvStatsEnabledProperty` / `onPvStats` — a rename that
+missed one of them would fail at view-load time, which `ViewLoadSmokeTest` covers.
+
+**There is deliberately no free-text search box.** This API's criteria are pvName, aliases, tags and
+attributes — it has **no `TextCriterion`**, unlike the dataset and annotation queries. A
+"search everything" field would have nothing to bind to, so offering one would promise a search that
+silently matched nothing. That is exactly the trap the annotation view's event field fell into before
+dp-grpc #132's removal was reflected in the UI.
+
+**A blank field must contribute NO criterion, not an empty one.** `textMatch()` returns an all-null
+`TextMatch` for a blank field, and the distinction is not cosmetic in either direction: a criterion
+whose lists are present but *empty* is rejected by the server, so an unfilled optional field would
+break an otherwise valid search — while a blank **prefix** value that reached the server compiles to
+a regex matching **everything**, silently turning an unfilled field into a whole-collection scan that
+appears to have honored the criteria the user did fill in. `PvMetadataExploreViewModelTest` asserts
+each of the three lists is null individually rather than only checking `TextMatch.isEmpty()`, because
+`isEmpty()` is true for both the correct all-null match and the broken empty-list one.
+
+**The match mode is an explicit choice, never inferred from the input.** The three modes return very
+different result sets, and a hidden heuristic (treating a trailing `*` as a prefix, say) would make
+the difference look like a server inconsistency rather than a setting the user controls.
+
+**An attribute value with no key is dropped, not promoted to a key.** `AttributeCriterion` requires
+the key; a value alone cannot be expressed. A key with no value is a legitimate key-only existence
+search, which the criterion supports directly.
+
+**The editor is handed the resolved record, not a PV name.** This is the alias trap, and it is the
+sharpest edge in the view. `getPvMetadata()` **resolves aliases**, so searching by a historical name
+returns the record under its **canonical** name — and `savePvMetadata()` is a full-replace upsert
+keyed on `pvName`. A load path that re-resolved from the text the user typed would let an edit of
+`OLD:NAME` write a **new** record under the alias while leaving the original untouched, or overwrite
+a different record entirely. `MainController.navigateToPvMetadataEditor()` therefore takes a
+`PvMetadata`, and `PvMetadataViewModel.loadFromPvMetadata()` populates the form from **that record's**
+canonical name, which makes the mistake unrepresentable rather than merely avoided. The view also
+states the consequence beneath the results table.
+
+**`loadFromPvMetadata()` writes aliases, tags and attributes into the COMPONENTS.** This is the
+Critical Integration Pattern in its load direction, and getting it wrong is silent: the save reads
+those three fields from the component instances, so a load that populated ViewModel properties would
+be write-only, and editing any unrelated field would then write all three back as **absent**. That is
+precisely the Annotation Builder defect documented above, in a view with the same shape.
+`PvMetadataLoadForEditTest` uses real component instances rather than stubs, since the point is the
+integration.
 
 ### Machine Configuration Workflow (Implemented)
 1. **Navigation**: `Metadata > Machine Configuration` menu item (always enabled) opens the machine-configuration view via `switchToView()`
@@ -429,13 +909,15 @@ ordinary embedded-content read and is only safe because of who calls it.
 9. **Status Feedback**: View-local status label plus a `ProgressIndicator` bound to an `isSaving` property
 10. **Reset**: Clears both forms, all four list components, the session activation list, and re-disables the activation section
 
-**Why one view and not two:** an activation cannot be created without an existing configuration. The server resolves `configurationName` against the Configuration collection on every activation save and rejects the request outright if it does not resolve (`no Configuration found for configurationName: '<name>'`). Gating section 2 on a configuration saved in this session, and binding it to the name the server returned rather than to the still-editable text field, makes that rejection unreachable through normal use.
+**Why one view and not two:** an activation cannot be created without an existing configuration. The server resolves `configurationName` against the Configuration collection on every activation save and rejects the request outright if it does not resolve (`no Configuration found for configurationName: '<name>'`). Gating section 2 on the server being known to hold a Configuration under `savedConfigurationName`, and binding it to that name rather than to the still-editable text field, makes that rejection unreachable through normal use. **The gate's invariant is existence, not provenance**: #39 task 5 added `loadFromConfiguration()`, and a record loaded from the server satisfies it exactly as a record saved here does — leaving the section disabled after a load would deny the one operation the loaded record makes safe.
 
 **Activation overlap is rejected on same configurationName OR same category.** The Configuration's category is denormalized onto each activation record as `internalCategory`, so two *different* configurations sharing a category cannot have overlapping activations. This is correct server behavior; the view surfaces the message rather than swallowing it.
 
 **Detecting not-found:** `getConfiguration()` reports a missing record as a *rejection*, not an empty successful result. Branch on `ApiResultBase.isReject()` rather than `isError()` — a service that is unreachable also sets `isError`, and treating that as "no existing record" would suppress the overwrite warning. Note that `REJECT` also covers server-side validation failures, so reading it as not-found is only safe once the request itself is known to be valid.
 
-**Full-replace upsert:** both `saveConfiguration()` and `saveConfigurationActivation()` replace the ENTIRE record; omitted fields are not preserved. The view states this in the panel. Loading an existing record before editing is deferred to a follow-up.
+**Full-replace upsert:** both `saveConfiguration()` and `saveConfigurationActivation()` replace the ENTIRE record; omitted fields are not preserved. The view states this in the panel. Loading a configuration for editing is provided by `loadFromConfiguration()`, reached from the Configuration Explore view; an *activation* still has no load-for-edit path.
+
+**Saving after a load raises the overwrite confirmation, and that is not spurious.** The record does exist, and the save really does replace all of it — so the prompt is the last chance to notice that a field cleared during editing will be cleared in the archive too.
 
 **End time is required in this version.** The server supports open-ended activations (absent `endTime`), but one blocks every subsequent activation in its entire category indefinitely. This is a UI-side constraint only — `DpApplication.saveConfigurationActivation()` keeps `endTime` nullable.
 
@@ -636,6 +1118,78 @@ Wrapper for protobuf Annotation objects in TableView displays:
 - Used in annotation-explore view for annotation discovery and navigation
 - Hyperlink support for the Annotation ID column and for the Calculations presence link
 
+### PvMetadataTableRow (`src/main/java/com/ospreydcs/dp/gui/model/PvMetadataTableRow.java`)
+Wrapper for a protobuf `PvMetadata` record in TableView displays:
+- PV name, aliases, tags, attributes, description, modified-by, formatted updated time
+- Formats the multi-valued fields as comma-separated strings for display, while `getAliasesList()` exposes the underlying list so `HyperlinkListTableCell` links each alias from the **list**, never by re-splitting the rendered string — an alias containing a comma would otherwise split into bogus links
+- `getPvMetadata()` returns the wrapped record, which is what the editor must be loaded from: its `pvName` is the **canonical** name, and `savePvMetadata()` is a full-replace upsert keyed on it
+- The `PROPERTY_*` constants name the properties the `PropertyValueFactory` column bindings resolve reflectively, so a rename that misses the controller fails to compile instead of silently blanking a column; `PvMetadataExploreColumnBindingTest` covers what constants cannot — a column bound to the *wrong* constant, or not bound at all
+- Used in pv-metadata-explore; see the workflow section above for the alias-resolution rationale
+
+### ConfigurationTableRow (`src/main/java/com/ospreydcs/dp/gui/model/ConfigurationTableRow.java`)
+Wrapper for a protobuf `Configuration` record in TableView displays:
+- Configuration name, category, description, parent, tags, attributes, modified-by, formatted updated time
+- `getConfiguration()` returns the wrapped record, which is what the editor is loaded from: `saveConfiguration()` is a full-replace upsert keyed on `configurationName`
+- The `PROPERTY_*` constants name the reflectively-resolved `PropertyValueFactory` bindings; `ConfigurationExploreColumnBindingTest` covers what constants cannot — a column bound to the *wrong* constant, or not bound at all
+- Used in configuration-explore
+
+### ConfigurationActivationTableRow (`src/main/java/com/ospreydcs/dp/gui/model/ConfigurationActivationTableRow.java`)
+Wrapper for a protobuf `ConfigurationActivation` record in TableView displays:
+- Activation id, configuration name, formatted start/end, description, tags, attributes, modified-by
+- **An absent `endTime` renders as `OPEN_ENDED` ("open-ended"), never as a formatted timestamp.** `endTime` has real protobuf field presence, so reading it without `hasEndTime()` yields a zero-valued `Timestamp` that displays as 1970 — an activation that appears to have ended before it began. `ConfigurationActivationDetail` makes the same distinction for the editor's session list
+- `getStartInstant()` / `getEndInstant()` expose the unformatted values, reporting absence as null, so the display string is never mistaken for a value
+- The `PROPERTY_*` constants name the reflectively-resolved bindings, as above
+- Used in configuration-explore
+
+### SampleStatusTableRow (`src/main/java/com/ospreydcs/dp/gui/model/SampleStatusTableRow.java`)
+One sample status — a single `(pvName, timestamp, domain, layer)` identity — flattened out of a `SampleStatusBucket`:
+- PV name, formatted timestamp, domain, layer, raw status code, resolved label, confidence, reason, source, modified-by
+- `expand(bucket, rangeBegin, rangeEnd, codeLabels)` is the decode: it expands the time axis (`SamplingClock` **or** `TimestampList`), trims to the half-open range, and resolves labels only for known domains
+- `getTimestampInstant()` / `getRawStatusCode()` expose the unformatted values for callers that need identity rather than display
+- The `PROPERTY_*` constants name the properties the `PropertyValueFactory` column bindings resolve reflectively, so a rename that misses the controller fails to compile instead of silently blanking a column; `SampleStatusExploreColumnBindingTest` covers what constants cannot — a column bound to the *wrong* constant, or not bound at all
+- Used in sample-status-explore; see the workflow section above for the clock-expansion, trimming, and labelling rationale
+
+### PvSelection (`src/main/java/com/ospreydcs/dp/gui/model/PvSelection.java`)
+How a Query API V2 request chooses which PVs it covers — the app-side counterpart of the client's
+sealed `QueryClient.PvSelectorParams`:
+- Three modes: `NAME_LIST` (the default), `NAME_PATTERN`, `METADATA`
+- `toSelectorParams(pvNames)` converts to the sealed client form; `describe(pvNames)` is the
+  one-line summary shown in the Query Editor, the modal and the status messages
+- **Does not hold the PV names.** Name-list mode takes the Query Editor's live list at conversion
+  time, so there is one source of truth for the app's most widely shared state and a PV added after
+  the selection was built is still queried
+- `isNameList()` is what the Dataset Builder branches on — a `DataBlock` is a name list by
+  definition and cannot represent the other two modes
+- Immutable, so a cancelled modal leaves nothing half-applied
+- Covered by `PvSelectionTest`; see the Data Explore Workflow for the empty-metadata-query hazard
+
+### ConfigurationFilter (`src/main/java/com/ospreydcs/dp/gui/model/ConfigurationFilter.java`)
+An optional restriction of a V2 query to the intervals during which matching machine configurations
+were active — the app-side counterpart of `QuerySpec.configurationSelector`:
+- Narrows the **time** axis, not the PV set, so it composes with `PvSelection` rather than
+  overlapping it
+- `toCriteria()` returns **null**, never an empty list, when nothing is filled in — the two are read
+  oppositely by the client wrapper, and an empty list turns an unfiltered query into a rejected one
+- Emits **one criterion per populated field**: the proto criterion is a oneof, and a multi-arm
+  criterion is rejected at build time rather than resolved by preference order
+- `isActive()` is what the Dataset Builder branches on — a `DataBlock` is one contiguous range and
+  cannot represent the fragmented intervals an activation filter resolves to
+- Immutable; covered by `ConfigurationFilterTest`
+
+### SampleStatusFilter (`src/main/java/com/ospreydcs/dp/gui/model/SampleStatusFilter.java`)
+An optional restriction of a V2 sample query to samples carrying (or not carrying) a matching sample
+status — the join between the query view and the Sample Status API:
+- **The mode is not a polarity switch**: `INCLUDE` excludes unlabeled samples, `EXCLUDE` returns
+  them, so the two are not complements over a partially-labeled archive. Both `Mode`'s labels and
+  `describe()` state the unlabeled behavior, because that is what decides whether a sparse result
+  means "no data" or "nothing labeled"
+- `MODE_UNSPECIFIED` is deliberately unmapped, making the server's "mode must be specified"
+  rejection unrepresentable rather than merely avoided
+- Empty layers means every layer in the domain and empty codes means any code; both reach the
+  request as **absent** fields rather than empty ones
+- `isComplete()` covers the one client-checkable rule — the server rejects a blank domain
+- Accepted by the sample-oriented methods only; immutable; covered by `SampleStatusFilterTest`
+
 ### DataEventSubscription (`src/main/java/com/ospreydcs/dp/gui/model/DataEventSubscription.java`)
 Wrapper for data event subscription management in data-event-explore view:
 - Contains SubscribeDataEventDetail and subscription metadata
@@ -732,6 +1286,175 @@ injected afterward via setters.
 
 Post-injection behavior (button handlers calling `DpApplication`, background tasks, navigation) is
 not covered — that needs an injection seam and robot-driven interaction testing.
+
+**Sample status decode tests** (`SampleStatusTableRowTest`, `SampleStatusExploreViewModelTest`): the
+clock expansion, boundary trimming and cap behavior are pure and static precisely so they are testable
+without a service ecosystem — the same reasoning as `accumulatePages()` and `emptyToNull()`. These are
+the cases that produce *plausible-looking wrong output* rather than an obvious failure: an off-by-one
+at a bucket edge yields a believable count, and a drifting clock yields timestamps that look right but
+match no sample.
+
+**Configuration explore tests** (`ConfigurationExploreViewModelTest`, `ConfigurationLoadForEditTest`,
+`ConfigurationExploreColumnBindingTest`): the half-filled range is the case worth the most here,
+because both the failure and the symptom are invisible — the server accepts the request, returns
+plausible results, and nothing indicates a bound was dropped.
+
+Note what the mutation check exposed in the *tests* rather than the code: `executeActivationSearch()`
+returns as soon as it has started a background thread, so asserting on a fake's call count straight
+after `runOnFxThread()` reads it in a race. One refusal test passed against the broken version by
+luck. A refused search starts no task and therefore has no in-progress transition to await — awaiting
+the flag would hang on the correct behavior — so `runRefusedActivationSearch()` polls for a wrongly
+started call instead. Both tests then failed with `expected: <0> but was: <1>`.
+
+**PV metadata explore tests** (`PvMetadataExploreViewModelTest`, `PvMetadataLoadForEditTest`,
+`PvMetadataExploreColumnBindingTest`): `textMatch()` is pure and static for the same reason as
+`accumulatePages()` and `emptyToNull()` — so the criteria construction is testable without a service
+ecosystem. Every case guarded here fails *silently* rather than loudly: a blank field emitted as an
+empty-list criterion is rejected by the server, a blank field emitted as a prefix scans the whole
+collection while looking like it worked, a load that populates ViewModel properties instead of the
+components erases metadata on the next save, and a column bound to the wrong `PROPERTY_*` constant
+renders a plausible value from the wrong field.
+
+Each of those three guards was mutation-checked against the defect it claims to catch, because a
+guard that cannot fail is worse than no guard — it reads as coverage. The blank-criterion guard
+distinguishes `null` from `[]` (`expected: <null> but was: <[]>`), which is the distinction
+`TextMatch.isEmpty()` alone cannot make, since it reports true for both.
+
+**Live explore-query test** (`ExploreQueryLiveIT`, added by #39): verifies the query paths of tasks
+3, 4 and 5 against a real ecosystem and a real MongoDB. Each assertion pins a claim about what the
+**server** does, which the unit suite cannot check because the unit suite supplies the server's
+answers:
+
+- `getPvMetadata()` really does resolve an alias to the **canonical** record. Task 4's whole
+  load-for-edit design rests on this; were it false, the structural fix would address a
+  non-problem while a real hazard went unguarded.
+- sample statuses written by `generateAndIngestData(..., true)` really do come back for the window
+  they were written for, expanding to exactly one status per generated sample. A clock misalignment
+  fails *silently* — the save succeeds and nothing matches at query time — so an empty result here
+  is the only signal that would ever appear.
+- boundary buckets really do come back **whole**: the untrimmed expansion of a one-second query
+  window carried 30 statuses where the trim yields 10, so the client-side trim is load-bearing
+  rather than a no-op that happens to look right.
+- a **half-filled** activation range really is dropped rather than rejected — a start bound a year
+  after the activation still returned it. That is the premise of
+  `ConfigurationExploreViewModel.hasPartialRange()` refusing to send one.
+
+Also pinned: a missing record is a REJECT not an error, a criteria-free query matches everything
+rather than erroring, and a non-matching attribute value **excludes** the record (proving the
+criterion is applied rather than dropped — the negative assertions are what stop the positive ones
+from passing vacuously).
+
+Skips rather than fails without MongoDB, and cleans up its stamped records in `@AfterAll`, exactly
+as `AnnotationApiLiveIT` does. Note that `DpApplication.init()` always starts its **own in-process
+ecosystem** — the app has no remote-gRPC path yet — so separately running services on 50051-50053
+neither help nor hinder this test; it reaches the same database through its own services.
+
+Run it alone with `mvn test -Dtest=ExploreQueryLiveIT`; watch it skip with
+`mvn test -Dtest=ExploreQueryLiveIT -Ddp.MongoClient.dbPort=1`.
+
+**Query API V2 decode tests** (`DataExploreV2DecodeTest`): `columnNamesOf()`, `reshapePage()` and
+`renderDataValue()` are pure statics precisely so the transpose is testable without a service
+ecosystem, the same reasoning as `accumulatePages()` and `SampleStatusTableRow.expand()`. Every case
+guarded produces *plausible-looking wrong output* rather than an obvious failure: a dropped timestamp
+column leaves a table that still renders beside a chart that silently finds no axis, a missing value
+rendered as text is indistinguishable from a PV that really reported that text, a signed accessor
+turns a large unsigned reading into a negative one, and a transpose that reads its row count from a
+column truncates the whole page at once. All four were mutation-checked against the defect they
+claim to catch.
+
+**Search supersede tests** (`ExploreSearchSupersedeTest`): pins that Clear pressed during a slow
+search discards that search's results, and — the half that stops the guard from being vacuous — that
+an ordinary search still publishes. A generation check that never matched would make every search
+silently return nothing, which no test asserting only the superseded case would catch. The fake gates
+the service call so the race is deterministic: without the gate the search finishes before Clear runs
+and the test passes whether or not the guard exists. Mutation-checked by removing the guard, which
+failed with "a superseded search repopulated the table after Clear".
+
+**Query bounds tests** (`DataExploreQueryBoundsTest`): covers the display cap, cancellation, and the
+truncation reporting that makes either honest. The fake serves pages **endlessly**, always returning
+a next-page token, so only a client-side bound can end the loop — a fake that stopped on its own
+could not distinguish a working cap from a query that simply ran out of data, and a regression that
+removes the cap hangs the test rather than passing it.
+
+All four guards were mutation-checked, and the cancellation one **failed that check on its first
+version**, which is worth recording. It used ten-row pages, and an in-memory fake serves 50,000
+single-row pages in a fraction of a second — so the query ended at the *cap* whether or not
+`cancel()` did anything, and the test passed against a `cancel()` that only set a status message:
+precisely the defect it claims to catch. It now uses one row per page *and* a per-page delay, which
+puts the cap over sixteen minutes out of reach, so only a working cancel can end the loop. The
+lesson generalizes: when two bounds can end the same loop, a test for one of them must put the other
+out of reach or it proves nothing.
+
+**Live V2 test** (`QuerySamplesLiveIT`): pins what the unit suite structurally cannot — the shape the
+**server** actually returns. That a `ColumnTable` carries its axis only in `timestampList` with no
+timestamp column (so the synthesized one is required, not redundant); that every resolved PV gets a
+column even with no data; that there is exactly one `DataValue` per column per timestamp; that paging
+**terminates** and **accumulates**; and that an empty window is a success carrying an empty table
+rather than a rejection.
+
+Two things this test's own construction had to get right, both found by mutation-checking it:
+
+- **A single-page result cannot distinguish accumulation from stopping early.** The first version
+  queried 100 rows, which fit in one page, so a loop mutated to stop after page one still passed. It
+  now also queries a set sized past the server's default page and asserts `pageCount > 1`, so the
+  row-total assertion exercises a real page boundary.
+- **`generateAndIngestData()` returning success does not mean the data is queryable.** Ingestion is
+  asynchronous, and a `querySamples()` issued immediately after reliably returns the right COLUMNS
+  with an EMPTY timestamp list — the same shape a legitimately empty window produces, which is why it
+  reads as a query defect rather than as a race. Measured: the first query saw 0 rows and every query
+  from ~500 ms on saw all 100. `awaitIngestedDataVisible()` polls for the condition rather than
+  sleeping, so a growing lag fails loudly instead of becoming flaky again.
+
+It also pins the two selector arms that resolve **server-side**, which is precisely what the unit
+suite structurally cannot check — it asserts which arm is *built*, and an arm built correctly that
+resolves to nothing returns a well-formed empty table rather than an error, indistinguishable from a
+window with no data. The name-pattern arm must resolve PVs the test never lists and must **not**
+reach one outside the pattern; each metadata criterion (tag, alias, attribute) is queried on its own
+so a selector that dropped one and returned the PV via another cannot pass. The negative case — a
+tag no PV carries — is what stops all of those from passing vacuously, and mutation-checking
+confirmed it: a selector with its criteria removed fails with "a tag no PV carries resolved … anyway,
+so the criterion is being dropped rather than applied".
+
+Run it alone with `mvn test -Dtest=QuerySamplesLiveIT`; watch it skip with
+`-Ddp.MongoClient.dbPort=1`.
+
+**PV selector tests** (`PvSelectionTest`, `DataExplorePvSelectionTest`,
+`PvSelectorDialogControllerTest`): `PvSelection` is a plain value class so which selector arm it
+builds is testable without a service ecosystem, the same reasoning as `accumulatePages()` and
+`SampleStatusTableRow.expand()`. The dialog test loads the **real FXML** and drives the real
+controls, because the two things worth pinning are integration facts: that each mode reads only its
+own controls, and that the live warning fires.
+
+Every guard here was mutation-checked, and each protects a failure that is silent rather than loud:
+a selection that copies the PV name list instead of reading it queries a stale PV set; a pattern arm
+falling back to the name list returns the wrong PVs in a well-formed table; a metadata description
+that omits "every PV in the archive" lets a whole-archive scan read as a filter; a validation rule
+requiring names in every mode disables Submit for a valid query; and a warning label left
+`visible` but not `managed` takes no space and cannot be read.
+
+**Query filter tests** (`ConfigurationFilterTest`, `SampleStatusFilterTest`,
+`DataExploreQueryFiltersTest`, `QueryFiltersDialogControllerTest`): every guard here protects a
+failure that is silent rather than loud — an empty criteria list turning an unfiltered query into a
+rejected one, a multi-arm criterion rejected at build time, the two status modes swapped (which
+returns a plausible table either way), a dropped status code widening an `INCLUDE` filter to
+"labeled at all", an over-strict client rule disabling Submit for a query the server would run, and
+a scope description that omits an active filter so a filtered row count reads as unfiltered.
+
+The live tests carry the weight the unit suite structurally cannot, exactly as for the PV selector
+arms: the unit tests assert which selector is *built*, while a selector the server silently drops
+returns the **full, well-formed table with no error at all**. `QuerySamplesLiveIT` therefore fixes
+an activation covering only part of the data window and asserts the filtered row count is strictly
+smaller than the unfiltered one; asserts that a configuration selector matching nothing is an empty
+**success** rather than a rejection; and asserts both status modes against the same fully-labeled PV,
+since an ignored selector returns the same table for both and each mode alone has a plausible result.
+A separate test pins that the status **codes** are applied and not just the domain — without it, a
+selector matching every status regardless of code passes the mode test. All of this was
+mutation-checked: dropping the criteria failed with "the configuration selector returned 100 of 100
+rows, so it is being DROPPED rather than applied", and neutering the codes failed with "the CODES are
+being ignored and only the domain is applied -- which silently widens every INCLUDE filter".
+
+**What live coverage still does not reach**: FXML rendering, clicks, navigation between views, and
+the editor forms. Those need the manual scenario in `plan/tickets/39/manual-verification.md`.
 
 **Calculations import fixture** (`CalculationsWorkbookFixture`, added by #43): generates the
 multi-sheet XLSX used to exercise Annotation Builder → Import Calculations by hand, and through it
@@ -987,6 +1710,53 @@ without a service ecosystem (`DpApplicationPagingTest`), the same reasoning as `
 boundary *with* a next page (truncated) versus a result that exactly fills the cap with no next
 page (not truncated), and a server returning a token alongside an empty page.
 
+**PV Metadata API wrappers** on `DpApplication`:
+- `queryPvMetadata(pvNameMatch, aliasesMatch, tagsAnyOf, attributes)` — pages transparently via
+  `accumulatePages()` up to `QUERY_RESULT_CAP`, returning `PagedResult<PvMetadata>`. Criteria are
+  `TextMatch` (exact / prefix / contains, all ORed within and across the lists) and
+  `AttributeCriterion` (key required, values optional); there is **no `TextCriterion`** on this API.
+  Both criteria types moved to `com.ospreydcs.dp.client.criteria` in dp-service #244.
+- `getPvMetadata(pvName)` — retrieves one record **by canonical name OR alias**. The returned
+  record's `pvName` may therefore differ from what was passed, and callers must save using the name
+  the record carries; see the alias trap in the PV Metadata Explore Workflow above.
+
+**Machine Configuration API wrappers** on `DpApplication`:
+- `queryConfigurations(nameMatch, categoryAnyOf, tagsAnyOf, attributes, parentAnyOf)` — pages
+  transparently via `accumulatePages()` up to `QUERY_RESULT_CAP`, returning
+  `PagedResult<Configuration>`.
+- `queryConfigurationActivations(activeAt, rangeStart, rangeEnd, configurationNameAnyOf,
+  clientActivationIdAnyOf, categoryAnyOf, tagsAnyOf, attributes)` — same shape, returning
+  `PagedResult<ConfigurationActivation>`. Takes `Instant` at this boundary and converts inward via
+  `timestampFromInstant()`, since the params take protobuf `Timestamp`.
+
+  **`rangeStart` and `rangeEnd` are all-or-nothing, and a half-filled pair is dropped rather than
+  rejected.** `TimeRangeCriterion` requires both bounds, so the request builder emits no criterion at
+  all when only one is supplied — silently widening the search. Callers must validate the pair before
+  calling; `ConfigurationExploreViewModel.hasPartialRange()` is what does that for the UI. `activeAt`
+  is independent and may be combined with a range.
+
+  Note the server's **zero-timestamp idiom**: a `Timestamp` of exactly epoch 0 is treated as
+  unspecified and rejected, so a query at Unix epoch 0 cannot be expressed. Not reachable through the
+  date pickers, but it is why an `Instant.EPOCH` sentinel must never be used to mean "unset".
+
+**Query API V2 wrapper** on `DpApplication`:
+- `querySamples(pvSelector, beginTime, endTime, pageToken)` — returns **ONE page** of aligned samples
+  as a `QuerySamplesApiResult`, deliberately unlike every other paged wrapper here. The data explore
+  view displays each page as it arrives, so the caller drives the loop and owns the token; see the
+  Data Explore Workflow above for the full rationale and the server-side caveats.
+  Takes the client's sealed `QueryClient.PvSelectorParams` rather than a name list, so all three
+  selector arms reach it and the invalid "two arms set" combination does not compile. A third
+  non-retryable rejection joins the two named above: a selector resolving past `maxResolvedPvCount`.
+  Unlike those two it is reachable from an ordinary-looking UI choice, since an all-empty metadata
+  query resolves to the whole archive rather than being rejected.
+  Also takes the two optional filters. **`configurationCriteria` must be null for "no restriction",
+  never an empty list** — the builder reads null/empty as "none asked for" and drops the selector,
+  but a *non-empty* list yielding no usable criterion emits the empty selector the server rejects.
+  `sampleStatusSelector` is accepted here but rejected on the bucket methods, which is why
+  `QueryBucketsParams` omits the field entirely.
+- The V1 `queryTable()` wrapper was **removed** by #39 task 6 once its only caller migrated. Leaving
+  a dead wrapper would have invited a future view onto the retired path.
+
 **Sample Status API wrappers** on `DpApplication` (the client wrappers themselves already exist on
 `AnnotationClient`, added by dp-service #239 — no dp-service work is needed to use them):
 - `saveSampleStatuses(frames, source, modifiedBy)` — batch upsert. Upsert is per individual status
@@ -994,7 +1764,8 @@ page (not truncated), and a server returning a token alongside an empty page.
   empty confidence/reasons list clears the stored values.
 - `querySampleStatuses(beginTime, endTime, pvNames, domains, layers, limit, pageToken)` — unary,
   resumable paging. Takes `Instant` at this boundary and converts inward via `timestampFromInstant()`,
-  since `QuerySampleStatusesParams` takes protobuf `Timestamp` (unlike `queryTable()`). **Bucket
+  since `QuerySampleStatusesParams` takes protobuf `Timestamp` (like `querySamples()`, and unlike the
+`queryTable()` wrapper that #39 task 6 removed). **Bucket
   selection is a `TimeRange` overlap test and boundary buckets are returned whole**, so a returned
   bucket may contain statuses outside the requested range — callers counting or displaying
   individual statuses must account for this. Currently has no UI caller; it is groundwork for the
@@ -1058,6 +1829,71 @@ When tags/attributes don't appear in the database:
   contract in `common.proto`
 - Lifecycle method: `clearColumnMetadata()`
 - Values apply uniformly to every column in the DataFrame(s) produced by the containing view
+
+**HyperlinkListTableCell** (`src/main/java/com/ospreydcs/dp/gui/component/HyperlinkListTableCell.java`)
+- Renders a row's multi-valued field as a comma-separated run of `Hyperlink`s, one per value
+- Replaces four hand-written cells: provider PV names (`ProviderExploreController`), an annotation's
+  related datasets and related annotations plus its ID column (`AnnotationExploreController`), and
+  the PV-name / provider-name cells (`PvExploreController`)
+- Two factories: `forValues(valuesExtractor, onClick)` for a list, `forSingleValue(valueExtractor,
+  onClick)` for one link per row — the single-value case is the same widget with a one-element list
+- `onClick` receives **the row and the clicked value**, because some links are labelled with one
+  field and navigate by another: a provider-name link navigates by the row's provider *id*
+- `AnnotationExploreController.CalculationsDataFrameTableCell` deliberately does **not** use it — it
+  renders a *presence* link, not a value list (see the Calculations column note above), but it
+  **does** use the shared `HyperlinkListTableCell.resolveRow(cell)` static, so the index-authoritative
+  resolution below is not reimplemented per cell. It had the same virtualization hazard: its link
+  captured the row via `getTableRow().getItem()`, so a recycled cell could fetch and open some other
+  annotation's calculation frames
+
+**Values come from the row's list accessor, never from the cell's display string.** The cell item is
+the already-joined ", " string, and re-splitting it to recover the values breaks on any value
+*containing* a comma — silently, producing extra links that are each mislabelled and each navigate
+to an id that does not exist. Emptiness is likewise decided by the extracted list, not by the item
+string: the hand-written cells returned early on a blank item, so a row whose display string was
+empty but whose list was not rendered no links at all.
+
+**The cell's index is authoritative, not its `TableRow`.** When a virtualized table recycles a cell
+it sets the new index and delivers the new item immediately but repoints the cell's `TableRow` in a
+*later* pass. Every cell this replaced read `getTableRow().getItem()` directly, so during that window
+it rendered the **previous** row's links while holding the new row's index — no error, nothing
+visibly wrong, until a link navigates somewhere unrelated to the row it appears on. `resolveRow()`
+resolves by index against `getTableView().getItems()` and falls back to the `TableRow` only when the
+index is out of range. `HyperlinkListTableCellTest` pins this by driving `updateIndex()`, which is
+what the table itself does to recycle a cell; the guard was mutation-checked against the pre-fix
+behavior.
+
+**PvSelectorDialogController** (`src/main/java/com/ospreydcs/dp/gui/component/PvSelectorDialogController.java`)
+- Modal editor for the Query Editor's PV selection — the three arms of the V2 `PvSelector`
+- Static factory: `showDialog(PvSelection, List<String> pvNames, Stage)`, returning the edited
+  selection or **null** when cancelled
+- Edits and returns a `PvSelection`; **never** writes into the PV name list it is handed, which is
+  read for display only — see the Data Explore Workflow above for why that list must stay the
+  identity path
+- Summary and warning update on every keystroke, because the case that needs it (an unfilled
+  metadata query covering the whole archive) is accepted downstream and would otherwise be silent
+- Reuses `PvMetadataExploreViewModel.textMatch()` / `parseCommaSeparatedList()` rather than
+  reimplementing the criteria construction
+- **Apply is disabled for a blank pattern**, the one arm the server rejects. The warning previously
+  said so while Apply stayed enabled, so the selection was accepted here and failed at the server on
+  the next submit — a warning naming a rule that nothing enforced. The metadata mode deliberately
+  gets no such rule: an all-empty metadata query is valid and matches every PV in the archive, so
+  refusing it would invent a rule the server does not have
+
+**QueryFiltersDialogController** (`src/main/java/com/ospreydcs/dp/gui/component/QueryFiltersDialogController.java`)
+- Modal editor for the Query Editor's two optional filters — `configurationSelector` and
+  `sampleStatusSelector` on the V2 `QuerySpec`
+- Static factory: `showDialog(ConfigurationFilter, SampleStatusFilter, Stage)`, returning a
+  `Filters` record or **null** when cancelled
+- **One dialog for both**, because they are the same kind of thing: optional restrictions on a query
+  whose subject is already chosen by the PV selector, both off by default, composing by intersection
+- **Each filter is gated by its own checkbox**, never inferred from its fields — all-blank means
+  "no restriction" for one and "rejected request" for the other, so only an explicit tick says which
+  the user meant. An unticked box drops its filter regardless of what the fields hold
+- **Apply is disabled while the dialog is unacceptable** rather than validated on accept: a rejected
+  apply that silently returned the previous filters would look like the dialog ignored the edit
+- Status codes that do not parse are **refused, not dropped** — a dropped code silently widens the
+  filter and returns a plausible table
 
 **QueryPvsComponent** (`src/main/java/com/ospreydcs/dp/gui/component/QueryPvsComponent.java`)
 - Reusable component for PV list management with individual remove buttons

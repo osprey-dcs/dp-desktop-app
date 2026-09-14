@@ -1,6 +1,8 @@
 package com.ospreydcs.dp.gui;
 
 import com.ospreydcs.dp.client.*;
+import com.ospreydcs.dp.client.criteria.AttributeCriterion;
+import com.ospreydcs.dp.client.criteria.TextMatch;
 import com.ospreydcs.dp.client.result.*;
 import com.ospreydcs.dp.grpc.v1.annotation.Annotation;
 import com.ospreydcs.dp.grpc.v1.annotation.Calculations;
@@ -10,7 +12,6 @@ import com.ospreydcs.dp.grpc.v1.common.*;
 import com.ospreydcs.dp.grpc.v1.ingestion.RegisterProviderResponse;
 import com.ospreydcs.dp.grpc.v1.ingestionstream.PvConditionTrigger;
 import com.ospreydcs.dp.grpc.v1.ingestionstream.SubscribeDataEventResponse;
-import com.ospreydcs.dp.grpc.v1.query.QueryTableRequest;
 import com.ospreydcs.dp.gui.model.*;
 import com.ospreydcs.dp.service.common.model.ResultStatus;
 import com.ospreydcs.dp.service.common.protobuf.TimestampUtility;
@@ -1124,21 +1125,109 @@ public class DpApplication {
         return api.queryClient.queryPvStats(pvNamePattern);
     }
 
-    public QueryTableApiResult queryTable(List<String> pvNameList, Instant beginTime, Instant endTime) {
+    /**
+     * Queries aligned time-series samples via the Query API V2, returning ONE page.
+     *
+     * <p><strong>This wrapper is deliberately single-page, unlike the other paged wrappers on this
+     * class.</strong>  queryDataSets(), queryPvMetadata() and their siblings follow nextPageToken
+     * internally via accumulatePages() because their callers want one complete list.  The data
+     * explore view instead displays each page as it arrives -- that incremental display is the
+     * behavior the retired 1-minute interval loop provided, and accumulating here would withhold
+     * every row until the last page landed.  The caller therefore drives the loop and owns the
+     * token; see DataExploreViewModel.executeSamplesQuery().
+     *
+     * <p><strong>Do not carry a page token across queries.</strong>  A token encodes a position
+     * only; nothing binds it to the QuerySpec that produced it beyond a coarse check separating
+     * bucket tokens from sample tokens.  Replaying one against an edited time range or PV list
+     * yields a well-formed but semantically WRONG result rather than an error.  Pass null to start.
+     *
+     * <p><strong>limit is deliberately left unset.</strong>  The server does not limit the Mongo
+     * cursor -- it drains buckets until its outgoing byte budget trips and then truncates the
+     * assembled table -- so a small limit causes repeated near-full re-scans without reducing
+     * server work.  Unset selects the server default (10,000 rows); an over-maximum value would be
+     * silently clamped rather than rejected.  None of those numbers are hardcoded here because all
+     * of them are environment-overridable server-side.
+     *
+     * <p>A page is bounded by whichever of the row limit and the byte budget trips first, and the
+     * byte accounting measures sample values only -- not the timestamp list, column framing, names
+     * or the response envelope -- so a page can overshoot the budget by up to one bucket.
+     *
+     * <p><strong>Two server-side failures are not retryable and must be surfaced verbatim.</strong>
+     * A single timestamp whose values across all selected PVs exceed the byte budget is a hard
+     * error; narrowing the time range cannot help, since the offending row is one instant, and only
+     * a smaller PV set can.  And a non-scalar PV is rejected MID-ASSEMBLY rather than pre-flight
+     * (dp-service #194 is still open), so a non-scalar PV with no buckets in the window passes
+     * silently and the same PV set can succeed on one page and reject on the next -- after rows are
+     * already on screen.
+     *
+     * <p><strong>A metadata selector that resolves too broadly is a third such failure.</strong>
+     * The server caps a resolved selector at maxResolvedPvCount and rejects past it with "narrow
+     * the selector".  Unlike the other two this one is reachable from an ordinary-looking UI
+     * choice, because an all-empty metadata query is NOT rejected -- it matches every PV in the
+     * archive.  See PvSelection, which describes that case explicitly rather than letting it read
+     * as a filter.
+     *
+     * <p>A configuration selector that matches no activations is NOT one of those failures.  It is a
+     * well-formed query returning an empty result, deliberately distinguished server-side from a
+     * malformed selector, which rejects -- so a mis-built selector is never indistinguishable from
+     * "no data in this window".
+     *
+     * <p><strong>The two optional filters narrow different axes and compose by intersection.</strong>
+     * configurationCriteria restricts the TIME axis to the intervals during which matching machine
+     * configurations were active; sampleStatusSelector then drops individual samples from what
+     * survives.  A status attached to a sample outside the activation intervals has no effect,
+     * because that sample is already gone.
+     *
+     * <p><strong>configurationCriteria must be null for "no restriction", never an empty list.</strong>
+     * The two are read differently by the request builder: null or empty means no restriction was
+     * asked for and the selector is dropped, but a non-EMPTY list from which no criterion survives
+     * emits the empty selector, which the server rejects with "configurationSelector.criteria list
+     * must not be empty".  That asymmetry is deliberate upstream -- dropping a criterion the caller
+     * filled in would WIDEN the query from "only while configuration X was active" to the whole time
+     * range, handing back more data than they asked for with no diagnostic.  ConfigurationFilter
+     * returns null rather than an empty list for exactly this reason.
+     *
+     * <p><strong>sampleStatusSelector is accepted here but rejected on the bucket methods</strong>,
+     * which return buckets whole and cannot represent per-sample filtering.  It is unreachable from
+     * this app, which queries samples only, but it is why the client's QueryBucketsParams omits the
+     * field rather than carrying one the server would refuse.  A filtered-out sample becomes a
+     * MISSING VALUE at its (PV, timestamp) position, not a dropped row; a timestamp disappears only
+     * when every selected PV is filtered out at it.
+     *
+     * @param pvSelector which PVs to cover; the server rejects an unset selector, an empty name
+     *                   list and a blank pattern
+     * @param configurationCriteria optional activation-interval restriction, or <strong>null</strong>
+     *                              for none -- never an empty list, per the note above
+     * @param sampleStatusSelector optional per-sample status filter, or null for none; the server
+     *                             requires a non-blank domain and a specified mode
+     * @param beginTime start of the half-open interval [beginTime, endTime)
+     * @param endTime  end of that interval
+     * @param pageToken a prior result's nextPageToken to continue, or null to start
+     */
+    public QuerySamplesApiResult querySamples(
+            QueryClient.PvSelectorParams pvSelector,
+            List<QueryClient.ConfigurationCriterion> configurationCriteria,
+            QueryClient.SampleStatusSelectorParams sampleStatusSelector,
+            Instant beginTime,
+            Instant endTime,
+            String pageToken
+    ) {
+        final QueryClient.QuerySamplesParams params = new QueryClient.QuerySamplesParams(
+                new QueryClient.QuerySpecParams(
+                        timestampFromInstant(beginTime),
+                        timestampFromInstant(endTime),
+                        pvSelector,
+                        configurationCriteria),
+                sampleStatusSelector,
+                0,     // limit: server default, per the javadoc above
+                pageToken,
+                // useSerializedColumns stays off.  Serialized columns cannot be merged across
+                // pages, so enabling it would require checking serializedColumnsFragmented before
+                // reading the table; an unchecked consumer gets silently misaligned columns rather
+                // than an error.
+                false);
 
-        // build params for api call
-        final QueryClient.QueryTableRequestParams params =
-                new QueryClient.QueryTableRequestParams(
-                        QueryTableRequest.TableResultFormat.TABLE_FORMAT_ROW_MAP,
-                        pvNameList,
-                        null,
-                        beginTime.getEpochSecond(),
-                        Integer.toUnsignedLong(beginTime.getNano()),
-                        endTime.getEpochSecond(),
-                        Integer.toUnsignedLong(endTime.getNano()));
-
-        // call api method
-        return api.queryClient.queryTable(params);
+        return api.queryClient.querySamples(params);
     }
 
     public QueryProvidersApiResult queryProviders(
@@ -1427,6 +1516,190 @@ public class DpApplication {
     }
 
     /**
+     * PV metadata search that follows nextPageToken internally, returning every matching record up
+     * to QUERY_RESULT_CAP.  The explore view needs no paging UI, matching queryDataSets() /
+     * queryAnnotations().
+     *
+     * Criteria combine with AND; values within one criterion combine with OR.  The criteria are
+     * pvName, aliases, tags and attributes -- there is deliberately no free-text parameter, because
+     * this API has no TextCriterion.  A search box bound to one would have nothing to send.
+     *
+     * TextMatch fields are passed through UNPROCESSED.  The request builder drops blank entries
+     * itself, and that guard is the point: a blank prefix compiles to a regex matching EVERYTHING,
+     * so pre-filling or padding a field here would silently turn an unset filter into a whole
+     * collection scan.
+     *
+     * A failed page throws QueryFailedException rather than returning what had accumulated, as with
+     * the other paged wrappers.
+     */
+    public PagedResult<PvMetadata> queryPvMetadata(
+            TextMatch pvNameMatch,
+            TextMatch aliasesMatch,
+            List<String> tagsAnyOf,
+            List<AttributeCriterion> attributes
+    ) {
+        return accumulatePages(
+                pageToken -> {
+                    final AnnotationClient.QueryPvMetadataParams params =
+                            new AnnotationClient.QueryPvMetadataParams(
+                                    pvNameMatch,
+                                    aliasesMatch,
+                                    emptyToNull(tagsAnyOf),
+                                    emptyToNull(attributes),
+                                    0,
+                                    emptyToNull(pageToken));
+
+                    final QueryPvMetadataApiResult pageResult =
+                            api.annotationClient.queryPvMetadata(params);
+
+                    if (pageResult == null) {
+                        throw new QueryFailedException(
+                                "PV metadata query failed - null response from service");
+                    }
+                    if (pageResult.resultStatus.isError) {
+                        throw new QueryFailedException(
+                                "PV metadata query failed: " + pageResult.resultStatus.msg);
+                    }
+                    return pageResult;
+                },
+                pageResult -> pageResult.nextPageToken,
+                pageResult -> pageResult.pvMetadata,
+                QUERY_RESULT_CAP);
+    }
+
+    /**
+     * Retrieves one PV metadata record by canonical name OR alias.
+     *
+     * <strong>The returned record's pvName may differ from what was passed.</strong>  The server
+     * resolves aliases, so looking up a historical name returns the record under its CANONICAL name.
+     * This matters because savePvMetadata() is a full-replace upsert keyed on pvName: a caller that
+     * loads by alias, edits, and then saves using the name the user typed would write a NEW record
+     * under the alias rather than updating the one it loaded.  Always save using the pvName carried
+     * by the record this returns.
+     *
+     * A missing record is reported as a REJECTION, not an empty successful result, so an existence
+     * check must branch on isReject() rather than isError() -- an unreachable service also sets
+     * isError.  REJECT also covers request validation failures, so reading it as not-found is only
+     * safe for a request already known to be well formed.
+     */
+    public GetPvMetadataApiResult getPvMetadata(String pvNameOrAlias) {
+        return api.annotationClient.getPvMetadata(pvNameOrAlias);
+    }
+
+    /**
+     * Queries machine configuration records, following nextPageToken internally.
+     *
+     * Criteria are ANDed; values within one criterion are ORed.  Every parameter is optional, and
+     * an unset one contributes no criterion at all - a query with no criteria matches everything,
+     * bounded by QUERY_RESULT_CAP.
+     *
+     * As with queryPvMetadata(), the TextMatch is passed through UNPROCESSED: the request builder
+     * drops blank entries itself, and a blank prefix would otherwise compile to a regex matching
+     * everything.
+     *
+     * A failed page throws QueryFailedException rather than returning what had accumulated.
+     */
+    public PagedResult<Configuration> queryConfigurations(
+            TextMatch nameMatch,
+            List<String> categoryAnyOf,
+            List<String> tagsAnyOf,
+            List<AttributeCriterion> attributes,
+            List<String> parentAnyOf
+    ) {
+        return accumulatePages(
+                pageToken -> {
+                    final AnnotationClient.QueryConfigurationsParams params =
+                            new AnnotationClient.QueryConfigurationsParams(
+                                    nameMatch,
+                                    emptyToNull(categoryAnyOf),
+                                    emptyToNull(tagsAnyOf),
+                                    emptyToNull(attributes),
+                                    emptyToNull(parentAnyOf),
+                                    0,
+                                    emptyToNull(pageToken));
+
+                    final QueryConfigurationsApiResult pageResult =
+                            api.annotationClient.queryConfigurations(params);
+
+                    if (pageResult == null) {
+                        throw new QueryFailedException(
+                                "configuration query failed - null response from service");
+                    }
+                    if (pageResult.resultStatus.isError) {
+                        throw new QueryFailedException(
+                                "configuration query failed: " + pageResult.resultStatus.msg);
+                    }
+                    return pageResult;
+                },
+                pageResult -> pageResult.nextPageToken,
+                pageResult -> pageResult.configurations,
+                QUERY_RESULT_CAP);
+    }
+
+    /**
+     * Queries configuration activation records, following nextPageToken internally.
+     *
+     * Takes Instant at this boundary and converts inward via timestampFromInstant(), which maps null
+     * to null - the activation params take protobuf Timestamp, and an optional time left unset must
+     * reach the request builder as null rather than as a zero-valued Timestamp.
+     *
+     * <strong>rangeStart and rangeEnd are all-or-nothing.</strong>  TimeRangeCriterion requires both
+     * bounds, and the request builder emits NO criterion when only one is supplied - it does not
+     * reject the request.  A half-filled range is therefore silently broader than the user asked
+     * for, which is why callers must validate the pair before calling rather than relying on the
+     * server to complain.  activeAt is independent and may be combined with a range.
+     *
+     * Note the server's zero-timestamp idiom: a Timestamp of exactly epoch 0 is treated as
+     * unspecified, so a query at Unix epoch 0 cannot be expressed.  This is not reachable through
+     * the UI, whose date pickers cannot produce it, but it is why an Instant.EPOCH sentinel must
+     * never be used here to mean "unset".
+     *
+     * A failed page throws QueryFailedException rather than returning what had accumulated.
+     */
+    public PagedResult<ConfigurationActivation> queryConfigurationActivations(
+            Instant activeAt,
+            Instant rangeStart,
+            Instant rangeEnd,
+            List<String> configurationNameAnyOf,
+            List<String> clientActivationIdAnyOf,
+            List<String> categoryAnyOf,
+            List<String> tagsAnyOf,
+            List<AttributeCriterion> attributes
+    ) {
+        return accumulatePages(
+                pageToken -> {
+                    final AnnotationClient.QueryConfigurationActivationsParams params =
+                            new AnnotationClient.QueryConfigurationActivationsParams(
+                                    timestampFromInstant(activeAt),
+                                    timestampFromInstant(rangeStart),
+                                    timestampFromInstant(rangeEnd),
+                                    emptyToNull(configurationNameAnyOf),
+                                    emptyToNull(clientActivationIdAnyOf),
+                                    emptyToNull(categoryAnyOf),
+                                    emptyToNull(tagsAnyOf),
+                                    emptyToNull(attributes),
+                                    0,
+                                    emptyToNull(pageToken));
+
+                    final QueryConfigurationActivationsApiResult pageResult =
+                            api.annotationClient.queryConfigurationActivations(params);
+
+                    if (pageResult == null) {
+                        throw new QueryFailedException(
+                                "configuration activation query failed - null response from service");
+                    }
+                    if (pageResult.resultStatus.isError) {
+                        throw new QueryFailedException(
+                                "configuration activation query failed: " + pageResult.resultStatus.msg);
+                    }
+                    return pageResult;
+                },
+                pageResult -> pageResult.nextPageToken,
+                pageResult -> pageResult.configurationActivations,
+                QUERY_RESULT_CAP);
+    }
+
+    /**
      * Creates or updates the machine configuration record for the specified configuration name.
      *
      * This is a full-replace upsert: every mutable field is replaced by the value supplied here on
@@ -1608,6 +1881,49 @@ public class DpApplication {
                         emptyToNull(pageToken));
 
         return api.annotationClient.querySampleStatuses(params);
+    }
+
+    /**
+     * Sample status query that follows nextPageToken internally, returning every matching bucket up
+     * to QUERY_RESULT_CAP.  The explore view uses this rather than the single-page wrapper above, so
+     * it needs no paging UI, matching queryDataSets() / queryAnnotations().
+     *
+     * <strong>The cap counts buckets, not statuses.</strong>  Paging boundaries always fall between
+     * whole buckets, so a bucket is the smallest unit that can be capped -- but one bucket can carry
+     * thousands of statuses, so a capped bucket list does NOT bound the number of rows a caller
+     * derives from it.  A caller displaying individual statuses must bound its own row count and say
+     * so; truncated here means "more buckets existed", which is a weaker statement than the
+     * record-level truncation the annotation queries report.
+     *
+     * A failed page throws QueryFailedException rather than returning what had accumulated, for the
+     * same reason as the other paged wrappers: a partial list presented as a complete one is the bug
+     * this design prevents, not an acceptable degradation.
+     */
+    public PagedResult<SampleStatusBucket> querySampleStatusBuckets(
+            Instant beginTime,
+            Instant endTime,
+            List<String> pvNames,
+            List<String> domains,
+            List<String> layers
+    ) {
+        return accumulatePages(
+                pageToken -> {
+                    final QuerySampleStatusesApiResult pageResult = querySampleStatuses(
+                            beginTime, endTime, pvNames, domains, layers, 0, pageToken);
+
+                    if (pageResult == null) {
+                        throw new QueryFailedException(
+                                "Sample status query failed - null response from service");
+                    }
+                    if (pageResult.resultStatus.isError) {
+                        throw new QueryFailedException(
+                                "Sample status query failed: " + pageResult.resultStatus.msg);
+                    }
+                    return pageResult;
+                },
+                pageResult -> pageResult.nextPageToken,
+                pageResult -> pageResult.sampleStatusBuckets,
+                QUERY_RESULT_CAP);
     }
 
     public ResultStatus subscribeDataEvent(

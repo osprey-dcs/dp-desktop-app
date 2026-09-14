@@ -3,14 +3,15 @@
 - **Ticket**: [osprey-dcs/dp-desktop-app#39](https://github.com/osprey-dcs/dp-desktop-app/issues/39)
 - **Sub-issue**: [#36](https://github.com/osprey-dcs/dp-desktop-app/issues/36) — see [`plan/tickets/36/plan.md`](../36/plan.md)
 - **Status**: scoped 2026-09-12 against dp-desktop-app `889b5c3`, dp-grpc `6dfff3f`, dp-service `89bb822` (`main`), with the installed `dp-service-1.16.0.jar` (2026-09-11). Every upstream claim below was verified by reading the sibling source, not by reading the tickets.
+- **Updated 2026-09-12 (later same day)**: dp-service #244 is **CLOSED** (PR #270, `6d2f5a9`) and the jar is reinstalled (dp-service `6d2f5a9`, dp-grpc `76dba79`). **All six tasks are now unblocked.** `mvn clean test` is green against the new jar (188 tests, 0 failures, 0 skipped). Task 6's notes below were re-verified against the shipped wrapper rather than the resolver they were originally written from — every behavior they assert is now stated in the wrapper's own javadoc.
 - **Baseline**: `mvn clean compile` and `mvn clean test` are both green on `889b5c3`. Unlike #42, this ticket starts from a working build; nothing here is non-deferrable.
 
 ## Triage summary
 
 The ticket is well-scoped and its architecture is sound. Triage changed four things:
 
-1. **Two of the three named upstream prerequisites have already landed.** Only dp-service #244
-   remains, and it blocks task 6 alone.
+1. **All three named upstream prerequisites have landed.** dp-service #244 closed after this plan
+   was written; nothing in this ticket waits on upstream any longer.
 2. **Task 2 (explore-view base extraction) should not be done as described.** Measured, it buys
    ~3% line reduction and imposes a lifecycle contract one existing view already violates. It is
    replaced below with three higher-value, lower-risk refactors.
@@ -28,7 +29,7 @@ Nothing changes the ticket's overall shape or its task decomposition beyond task
 |---|---|---|
 | dp-service [#243](https://github.com/osprey-dcs/dp-service/issues/243) — client wrappers for PV metadata / configuration | required | **CLOSED** (PR #247). All six wrappers + result classes present in the installed jar. |
 | dp-service [#245](https://github.com/osprey-dcs/dp-service/issues/245) — empty criteria = match-all | required | **CLOSED** (PR, dp-grpc #147). All three queries now bounded by `DEFAULT_QUERY_LIMIT = 100`. |
-| dp-service [#244](https://github.com/osprey-dcs/dp-service/issues/244) — `QueryClient.querySamples` | required | **OPEN, no plan document.** The only live blocker. |
+| dp-service [#244](https://github.com/osprey-dcs/dp-service/issues/244) — `QueryClient.querySamples` | required | **CLOSED** (PR #270). Shipped as **four** V2 wrappers, not one: `querySamples` / `querySamplesStream` / `queryBuckets` / `queryBucketsStream`, plus `QuerySamplesParams` / `QueryBucketsParams` and `QuerySamplesApiResult`. Present in the installed jar. |
 | dp-service [#235](https://github.com/osprey-dcs/dp-service/issues/235) — reject-vs-error | "related" | Resolved during #243 triage: both getters already classify not-found as `REJECT`. Nothing to wait for. |
 
 Verification, rather than trusting the issue state:
@@ -41,20 +42,22 @@ Verification, rather than trusting the issue state:
   `:382`, `:720`, `:987`, `:1245`, `:1503`.
 - `QueryClient` has **no** V2 method (only `queryTable`, `queryPvStats`, `queryProviders`).
 
-**#244 is a hard blocker for task 6, not a convention.** `DpApplication` reaches gRPC exclusively
-through `ApiClient`'s typed clients (`api.queryClient.*` / `api.annotationClient.*`, ~28 call
-sites) and never touches a stub or channel. There is no in-repo workaround that does not fork that
-architecture.
+**~~#244 is a hard blocker for task 6, not a convention.~~ Resolved.** The reasoning stood: this app
+reaches gRPC exclusively through `ApiClient`'s typed clients (`api.queryClient.*` /
+`api.annotationClient.*`, ~28 call sites) and never touches a stub or channel, so there was no
+in-repo workaround. The wrapper now exists, so task 6 proceeds through the normal
+`DpApplication` → `api.queryClient.querySamples()` path with no architectural exception.
 
 ### Consequence for sequencing
 
 The ticket's stated order — "1 ‖ 3, then 2, then 4/5, then 6" — is now:
 
-> **3 ‖ 4 ‖ 5 ‖ 36 can all start immediately.** Only task 6 waits on #244.
+> **3 ‖ 4 ‖ 5 ‖ 6 ‖ 36 can all start immediately.** Nothing waits on upstream.
 
-Tasks 4 and 5 were gated on #243/#245, which have landed. That is a substantial unblocking: four of
-the six tasks plus the sub-issue can proceed in parallel today, and #244 can be written
-concurrently rather than on the critical path.
+Tasks 4 and 5 were gated on #243/#245 and task 6 on #244; all three have landed. **Every task in
+this ticket is now unblocked**, and #36 is complete (PR #44). The remaining sequencing constraint is
+internal only: T2a/T2b should precede tasks 3-5 so the new views are written in the settled
+vocabulary (see below).
 
 ## Corrections to the ticket bodies
 
@@ -75,7 +78,13 @@ The flag is not merely defaulted-on; it does nothing. #244's wrapper doc should 
 app must not plan any feature on `DataColumn.metadata` from `querySamples`. Provenance/tags/attributes
 for a PV come from `queryPvMetadata` (task 4) or from `queryBuckets`.
 
-**Action**: comment on dp-service #244 with this correction before it is implemented.
+**Action**: ~~comment on dp-service #244 with this correction before it is implemented.~~
+**Done, and accepted upstream.** The correction was posted to #244 and the shipped wrapper
+incorporates it: `excludeColumnMetadata` is *deliberately not exposed* on `QuerySamplesParams`,
+whose javadoc states the flag "is inert here". `QueryBucketsParams` does expose it, and documents
+that it is functional there. The remaining C1 conclusion stands unchanged for this app: **plan no
+feature on `DataColumn.metadata` from `querySamples`** — take PV provenance/tags/attributes from
+`queryPvMetadata` (task 4) or from `queryBuckets`.
 
 ### C2 — three different page-token behaviors, not one
 
@@ -92,6 +101,11 @@ A shared paging helper must not assume one of these. In practice the app always 
 it was just handed, so the divergence is latent rather than active — but a retry-on-error path, or
 any future "resume this query" feature, would hit it. Document it at the helper.
 
+**Confirmed upstream.** The shipped `QuerySamplesParams` javadoc now states the divergence itself:
+"A malformed token *is* rejected here, unlike the annotation metadata queries, which silently reset
+to the first page." So this is a documented contract difference, not an implementation accident that
+might be normalized later — the helper has to accommodate it permanently.
+
 ### C3 — `queryProviders` cannot be paged, so "one paging pattern" cannot cover all views
 
 The existing provider-explore view calls `DpApplication.queryProviders()` (`:1144`), which is
@@ -105,7 +119,10 @@ accept that it stays unpaged (and say so at the view), or file/land #265's proto
 plan accepts it as unpaged** and treats it as out of scope; the honest-truncation requirement below
 applies only to views whose API can express truncation.
 
-### C4 — "Explore → PVs" is already `pvMetadataMenuItem`
+### C4 — "Explore → PVs" is already `pvMetadataMenuItem` — **DONE (task 4)**
+
+Renamed as planned; `ViewLoadSmokeTest` validated it by loading `main-window.fxml`, which is what a
+partial rename would have broken.
 
 The ticket renames Explore→PVs to "PV Statistics" and adds a new "PV Metadata" view. The existing
 menu item for the *statistics* view is already named `pvMetadataMenuItem`
@@ -175,6 +192,27 @@ abstract method with an empty shared body.
 
 Do these instead, in order. They are what actually makes views five and six cheap.
 
+**T2a — extract the multi-value hyperlink `TableCell` into `gui/component/`. DONE.**
+Shipped as `HyperlinkListTableCell` with `forValues()` / `forSingleValue()` factories; 206 lines
+removed from the three controllers, 198 tests green. Two defects surfaced during the extraction that
+this inventory did not capture — both pre-existing in every copy, and neither visible from the
+line-count framing:
+
+1. **Emptiness was decided by the cell's display string**, so a row whose joined string was blank
+   but whose value list was not rendered no links at all. It is now decided by the list itself.
+2. **A recycled cell read a stale `TableRow`.** A virtualized table sets a cell's new index and item
+   immediately but repoints its `TableRow` in a later pass, so every hand-written copy could render
+   the *previous* row's links against the new row's index — a link navigating somewhere unrelated to
+   the row it sits on, with no error. `resolveRow()` resolves by index and falls back to the row only
+   when the index is out of range; `HyperlinkListTableCellTest` pins it by driving `updateIndex()`
+   and was mutation-checked against the pre-fix behavior.
+
+A third hazard was designed out rather than fixed: recovering values by splitting the display string
+would break on any value *containing* a comma. The component reads the row's list accessor, so the
+item string's formatting is irrelevant.
+
+Original analysis follows.
+
 **T2a — extract the multi-value hyperlink `TableCell` into `gui/component/`.** Three near-identical
 ~40-line copies exist: `PvNamesTableCell` (`ProviderExploreController.java:152-201`),
 `DatasetIdsTableCell` and `AnnotationIdsTableCell` (`AnnotationExploreController.java:187-278`),
@@ -182,6 +220,44 @@ plus Pv's two cell factories (`PvExploreController.java:112-157`). One parameter
 (`values extractor`, `label mapper`, `onClick handler`) replaces all of them. **Largest genuine
 duplication in the four views, needs no inheritance, and both new views want it immediately** —
 configuration rows list tags/attributes, sample-status rows link PV + timestamp.
+
+**T2b — normalize naming and pick one threading model. DONE**, with one deliberate deviation from
+what this section proposed. 204 tests green.
+
+**Deviation: `statusMessage` was kept, not renamed to `searchStatusMessage`.** This section compared
+only the four explore views and read Provider's and Dataset's having *both* properties as duplication.
+It is not: every explore FXML declares **two** labels — `searchStatusLabel` beside the search controls
+and `resultsStatusLabel` beside the results table — so the two properties are two distinct UI slots.
+Renaming `statusMessage` would also have broken a wider convention this section did not measure:
+eleven other view models expose `statusMessageProperty()`, and four controllers forward it to
+`MainViewModel.updateStatus()` to drive the application status bar. Renaming it in four of fifteen
+view models would have made those four the inconsistent ones.
+
+**Settled vocabulary**: `searchStatusMessage` (search area), `statusMessage` (results area),
+`resultCountMessage` (always a `String`), `searchInProgress`. Changes made:
+
+- Pv gained `searchStatusMessage` and `resultCountMessage` plus a search-status row in its FXML; it
+  had one label doing both jobs, so search progress was overwritten by the result summary.
+- Annotation gained `statusMessage` — which is **why** `annotation-explore.fxml:88` declared a
+  `resultsStatusLabel` that nothing bound (D-3): there was no property to bind it to. Now bound.
+- Provider's `IntegerProperty resultCount` was replaced by `resultCountMessage`. It was bound as
+  `.asString().concat(" provider(s)")`, which **cannot express truncation**.
+- Dataset's `IntegerProperty resultCount` was deleted outright — nothing bound it, and it duplicated
+  `resultCountMessage` with a value that could disagree.
+- `isSearching` → `searchInProgress` in Pv, Provider and Dataset.
+
+**Threading**: all four now return the result from `call()` and publish it in `setOnSucceeded`, which
+already runs on the FX thread. Pv's six redundant `Platform.runLater` blocks and Annotation's one
+redundant wrapper are gone; Provider and Dataset no longer publish from inside `call()`. **This is the
+D-2 fix** — see below. No `Platform.runLater` remains in any of the four search paths.
+
+**D-3 partly cleared**: the unreachable `cancel()` in Provider and Dataset is deleted.
+`DataExploreViewModel.cancel()` is genuinely wired to a Cancel button and stays. `primaryStage` is
+deliberately **left** in the three controllers: it is part of the uniform injection contract
+`MainController` calls on every controller, and removing it from three would break that symmetry for
+no gain.
+
+Original proposal follows.
 
 **T2b — normalize naming and pick one threading model.** Settle on `searchStatusMessage`,
 `resultCountMessage`, `searchInProgress`, and the return-from-`call()` model (the Annotation shape,
@@ -198,9 +274,22 @@ helper possible. Today there are four spellings of the same three concepts:
 The flag also drives different UI in each: Pv disables the button only, Provider/Dataset drive a
 progress indicator only, Annotation does both.
 
-**T2c — only then consider a helper, not a superclass.** After T2b, what remains shared is
-`protected <T> void runSearch(Supplier<T>, Consumer<T>)` — a static utility. Revisit after view
-five exists and there is real evidence of what the sixth needs.
+**T2c — only then consider a helper, not a superclass. DECIDED: do not extract — after task 5.**
+The condition for revisiting was "after view five exists". It does, and the evidence argues against
+the helper.
+
+Task 5 is the case that would have justified one, and it is the case that refutes it: the
+configuration view hosts **two** searches in one view model, so a `runSearch` helper would have to be
+a static utility parameterized by four properties (two status messages, a count, a flag) — at which
+point the call site is longer than the seven lines it replaces. The activation search also carries
+pre-flight validation the configuration search does not (the half-filled range), so the two are not
+the same shape even within one file.
+
+What actually made views five and six cheap was T2a (the shared cell) and T2b (the settled
+vocabulary), both of which removed duplication without imposing a lifecycle contract. The remaining
+repetition is a `Task` construction idiom that reads correctly in place and whose shape is load
+bearing — it is exactly where D-2's ordering bug lived, and where a future one would. Leave it
+visible.
 
 **Sequencing**: T2a is a prerequisite for tasks 3–5 (they all want the cell). T2b should also
 precede them, so the new views are written in the settled vocabulary rather than being renamed
@@ -220,21 +309,33 @@ Fix these as part of T2b rather than building on them. All verified by reading t
   background task, so it could never observe the results of the search that registered it. The
   `:170` listener was doing the work in every case. Deleted, with the reasoning recorded in
   CLAUDE.md so it is not re-added.
-- **D-2 — stale-read races.** `ProviderExploreViewModel.java:100-104` and
-  `DatasetExploreViewModel.java:99-103` read state set by a `Platform.runLater` queued from the
-  worker, with no ordering guarantee. Currently cosmetic (log lines only), but it is the pattern,
-  not the symptom, that the new views must not copy. Fixed by T2b's threading model.
-- **D-3 — dead code** (~50 lines): `cancel()` in Provider/Dataset (no callers on these view
-  models); `primaryStage` assigned-never-read in Provider/Dataset/Pv;
-  `AnnotationExploreViewModel.hasResults` (set at `:64`, never bound);
-  `resultsStatusLabel` declared in `annotation-explore.fxml:88` and in the controller at `:53` but
-  **never bound**, so it is a permanently-static "Ready"; and
-  `DatasetExploreViewModel.navigateToDatasetBuilder` (`:165-172`), a TODO stub duplicating the
-  controller's working method at `DatasetExploreController.java:107`.
-- **D-4 — `emptyToNull` is ignored by three of four views.** `DpApplication.emptyToNull()` exists
-  and is tested (`DpApplicationParamsTest`), yet Provider (`:119-123`) and Dataset (`:118-121`)
-  hand-roll inline ternaries and Annotation has its own `nullIfEmpty` (`:210-212`). Collapse onto
-  the tested helper.
+- **D-2 — stale-read races in the search completion handlers. FIXED in T2b.** Provider
+  (`ProviderExploreViewModel.java:100-104`) and Dataset (`DatasetExploreViewModel.java:99-103`)
+  published their result rows from a `Platform.runLater` inside `call()`, then read the count in
+  `setOnSucceeded` — which runs on the FX thread *first*, before the queued block — so the completion
+  log always reported the pre-search count. Triage called this cosmetic because only a log line read
+  the stale value; that was true but incidental. The ordering itself was the defect: any observer of
+  `searchInProgress` (the progress indicator, the disabled search button) saw the flag clear while the
+  table was still empty. Both now publish in `setOnSucceeded` with no `runLater`.
+  `ExploreViewModelSearchTest` observes state from a listener on the flag at the instant it clears,
+  and was mutation-checked against the old ordering (fails with `expected: <3> but was: <0>`).
+
+- **D-3 — dead code. FIXED in T2b**, except one item deliberately kept. Removed: `cancel()` in
+  Provider/Dataset (no callers); `AnnotationExploreViewModel.hasResults` (maintained by the results
+  listener, bound by nothing); `DatasetExploreViewModel.navigateToDatasetBuilder`, a TODO stub
+  shadowed by the controller's working method at `DatasetExploreController.java:107`, which is what
+  the hyperlink actually calls. `annotation-explore.fxml:88`'s unbound `resultsStatusLabel` is now
+  **bound** rather than deleted — the reason nothing bound it was that the view model had no
+  results-area `statusMessage`, which T2b added. **`primaryStage` is deliberately kept** in
+  Provider/Dataset/Pv: it is part of the uniform injection contract `MainController` invokes on every
+  controller, and removing it from three of them would break that symmetry for no gain.
+- **D-4 — `emptyToNull` is ignored by three of four views. FIXED in T2b.** Provider and Dataset now
+  call `DpApplication.emptyToNull()` and Annotation's private `nullIfEmpty` is gone. **Note the
+  behavioral difference that made this more than a mechanical swap**: `emptyToNull()` does *not*
+  trim, while all three hand-rolled versions did. Calling it directly on an untrimmed field would
+  send a whitespace-only value as a live criterion rather than omitting it — the opposite of the
+  intent. Each call site trims explicitly, and Annotation keeps a two-line `trimmedOrNull()` wrapper
+  documenting why.
 - **D-5 — two of four views cannot report truncation, and neither is fixable here.** Dataset and
   Annotation use `PagedResult`; Pv and Provider do not. Verified: **neither underlying request has
   paging fields at all** — `QueryPvStatsRequest` (`query.proto:819-827`) carries only the PV name
@@ -249,6 +350,33 @@ Fix these as part of T2b rather than building on them. All verified by reading t
 
 Only the parts where triage found something the ticket does not say. The ticket's own descriptions
 stand otherwise.
+
+### Task 3 — sample status explore view. DONE
+
+Shipped: `sample-status-explore.fxml`, `SampleStatusExploreController`,
+`SampleStatusExploreViewModel`, `SampleStatusTableRow`, and
+`DpApplication.querySampleStatusBuckets()` (a paged wrapper over the existing single-page
+`querySampleStatuses()`). Menu item added under Explore, enabled on ingestion like its siblings.
+228 tests green.
+
+All three hazards below were real and are handled; two additions triage did not list:
+
+- **A second cap was required.** The bucket cap in `querySampleStatusBuckets()` cannot bound the
+  table, because paging is by whole buckets and one bucket may hold thousands of statuses. Without
+  `MAX_DISPLAYED_STATUSES` the view would have moved the unbounded read from the server to the
+  client, which is what server paging exists to prevent. The two truncation causes are reported
+  distinctly because they have different remedies.
+- **`confidence` / `reasons` are optional parallel arrays.** Each is empty or has exactly one entry
+  per timestamp. Indexing blindly throws on the common codes-only case; rendering a *partial* array
+  positionally would attach the wrong confidence to a status. Length is checked against the status
+  count, and a malformed array is ignored rather than misaligned.
+
+Written in the T2b vocabulary from the start, which is what that sequencing was for. T2a's
+`HyperlinkListTableCell` is **not** used here after all: no column in this view navigates anywhere —
+a status has no target view to link to — so every column is plain text. That does not retire the T2a
+dependency for tasks 4 and 5, whose rows do carry ids.
+
+Original notes follow.
 
 ### Task 3 — sample status explore view (unblocked, start here)
 
@@ -272,9 +400,41 @@ Three things the ticket understates:
    `epics_alarm`; the domain registry is unimplemented server-side and deferred. A status in any
    other domain must render its raw code, never a guessed label.
 
-### Task 4 — PV metadata explore + load-for-edit
+### Task 4 — PV metadata explore + load-for-edit — **DONE**
 
-Unblocked by #243/#245. Beyond the ticket:
+Shipped as `pv-metadata-explore.fxml` / `PvMetadataExploreController` / `PvMetadataExploreViewModel`
+/ `PvMetadataTableRow`, plus `DpApplication.queryPvMetadata()` and `getPvMetadata()`, plus
+`PvMetadataViewModel.loadFromPvMetadata()` and the C4 rename. 25 tests added; suite at 254.
+
+All four triage points below were verified against current source before implementing, and all four
+held — the only drift was line numbers, since #244 moved `TextMatch` / `AttributeCriterion` into
+`com.ospreydcs.dp.client.criteria`.
+
+**The alias trap is closed structurally, not by warning.** `MainController.navigateToPvMetadataEditor()`
+takes a `PvMetadata` rather than a name, and `loadFromPvMetadata()` populates from *that record's*
+canonical `pvName`. Re-resolving from typed text is what would let an edit of `OLD:NAME` write a new
+record under the alias; passing the record makes that unrepresentable. The view states the
+consequence too, but the type signature is what enforces it.
+
+**One thing the triage did not list:** `loadFromPvMetadata()` had to write aliases/tags/attributes
+into the injected **components**, not into ViewModel properties — the save reads them from the
+components. Getting it wrong would be write-only and silent, erasing all three on the next save.
+Identical to the Annotation Builder defect, in a view with the same shape. Guarded by
+`PvMetadataLoadForEditTest` using real component instances.
+
+**Testing.** Three classes, each mutation-checked against the defect it claims to catch:
+`PvMetadataExploreViewModelTest` (16), `PvMetadataLoadForEditTest` (6),
+`PvMetadataExploreColumnBindingTest` (3). The blank-criterion guard asserts each `TextMatch` list is
+`null` individually rather than relying on `TextMatch.isEmpty()`, which reports true for both the
+correct all-null match and the broken empty-list one — the mutation produced exactly
+`expected: <null> but was: <[]>`.
+
+**Live coverage added.** `ExploreQueryLiveIT` now exercises this task's query paths against a real
+MongoDB, including the alias resolution this task's whole design rests on. UI-level interaction
+(clicks, navigation, the editor forms) remains manual — see
+[`manual-verification.md`](manual-verification.md).
+
+Original triage notes, for the record:
 
 - **`getPvMetadata()` resolves aliases** (`AnnotationClient.java:2380-2391` — "canonical PV name or
   alias"). So load-for-edit has a trap: typing an *alias* loads a record whose canonical `pvName`
@@ -289,7 +449,48 @@ Unblocked by #243/#245. Beyond the ticket:
   Bind UI fields straight to `TextMatch`; do not pre-process them.
 - Per C4, do the menu/property rename in this task.
 
-### Task 5 — configuration/activation explore + #36
+### Task 5 — configuration/activation explore + #36 — **DONE**
+
+Shipped as `configuration-explore.fxml` / `ConfigurationExploreController` /
+`ConfigurationExploreViewModel` / `ConfigurationTableRow` / `ConfigurationActivationTableRow`, plus
+`DpApplication.queryConfigurations()` and `queryConfigurationActivations()`, plus
+`MachineConfigurationViewModel.loadFromConfiguration()` and the menu wiring. 35 tests added; suite at
+290. (`#36` was already complete — PR #44.)
+
+**Both triage points held.** The params asymmetry is real and the `TimeRangeCriterion` both-bounds
+rule is confirmed in the request builder.
+
+**One consequence the triage did not state, and it is the important one.** The builder does not
+*reject* a half-filled range — it emits **no criterion at all**. So passing one through does not
+produce an error; it produces a silently broader result set with every other criterion still applied,
+which reads as a working search. The view model refuses the search and says why, rather than relying
+on the server to complain. This is the guard most worth keeping.
+
+**Two independent searches, not one.** Configurations and activations are separate records with
+disjoint criteria, so each carries the T2b vocabulary per *search* rather than per view. Tests pin
+that neither disturbs the other's results, counts, or status.
+
+**The activation gate was widened, deliberately.** Section 2 of the editor was gated on
+`configurationSaved`, described as "saved in this session". Its real invariant is that the server
+holds a Configuration under `savedConfigurationName` — the server rejects an activation whose name
+does not resolve. A loaded record satisfies that invariant, so `loadFromConfiguration()` opens the
+gate and binds it to the *record's* name rather than to the editable text field. Leaving it closed
+would have denied the one operation the loaded record makes safe. CLAUDE.md's "saved in this session"
+wording and the controller's matching comment were both corrected.
+
+**Testing.** Four mutation checks, all confirmed: the half-filled range (`expected: <0> but was:
+<1>`), the activation gate (6 of 8 tests failed), the open-ended end time (`expected: <open-ended>
+but was: <1970-01-01 00:00:00>`), and a column bound to the wrong `PROPERTY_*` constant. The range
+check also exposed a **race in the tests themselves** — `executeActivationSearch()` returns once it
+has started a thread, so reading a fake's call count straight afterwards is not ordered; one refusal
+test had been passing by luck. Fixed with a bounded poll, since a refused search has no in-progress
+transition to await.
+
+**Live coverage added**, as for tasks 3 and 4 — `ExploreQueryLiveIT` pins the half-filled-range
+behavior this task's refusal depends on. UI-level interaction remains manual, see
+[`manual-verification.md`](manual-verification.md).
+
+Original triage notes, for the record:
 
 Unblocked by #243/#245. `#36` is planned separately and is independent — see
 [`plan/tickets/36/plan.md`](../36/plan.md); its dp-service half is already done.
@@ -302,7 +503,183 @@ Unblocked by #243/#245. `#36` is planned separately and is independent — see
 - Configuration load-for-edit uses the existing `getConfiguration()`; the overwrite-warning path it
   feeds is already built (`MachineConfigurationViewModel.java:347-404`).
 
-### Task 6 — V2 migration (blocked on #244)
+## Live verification pass — **DONE**, before task 6
+
+Run before starting task 6, since task 6 rewrites the existing data-explore query path — the one
+part of this branch with prior manual coverage — and a regression there should land against a known
+good baseline.
+
+`ExploreQueryLiveIT` (16 tests) covers the query paths of tasks 3, 4 and 5 against a real ecosystem
+and a real MongoDB. **Every premise these tasks were built on is now verified rather than assumed:**
+
+| Claim | Verified |
+|---|---|
+| `getPvMetadata()` resolves an alias to the **canonical** record | yes — task 4's structural fix addresses a real behavior |
+| sample statuses come back for the window they were written for | yes — exactly 100 statuses for 100 generated samples, so the clock aligns at nanosecond precision |
+| boundary buckets are returned **whole** | yes — a 1-second window expanded to 30 untrimmed vs 10 trimmed |
+| a **half-filled** activation range is dropped, not rejected | yes — a start bound a year later still returned the activation |
+| a missing record is a REJECT, not an error | yes |
+| a criteria-free query matches everything | yes |
+
+The negative assertions matter as much as the positive ones: a non-matching attribute value must
+*exclude* the record, which is what stops the positive assertions from passing vacuously.
+
+The trim assertion was mutation-checked by deleting the lower-bound trim: `expected: <10> but was:
+<30>`. The suite skips cleanly with no database (`-Ddp.MongoClient.dbPort=1`) and leaves no records
+behind.
+
+**Note on transport**: `DpApplication.init()` always starts its own in-process ecosystem — the app
+has no remote-gRPC path yet — so separately running dp-service instances on 50051-50053 are not
+exercised by any of this.
+
+**What remains manual**: FXML rendering, clicks, cross-view navigation, and the editor forms. See
+[`manual-verification.md`](manual-verification.md), whose highest-value check is the alias trap in
+Part 3c — a silent data-loss path if it regresses.
+
+### Task 6 — V2 migration — **DONE** (all three commits)
+
+Sequenced in three commits rather than one, because the migration rewrites the one query path with
+prior manual coverage while the selector sections are purely additive. **All three are done**:
+commit 1 the migration, commit 2 the modal PV selector, commit 3 the configuration and sample-status
+filter sections.
+
+**Done in the migration commit:**
+
+- `DpApplication.querySamples(pvNames, begin, end, pageToken)` — single-page by design, unlike every
+  other paged wrapper here, because the view displays each page as it arrives.
+- `DataExploreViewModel.executeSamplesQuery()` — `do/while` on `nextPageToken`, replacing the
+  1-minute interval loop, which is **deleted** rather than relocated.
+- `columnNamesOf()` / `reshapePage()` / `renderDataValue()` — pure statics; the synthesized timestamp
+  column, the column-to-row transpose, and blank-for-unset rendering.
+- `TIMESTAMP_COLUMN_NAME` constant, bound at all four `DataExploreController` consumer sites.
+- `InprocessServiceBase` raises `maxInboundMessageSize` to 64 MB.
+- The dead V1 `queryTable()` wrapper is **removed** — its only caller migrated, and leaving it would
+  invite a future view onto the retired path.
+
+**Claims verified rather than assumed:**
+
+| Claim | How |
+|---|---|
+| V2 table has no timestamp column (axis only in `timestampList`) | `QuerySamplesLiveIT` order 10 |
+| every resolved PV gets a column even with no data | order 11 |
+| exactly one `DataValue` per column per timestamp | order 12 |
+| paging terminates, and no token repeats | order 20 |
+| paging **accumulates** across a real page boundary | order 23 |
+| an empty window is a success, not a rejection | order 21 |
+| ingested floats render as `Number`, not blanks | order 22 |
+
+**Two findings from mutation-checking the live test itself**, both recorded in CLAUDE.md: a
+single-page result cannot distinguish accumulation from stopping early (fixed by adding a set sized
+past the server's default page, plus a `pageCount > 1` assertion), and **ingestion is asynchronous**
+— a query issued immediately after a successful `generateAndIngestData()` returns the right columns
+with an empty timestamp list, which is indistinguishable from a legitimately empty window. The
+readiness gate polls rather than sleeping.
+
+Four mutation checks on the decode, all caught: row count read from a column (`expected: <3> but was:
+<1>`), unset rendered as `"N/A"`, the synthesized timestamp column dropped, and signed accessors for
+unsigned values (`expected: <4294967295> but was: <-1>`).
+
+**Done in the modal PV selector commit (part 2):**
+
+- `PvSelection` (`gui/model`) — the app-side counterpart of the client's sealed `PvSelectorParams`,
+  covering all three arms. A single class with a mode rather than a mirrored hierarchy, because the
+  Query Editor must hold a *partially edited* selection while the modal is open, which a sealed
+  hierarchy makes unrepresentable. The conversion to the sealed form happens once, where the choice
+  is final.
+- `PvSelectorDialogController` + `pv-selector-dialog.fxml` — modal with live summary and warning.
+- `DpApplication.querySamples()` now takes `QueryClient.PvSelectorParams` rather than a name list.
+- `DataExploreViewModel.pvSelection` + selection-aware validation; the two success messages now
+  describe the selection rather than reporting `pvNameList.size()`, which was about to start lying.
+- `PvMetadataExploreViewModel.textMatch()` / `parseCommaSeparatedList()` widened to public and
+  reused rather than reimplemented.
+
+**The cost the ticket understated was handled as planned.** The PV name list is untouched: name-list
+mode reads the live list at conversion time rather than copying it, so all six name-list flows work
+exactly as before and none of them has to know the selection exists.
+
+**Three decisions worth recording, all of them about what NOT to enforce:**
+
+| Case | Decision | Why |
+|---|---|---|
+| empty metadata query | allowed, warned loudly | the server accepts it as a whole-archive scan; refusing would invent a client rule the service does not have |
+| blank pattern | refused | the server rejects it, and a blank field is unfilled rather than intentional |
+| Add to Dataset in a non-name-list mode | refused | a `DataBlock` *is* a name list; the populated list would otherwise be read for a query that never used it |
+
+**Mutation checks: 13, all caught.** Four on `PvSelection` (name list copied rather than read live,
+pattern arm falling back to the name list, metadata description omitting "every PV in the archive",
+selector aliasing the observable list), three on validation (names required in every mode, blank
+pattern accepted, null selection left null), four on the dialog (mode leakage from a stale field,
+metadata never warning, warning `visible` but not `managed`, panes hidden but still `managed`), and
+two on the **live** tests themselves — the pattern test's negative assertion and the metadata test's
+unmatched-tag case both failed correctly when the selector was neutered, so neither passes vacuously.
+
+**Claims verified against the real server rather than assumed:**
+
+| Claim | How |
+|---|---|
+| the name-pattern arm resolves PVs the caller never listed, and not ones outside the pattern | `QuerySamplesLiveIT` order 30 |
+| each metadata criterion (tag / alias / attribute) resolves independently | order 31 |
+| a metadata selector matching nothing is a success with an empty table, not an error | order 31 |
+
+**Done in the query filters commit (part 3):**
+
+- `ConfigurationFilter` + `SampleStatusFilter` (`gui/model`) — the app-side counterparts of
+  `QuerySpec.configurationSelector` and `QuerySpec.sampleStatusSelector`.
+- `QueryFiltersDialogController` + `query-filters-dialog.fxml` — one modal for both, with live
+  summary and warning, and Apply disabled while the dialog is unacceptable.
+- `DpApplication.querySamples()` now takes `configurationCriteria` and `sampleStatusSelector`.
+- `DataExploreViewModel` filter properties, `describeQueryScope()` driving the success messages, and
+  status-filter validation.
+- Add to Dataset additionally refused for an active configuration filter.
+
+**The two selectors narrow different axes and compose by intersection** — configuration restricts
+the time axis, status then drops samples from what survives. That is why one modal covers both.
+
+**The empty-form asymmetry is the whole story of the configuration filter.** It is the exact inverse
+of the empty metadata PV selector: the server *accepts* that one (whole archive) and *rejects* this
+one. Worse, the client wrapper reads null/empty as "no restriction" but a non-empty list yielding no
+usable criterion as "asked for and unexpressible", emitting the empty selector for the server to
+reject. `toCriteria()` therefore returns **null**, never `List.of()`.
+
+**Three decisions worth recording, again about what to enforce and where:**
+
+| Case | Decision | Why |
+|---|---|---|
+| ticked configuration filter with no criteria | refused **in the dialog** | it is the empty-selector case the server rejects; not a query-validation rule, since an unticked box is the way to say "no restriction" |
+| active configuration filter, any criteria | **no** validation rule | its inactive form is sending no selector, so there is no incomplete state; a rule here would refuse a query the server would run |
+| status filter with a blank domain | refused, in both the dialog and query validation | the server rejects it — the only client-checkable rule among the two filters |
+
+**The sample status mode is the subtlest thing in this commit.** `INCLUDE` and `EXCLUDE` are not
+complements: they differ in how they treat *unlabeled* samples, which is most of a typical archive.
+Choosing wrong returns a plausible table, so the mode labels and `describe()` both state the
+unlabeled behavior rather than leaving the proto names to imply it.
+
+**Mutation checks: 12, all caught.** Two on `ConfigurationFilter` (empty list instead of null —
+caught in five places across three test classes; a multi-arm criterion), one on `SampleStatusFilter`
+(the two modes swapped), three at the wrapper and dialog (criteria dropped, status selector dropped,
+unparseable codes silently dropped), three more on the dialog (checkbox ignored, blank domain
+accepted, warning `visible` but not `managed`), and two on the view model (an over-strict
+configuration rule, filters omitted from the scope description).
+
+Five of those were checked against the **live** tests, following parts 1 and 2's lesson that a live
+test can pass while proving nothing. The decisive ones: dropping the configuration criteria failed
+with "the configuration selector returned 100 of 100 rows, so it is being DROPPED rather than
+applied", and neutering the status codes failed with "the CODES are being ignored and only the
+domain is applied -- which silently widens every INCLUDE filter". Both are invisible to the unit
+suite, which asserts which selector is *built*: a selector the server drops returns the full,
+well-formed table with no error at all.
+
+**Claims verified against the real server rather than assumed:**
+
+| Claim | How |
+|---|---|
+| a configuration selector really restricts the time axis (filtered rows < unfiltered rows) | `QuerySamplesLiveIT` order 32 |
+| a configuration selector matching no activation is an empty **success**, not a rejection | order 33 |
+| the two status modes differ on the same data (INCLUDE keeps all, EXCLUDE drops all, over a fully labelled PV) | order 34 |
+| the status **codes** are applied, not just the domain | order 35 |
+
+#### Original task 6 notes (retained)
+
 
 The single decode point is `DataExploreViewModel.processQueryTableResponse()` (`:320-382`), fed by
 `executeIncrementalQuery()` (`:248-318`). The ticket's plan to reshape at that point and leave the
@@ -354,6 +731,31 @@ Verified server behavior that shapes this task:
   metadata mode.
 - Do **not** hardcode 10,000 / 100,000 / 4 MB; all three are env-overridable.
 
+**Decisions the shipped wrapper adds** (it exposes more than the plan assumed, so these are choices
+task 6 must make rather than behaviors it inherits):
+
+- **Use the unary `querySamples()`, not `querySamplesStream()`.** The wrapper offers both. Unary is
+  the right one here for two reasons. First, the existing decode point already drives a paging loop
+  and the ticket keeps incremental display, which needs the resume token the streaming call does not
+  return (`nextPageToken` is always empty on a stream — completion is signaled by the stream ending).
+  Second, `querySamplesStream()` accumulates the **entire** result into one `ColumnTable` before
+  returning, which reinstates exactly the unbounded client-side read that paging exists to prevent —
+  the same failure the `QUERY_RESULT_CAP` guard addresses for the annotation queries.
+- **Leave `useSerializedColumns` false.** On the streaming method it is actively unsafe across pages:
+  serialized columns cannot be merged, so a multi-page stream returns per-page column *fragments*
+  against a fully concatenated timestamp axis — a well-formed table whose columns do not line up with
+  it. The wrapper flags this (`serializedColumnsFragmented`), and a consumer that ignores the flag
+  gets silently misaligned data rather than an error. If it is ever enabled for the unary path as an
+  optimization, that flag must be checked before the table is read.
+- **The params record carries `sampleStatusSelector`**, which is the natural join between task 6 and
+  task 3's sample-status work. Note it is accepted **only** by the sample-oriented methods — the
+  bucket methods reject it, and `QueryBucketsParams` therefore omits the field entirely.
+- **`pageToken` must not be carried across queries.** A token encodes a position only; the server's
+  kind check separates bucket tokens from sample tokens but nothing binds a token to the `QuerySpec`
+  that produced it, so replaying one against a changed spec yields a well-formed but **semantically
+  wrong** result rather than an error. The paging loop must discard its token whenever any query
+  parameter changes — not merely on a new search, but on an edited time range or PV list.
+
 **Cost the ticket understates — the modal PV selector.** The Query Editor's PV list is a flat
 `ObservableList<String>` (`DataExploreViewModel.java:30`) wired into six places: global-state
 restore (`:96-98`), `populateFromDataBlock` (`:451-453`), `QueryPvsComponent` (`:99-105`),
@@ -386,8 +788,8 @@ Beyond that:
 - `AnnotationApiLiveIT` is the model for live coverage — it skips on a socket probe when MongoDB is
   unreachable, so CI stays green while a developer with a database gets it from a plain `mvn test`.
   `*IT` is already in the surefire `<includes>` (`pom.xml:269-275`). Worth adding: a
-  `querySamples` round trip once #244 lands (paging across a real multi-page result, and the
-  missing-value encoding), and the #36 activation-collision case.
+  `querySamples` round trip (paging across a real multi-page result, and the missing-value
+  encoding) — **now writable, since #244 has landed** — and the #36 activation-collision case.
 
 ## Out of scope
 

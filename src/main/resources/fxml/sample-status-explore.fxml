@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.geometry.Insets?>
+
+<VBox xmlns="http://javafx.com/javafx/11.0.1" xmlns:fx="http://javafx.com/fxml/1"
+      fx:controller="com.ospreydcs.dp.gui.SampleStatusExploreController"
+      styleClass="container-fluid"
+      spacing="10.0">
+
+   <!-- Sample Status Query Editor Section -->
+   <VBox spacing="10.0" styleClass="panel, panel-default">
+      <children>
+         <Label styleClass="panel-heading" text="Sample Status Query Editor" />
+
+         <GridPane hgap="10.0" vgap="10.0">
+            <columnConstraints>
+               <ColumnConstraints hgrow="NEVER" minWidth="120.0" prefWidth="120.0" />
+               <ColumnConstraints hgrow="ALWAYS" />
+               <ColumnConstraints hgrow="NEVER" />
+            </columnConstraints>
+            <rowConstraints>
+               <RowConstraints />
+               <RowConstraints />
+               <RowConstraints />
+               <RowConstraints />
+               <RowConstraints />
+               <RowConstraints />
+            </rowConstraints>
+
+            <!-- Start time -->
+            <Label text="Start Time:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+            <HBox spacing="10.0" alignment="CENTER_LEFT"
+                  GridPane.columnIndex="1" GridPane.rowIndex="0" GridPane.columnSpan="2">
+               <children>
+                  <DatePicker fx:id="startDatePicker" />
+                  <Spinner fx:id="startHourSpinner" editable="true" prefWidth="80">
+                     <valueFactory>
+                        <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="23" min="0" />
+                     </valueFactory>
+                  </Spinner>
+                  <Label text=":" />
+                  <Spinner fx:id="startMinuteSpinner" editable="true" prefWidth="80">
+                     <valueFactory>
+                        <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="59" min="0" />
+                     </valueFactory>
+                  </Spinner>
+                  <Label text=":" />
+                  <Spinner fx:id="startSecondSpinner" editable="true" prefWidth="80">
+                     <valueFactory>
+                        <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="59" min="0" />
+                     </valueFactory>
+                  </Spinner>
+               </children>
+            </HBox>
+
+            <!-- End time -->
+            <Label text="End Time:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+            <HBox spacing="10.0" alignment="CENTER_LEFT"
+                  GridPane.columnIndex="1" GridPane.rowIndex="1" GridPane.columnSpan="2">
+               <children>
+                  <DatePicker fx:id="endDatePicker" />
+                  <Spinner fx:id="endHourSpinner" editable="true" prefWidth="80">
+                     <valueFactory>
+                        <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="23" min="0" />
+                     </valueFactory>
+                  </Spinner>
+                  <Label text=":" />
+                  <Spinner fx:id="endMinuteSpinner" editable="true" prefWidth="80">
+                     <valueFactory>
+                        <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="59" min="0" />
+                     </valueFactory>
+                  </Spinner>
+                  <Label text=":" />
+                  <Spinner fx:id="endSecondSpinner" editable="true" prefWidth="80">
+                     <valueFactory>
+                        <SpinnerValueFactory.IntegerSpinnerValueFactory initialValue="0" max="59" min="0" />
+                     </valueFactory>
+                  </Spinner>
+               </children>
+            </HBox>
+
+            <!-- PV names -->
+            <Label text="PV Names:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+            <TextField fx:id="pvNamesField"
+                      GridPane.columnIndex="1" GridPane.rowIndex="2"
+                      styleClass="form-control"
+                      promptText="Comma-separated; leave blank for all PVs..." />
+
+            <!-- Domains -->
+            <Label text="Domains:" GridPane.columnIndex="0" GridPane.rowIndex="3" />
+            <TextField fx:id="domainsField"
+                      GridPane.columnIndex="1" GridPane.rowIndex="3"
+                      styleClass="form-control"
+                      promptText="Comma-separated; leave blank for all domains..." />
+
+            <!-- Layers -->
+            <Label text="Layers:" GridPane.columnIndex="0" GridPane.rowIndex="4" />
+            <TextField fx:id="layersField"
+                      GridPane.columnIndex="1" GridPane.rowIndex="4"
+                      styleClass="form-control"
+                      promptText="Comma-separated; leave blank for all layers..." />
+
+            <!-- Buttons and search status -->
+            <HBox spacing="10.0" alignment="CENTER_LEFT"
+                  GridPane.columnIndex="1" GridPane.rowIndex="5" GridPane.columnSpan="2">
+               <children>
+                  <Button fx:id="searchButton" onAction="#onSearch" text="Search"
+                         styleClass="btn, btn-primary" />
+                  <Button fx:id="clearButton" onAction="#onClear" text="Clear"
+                         styleClass="btn, btn-default" />
+                  <ProgressIndicator fx:id="searchProgressIndicator" visible="false"
+                                    prefHeight="20.0" prefWidth="20.0" />
+                  <Label fx:id="searchStatusLabel" styleClass="text-info" />
+                  <Label fx:id="resultCountLabel" styleClass="text-success" />
+               </children>
+            </HBox>
+
+         </GridPane>
+      </children>
+      <padding>
+         <Insets bottom="15.0" left="15.0" right="15.0" top="15.0" />
+      </padding>
+   </VBox>
+
+   <!-- Sample Status Results Section -->
+   <VBox spacing="10.0" styleClass="panel, panel-default" VBox.vgrow="ALWAYS">
+      <children>
+         <Label styleClass="panel-heading" text="Sample Status Results" />
+
+         <TableView fx:id="resultsTable" VBox.vgrow="ALWAYS" styleClass="table, table-striped">
+            <columns>
+               <TableColumn fx:id="pvNameColumn" prefWidth="140.0" text="PV Name" />
+               <TableColumn fx:id="timestampColumn" prefWidth="210.0" text="Timestamp" />
+               <TableColumn fx:id="domainColumn" prefWidth="110.0" text="Domain" />
+               <TableColumn fx:id="layerColumn" prefWidth="120.0" text="Layer" />
+               <TableColumn fx:id="statusCodeColumn" prefWidth="60.0" text="Code" />
+               <TableColumn fx:id="statusLabelColumn" prefWidth="120.0" text="Label" />
+               <TableColumn fx:id="confidenceColumn" prefWidth="90.0" text="Confidence" />
+               <TableColumn fx:id="reasonColumn" prefWidth="160.0" text="Reason" />
+               <TableColumn fx:id="sourceColumn" prefWidth="120.0" text="Source" />
+               <TableColumn fx:id="modifiedByColumn" prefWidth="120.0" text="Modified By" />
+            </columns>
+         </TableView>
+
+         <HBox spacing="10.0" alignment="CENTER_LEFT">
+            <children>
+               <Label fx:id="resultsStatusLabel" styleClass="text-muted"
+                     text="Ready to search for sample statuses" />
+            </children>
+         </HBox>
+
+         <!-- The domain registry is not implemented server-side, so labels cannot be resolved from
+              the archive.  Saying so is required: a blank Label column otherwise reads as missing
+              data rather than as an unknown domain. -->
+         <Label styleClass="text-muted"
+               text="Status code labels are resolved locally and only for the epics_alarm domain; statuses in other domains show their raw code with no label." />
+      </children>
+      <padding>
+         <Insets bottom="15.0" left="15.0" right="15.0" top="15.0" />
+      </padding>
+   </VBox>
+
+</VBox>

@@ -6,7 +6,9 @@ import javafx.beans.binding.Bindings;
 import javafx.beans.binding.BooleanBinding;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.TextArea;
@@ -16,6 +18,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.URL;
+import java.util.Optional;
 import java.util.ResourceBundle;
 
 /**
@@ -60,10 +63,39 @@ public class PvMetadataController implements Initializable {
         viewModel.setTagsComponent(tagsComponent);
         viewModel.setAttributesComponent(attributesComponent);
 
+        // Supply the overwrite confirmation dialog, which the ViewModel raises when a save would
+        // replace an existing PV metadata record.
+        viewModel.setOverwriteConfirmation(this::confirmOverwrite);
+
         // Bind UI to ViewModel
         bindUIToViewModel();
 
         logger.debug("PvMetadataController initialized");
+    }
+
+    /**
+     * Asks whether to replace an existing PV metadata record.  Called on the FX thread by the
+     * ViewModel before the save is issued.
+     *
+     * <p>The name shown is the record that was FOUND, which is not necessarily what was typed:
+     * getPvMetadata() resolves aliases, so searching by a historical name returns the record under
+     * its canonical one.
+     */
+    private boolean confirmOverwrite(String pvName) {
+        final Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Replace existing PV metadata?");
+        alert.setHeaderText("PV metadata for \"" + pvName + "\" already exists.");
+        alert.setContentText(
+                "Saving replaces the entire existing record: aliases, tags, attributes, description "
+                        + "and modified by are all overwritten, and anything left blank is not "
+                        + "preserved.\n\nReplace it?");
+
+        if (primaryStage != null) {
+            alert.initOwner(primaryStage);
+        }
+
+        final Optional<ButtonType> choice = alert.showAndWait();
+        return choice.isPresent() && choice.get() == ButtonType.OK;
     }
 
     private void bindUIToViewModel() {
@@ -101,6 +133,13 @@ public class PvMetadataController implements Initializable {
     public void setPrimaryStage(Stage primaryStage) {
         this.primaryStage = primaryStage;
         logger.debug("Primary stage injected");
+    }
+
+    /**
+     * Loads an existing record into the form, for edit-in-place from the PV metadata explore view.
+     */
+    public void loadForEditing(com.ospreydcs.dp.grpc.v1.common.PvMetadata record) {
+        viewModel.loadFromPvMetadata(record);
     }
 
     public void setMainController(MainController mainController) {

@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.CheckBox?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.Separator?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.ColumnConstraints?>
+<?import javafx.scene.layout.GridPane?>
+<?import javafx.scene.layout.VBox?>
+<?import javafx.geometry.Insets?>
+
+<VBox xmlns="http://javafx.com/javafx" xmlns:fx="http://javafx.com/fxml"
+      fx:controller="com.ospreydcs.dp.gui.component.QueryFiltersDialogController"
+      spacing="10.0" prefWidth="620.0">
+    <padding>
+        <Insets top="12.0" right="12.0" bottom="12.0" left="12.0"/>
+    </padding>
+
+    <Label text="Optional filters that narrow this query. Both are off by default."
+           styleClass="text-muted" wrapText="true"/>
+
+    <Separator/>
+
+    <!-- ============ Machine configuration filter ============ -->
+    <CheckBox fx:id="configurationEnabledCheck" text="Restrict to machine configuration activations"/>
+    <Label text="Narrows the TIME range to the intervals during which matching configurations were active. Criteria are combined with AND; comma-separated values within one are combined with OR."
+           styleClass="text-muted" wrapText="true">
+        <padding><Insets left="22.0"/></padding>
+    </Label>
+
+    <GridPane fx:id="configurationPane" hgap="8.0" vgap="6.0">
+        <padding><Insets left="22.0"/></padding>
+        <columnConstraints>
+            <ColumnConstraints minWidth="130.0" prefWidth="130.0"/>
+            <ColumnConstraints hgrow="ALWAYS"/>
+        </columnConstraints>
+
+        <Label text="Configuration names:" GridPane.rowIndex="0" GridPane.columnIndex="0"/>
+        <TextField fx:id="configurationNamesField" promptText="name-1, name-2"
+                   GridPane.rowIndex="0" GridPane.columnIndex="1"/>
+
+        <Label text="Activation IDs:" GridPane.rowIndex="1" GridPane.columnIndex="0"/>
+        <TextField fx:id="activationIdsField" promptText="activation-1, activation-2"
+                   GridPane.rowIndex="1" GridPane.columnIndex="1"/>
+
+        <Label text="Categories:" GridPane.rowIndex="2" GridPane.columnIndex="0"/>
+        <TextField fx:id="categoriesField" promptText="category-1, category-2"
+                   GridPane.rowIndex="2" GridPane.columnIndex="1"/>
+
+        <Label text="Tags:" GridPane.rowIndex="3" GridPane.columnIndex="0"/>
+        <TextField fx:id="configurationTagsField" promptText="tag-1, tag-2"
+                   GridPane.rowIndex="3" GridPane.columnIndex="1"/>
+
+        <Label text="Attribute key:" GridPane.rowIndex="4" GridPane.columnIndex="0"/>
+        <TextField fx:id="configurationAttributeKeyField" promptText="key (required for an attribute criterion)"
+                   GridPane.rowIndex="4" GridPane.columnIndex="1"/>
+
+        <Label text="Attribute values:" GridPane.rowIndex="5" GridPane.columnIndex="0"/>
+        <TextField fx:id="configurationAttributeValueField" promptText="optional; blank matches any value"
+                   GridPane.rowIndex="5" GridPane.columnIndex="1"/>
+    </GridPane>
+
+    <Separator/>
+
+    <!-- ============ Sample status filter ============ -->
+    <CheckBox fx:id="sampleStatusEnabledCheck" text="Restrict by sample status"/>
+    <Label text="Drops individual samples rather than whole rows: a filtered-out sample becomes a blank cell at its (PV, timestamp) position."
+           styleClass="text-muted" wrapText="true">
+        <padding><Insets left="22.0"/></padding>
+    </Label>
+
+    <GridPane fx:id="sampleStatusPane" hgap="8.0" vgap="6.0">
+        <padding><Insets left="22.0"/></padding>
+        <columnConstraints>
+            <ColumnConstraints minWidth="130.0" prefWidth="130.0"/>
+            <ColumnConstraints hgrow="ALWAYS"/>
+        </columnConstraints>
+
+        <Label text="Mode:" GridPane.rowIndex="0" GridPane.columnIndex="0"/>
+        <ComboBox fx:id="statusModeCombo" maxWidth="Infinity"
+                  GridPane.rowIndex="0" GridPane.columnIndex="1"/>
+
+        <Label text="Domain:" GridPane.rowIndex="1" GridPane.columnIndex="0"/>
+        <TextField fx:id="statusDomainField" promptText="required, e.g. epics_alarm"
+                   GridPane.rowIndex="1" GridPane.columnIndex="1"/>
+
+        <Label text="Layers:" GridPane.rowIndex="2" GridPane.columnIndex="0"/>
+        <TextField fx:id="statusLayersField" promptText="optional; blank = every layer in the domain"
+                   GridPane.rowIndex="2" GridPane.columnIndex="1"/>
+
+        <Label text="Status codes:" GridPane.rowIndex="3" GridPane.columnIndex="0"/>
+        <TextField fx:id="statusCodesField" promptText="optional integers, e.g. 2, 3; blank = any code"
+                   GridPane.rowIndex="3" GridPane.columnIndex="1"/>
+    </GridPane>
+
+    <Separator/>
+
+    <Label fx:id="summaryLabel" wrapText="true" styleClass="text-muted"/>
+    <Label fx:id="warningLabel" wrapText="true" styleClass="text-danger"
+           managed="false" visible="false"/>
+</VBox>

@@ -54,6 +54,10 @@ public class DataExploreController implements Initializable {
     @FXML private VBox specificationContent;
     @FXML private ListView<String> pvNamesList;
     @FXML private Button explorePvsButton;
+    @FXML private Button selectPvsButton;
+    @FXML private Label pvSelectionLabel;
+    @FXML private Button queryFiltersButton;
+    @FXML private Label queryFiltersLabel;
     
     // Time Range FXML components
     @FXML private DatePicker queryBeginDatePicker;
@@ -65,9 +69,18 @@ public class DataExploreController implements Initializable {
     @FXML private Spinner<Integer> endMinuteSpinner;
     @FXML private Spinner<Integer> endSecondSpinner;
     
+    /**
+     * Whether a coalesced chart rebuild is already queued.
+     *
+     * <p>FX thread only, like every other field touched by the listeners here, so it needs no
+     * synchronization.
+     */
+    private boolean chartUpdatePending = false;
+
     // Action Buttons FXML components
     @FXML private Button submitQueryButton;
     @FXML private Button addToDatasetButton;
+    @FXML private Button stopQueryButton;
     @FXML private Button cancelQueryButton;
     @FXML private Label queryStatusLabel;
     
@@ -227,7 +240,21 @@ public class DataExploreController implements Initializable {
     private void bindUIToViewModel() {
         // Query Specification bindings
         pvNamesList.setItems(viewModel.getPvNameList());
-        
+
+        // The summary tracks BOTH the selection and the name list, because in name-list mode the
+        // list IS the selection -- a label bound to the selection alone would keep saying "3 PVs by
+        // name" after a fourth was added.
+        viewModel.pvSelectionProperty().addListener((obs, oldVal, newVal) -> updatePvSelectionLabel());
+        viewModel.getPvNameList().addListener(
+                (javafx.collections.ListChangeListener<String>) change -> updatePvSelectionLabel());
+        updatePvSelectionLabel();
+
+        // The filters label tracks only its own two properties -- unlike the PV summary, neither
+        // filter's meaning depends on the PV name list.
+        viewModel.configurationFilterProperty().addListener((obs, oldVal, newVal) -> updateQueryFiltersLabel());
+        viewModel.sampleStatusFilterProperty().addListener((obs, oldVal, newVal) -> updateQueryFiltersLabel());
+        updateQueryFiltersLabel();
+
         // Set up custom cell factory AFTER setting items to ensure it's not overridden
         pvNamesList.setCellFactory(listView -> new PvNameListCell());
         logger.debug("PV Names ListView cell factory set after binding items");
@@ -283,6 +310,11 @@ public class DataExploreController implements Initializable {
         // Button state bindings
         submitQueryButton.disableProperty().bind(viewModel.isQueryingProperty().or(viewModel.isQueryValidProperty().not()));
         addToDatasetButton.disableProperty().bind(viewModel.isQueryingProperty().or(viewModel.isQueryValidProperty().not()));
+
+        // Stop is shown only while a query is running.  Both flags together: visible-but-unmanaged
+        // takes no space, and managed-but-invisible leaves a gap where the button would be.
+        stopQueryButton.visibleProperty().bind(viewModel.isQueryingProperty());
+        stopQueryButton.managedProperty().bind(viewModel.isQueryingProperty());
         
         // Status and progress bindings
         queryStatusLabel.textProperty().bind(viewModel.statusMessageProperty());
@@ -401,8 +433,39 @@ public class DataExploreController implements Initializable {
             }
         });
         
-        // Set up chart data updates when table data changes
+        // Set up chart data updates when table data changes.
+        //
+        // COALESCED rather than rebuilt per change.  updateChart() re-reads every accumulated row
+        // and rebuilds every series from scratch, so running it once per arriving page makes the
+        // total work quadratic in the number of pages -- on the FX thread, while rows are still
+        // being added.  That was tolerable when a query was chopped into a handful of one-minute
+        // windows; with server-driven paging over a selector that can resolve to the whole archive,
+        // it is the difference between a responsive table and a frozen one.
+        //
+        // A rebuild is not made incremental instead because it cannot be: the dynamic sample
+        // interval is computed from the TOTAL row count, so appending one page's points to series
+        // sampled for a smaller total would mix two sampling rates in one line.  Coalescing keeps
+        // one consistent rebuild per burst and drops only the intermediate frames a user could not
+        // have perceived anyway.
         viewModel.getTableData().addListener((javafx.collections.ListChangeListener<ObservableList<Object>>) change -> {
+            requestChartUpdate();
+        });
+    }
+
+    /**
+     * Queues a chart rebuild, collapsing any already queued for this pulse.
+     *
+     * <p>{@code Platform.runLater} from the FX thread defers to the next pulse rather than running
+     * inline, so a burst of page arrivals within one pulse yields exactly one rebuild -- against
+     * the fully accumulated data, which is the only state worth drawing.
+     */
+    private void requestChartUpdate() {
+        if (chartUpdatePending) {
+            return;
+        }
+        chartUpdatePending = true;
+        javafx.application.Platform.runLater(() -> {
+            chartUpdatePending = false;
             updateChart();
         });
     }
@@ -424,7 +487,7 @@ public class DataExploreController implements Initializable {
                 return new javafx.beans.property.SimpleObjectProperty<>("N/A");
             });
             
-            column.setPrefWidth(columnName.equals("timestamp") ? 180 : 100);
+            column.setPrefWidth(columnName.equals(DataExploreViewModel.TIMESTAMP_COLUMN_NAME) ? 180 : 100);
             resultsTable.getColumns().add(column);
         }
         
@@ -444,7 +507,7 @@ public class DataExploreController implements Initializable {
         // Create a series for each PV (skip timestamp column)
         int seriesCount = 0;
         for (String columnName : columnNames) {
-            if (!columnName.equals("timestamp")) {
+            if (!columnName.equals(DataExploreViewModel.TIMESTAMP_COLUMN_NAME)) {
                 XYChart.Series<Number, Number> series = new XYChart.Series<>();
                 series.setName(columnName);
                 resultsChart.getData().add(series);
@@ -487,7 +550,7 @@ public class DataExploreController implements Initializable {
         // Find timestamp column index
         int timestampIndex = -1;
         for (int i = 0; i < columnNames.size(); i++) {
-            if (columnNames.get(i).equals("timestamp")) {
+            if (columnNames.get(i).equals(DataExploreViewModel.TIMESTAMP_COLUMN_NAME)) {
                 timestampIndex = i;
                 break;
             }
@@ -663,7 +726,7 @@ public class DataExploreController implements Initializable {
             
             int timestampIndex = -1;
             for (int i = 0; i < columnNames.size(); i++) {
-                if (columnNames.get(i).equals("timestamp")) {
+                if (columnNames.get(i).equals(DataExploreViewModel.TIMESTAMP_COLUMN_NAME)) {
                     timestampIndex = i;
                     break;
                 }
@@ -857,9 +920,7 @@ public class DataExploreController implements Initializable {
         
         // Initialize UI from existing global state BEFORE injecting into ViewModel
         // This prevents the listeners from overwriting the global state during initialization
-        logger.debug("CRAIG DEBUG: About to call initializeUIFromGlobalState()");
         initializeUIFromGlobalState();
-        logger.debug("CRAIG DEBUG: Finished calling initializeUIFromGlobalState()");
         
         if (viewModel != null) {
             viewModel.setDpApplication(dpApplication);
@@ -910,6 +971,94 @@ public class DataExploreController implements Initializable {
         logger.debug("Query results panel toggled: {}", isVisible ? "visible" : "hidden");
     }
     
+    /**
+     * Opens the modal PV selector and applies whatever it returns.
+     *
+     * <p>A cancelled dialog returns null and the current selection is left alone; the dialog never
+     * mutates the PV name list, so cancelling cannot have half-applied anything.
+     */
+    @FXML
+    private void onSelectPvs() {
+        final com.ospreydcs.dp.gui.model.PvSelection selection =
+                com.ospreydcs.dp.gui.component.PvSelectorDialogController.showDialog(
+                        viewModel.getPvSelection(),
+                        viewModel.getPvNameList(),
+                        primaryStage);
+
+        if (selection != null) {
+            viewModel.setPvSelection(selection);
+            viewModel.updateStatus("PV selection: " + viewModel.describePvSelection());
+        }
+    }
+
+    /**
+     * Opens the modal query filters editor and applies whatever it returns.
+     *
+     * <p>Both filters come back together, because the dialog edits both: applying only one of them
+     * would leave the other holding whatever the previous visit set, which is the state the user
+     * just saw and chose to change.
+     */
+    @FXML
+    private void onQueryFilters() {
+        final com.ospreydcs.dp.gui.component.QueryFiltersDialogController.Filters filters =
+                com.ospreydcs.dp.gui.component.QueryFiltersDialogController.showDialog(
+                        viewModel.getConfigurationFilter(),
+                        viewModel.getSampleStatusFilter(),
+                        primaryStage);
+
+        if (filters != null) {
+            viewModel.setConfigurationFilter(filters.configuration());
+            viewModel.setSampleStatusFilter(filters.sampleStatus());
+            viewModel.updateStatus("Query filters: " + describeActiveFilters());
+        }
+    }
+
+    /**
+     * Names whichever filters are active, or says that none are.
+     *
+     * <p>A filter that silently narrows a query is the failure this exists to prevent: the results
+     * table renders a filtered result exactly like an unfiltered one -- fewer rows, or blank cells
+     * that already mean "genuinely missing" on the V2 path -- so nothing else in the view would say
+     * a restriction was applied.
+     */
+    private void updateQueryFiltersLabel() {
+        if (queryFiltersLabel == null) {
+            return;
+        }
+        queryFiltersLabel.setText("Covering: " + describeActiveFilters());
+    }
+
+    private String describeActiveFilters() {
+        final com.ospreydcs.dp.gui.model.ConfigurationFilter configuration =
+                viewModel.getConfigurationFilter();
+        final com.ospreydcs.dp.gui.model.SampleStatusFilter sampleStatus =
+                viewModel.getSampleStatusFilter();
+
+        if (!configuration.isActive() && !sampleStatus.isActive()) {
+            return "the whole time range, all samples (no filters)";
+        }
+        final java.util.List<String> parts = new java.util.ArrayList<>();
+        parts.add(configuration.isActive() ? configuration.describe() : "the whole time range");
+        parts.add(sampleStatus.isActive() ? sampleStatus.describe() : "all samples");
+        return String.join(", ", parts);
+    }
+
+    /**
+     * Keeps the Query Editor honest about what a submitted query would actually cover.
+     *
+     * <p>The PV ListView stays visible and populated in every mode, because it is shared state the
+     * other views write to -- so without this label a pattern or metadata query would run beside a
+     * list of PVs it had nothing to do with, and the list would read as the query's scope.
+     */
+    private void updatePvSelectionLabel() {
+        if (pvSelectionLabel == null) {
+            return;
+        }
+        final com.ospreydcs.dp.gui.model.PvSelection selection = viewModel.getPvSelection();
+        pvSelectionLabel.setText("Querying: " + viewModel.describePvSelection()
+                + (selection.isNameList() ? "" : " (the list below is not used by this query)"));
+    }
+
     @FXML
     private void onExplorePvs() {
         if (mainController != null) {
@@ -931,7 +1080,38 @@ public class DataExploreController implements Initializable {
     @FXML
     private void onAddToDataset() {
         logger.info("Add to Dataset requested");
-        
+
+        // A data block is a PV NAME LIST by definition, so a pattern or metadata selection cannot
+        // be turned into one without resolving it server-side -- which this view does not do.
+        // Refusing is the only honest option: the name list below is still populated in those modes
+        // (it is shared global state), so an unguarded read here would build a data block out of
+        // PVs the query never covered and save it with no error at all.
+        if (!viewModel.getPvSelection().isNameList()) {
+            viewModel.updateStatus("A dataset needs an explicit PV list -- switch the selection to "
+                    + "\"Name list\" to add this time range to a dataset");
+            logger.warn("Refused add-to-dataset for a non-name-list selection: {}",
+                    viewModel.describePvSelection());
+            return;
+        }
+
+        // A configuration filter is refused for the same reason, on the time axis rather than the
+        // PV axis.  A DataBlock is a CONTIGUOUS [beginTime, endTime), while the filter resolves
+        // server-side to the union of matching activation intervals intersected with that range --
+        // which is normally fragmented, and always narrower.  The data block built here would carry
+        // the OUTER range, so the saved dataset would claim intervals the query deliberately
+        // excluded, with nothing recording that a filter had been applied.
+        //
+        // The sample status filter is deliberately NOT refused: it blanks individual samples inside
+        // the block rather than changing which interval the block covers, so the block stays an
+        // accurate description of its own extent.
+        if (viewModel.getConfigurationFilter().isActive()) {
+            viewModel.updateStatus("A dataset needs one continuous time range -- turn off the "
+                    + "configuration filter to add this time range to a dataset");
+            logger.warn("Refused add-to-dataset for an active configuration filter: {}",
+                    viewModel.getConfigurationFilter().describe());
+            return;
+        }
+
         // Update global state and validate query data
         updateGlobalQueryState();
         
@@ -952,14 +1132,25 @@ public class DataExploreController implements Initializable {
         }
     }
     
+    /**
+     * Stops the running query, keeping the rows it has already displayed.
+     *
+     * <p>Distinct from {@link #onCancelQuery()}, which leaves the view entirely.  Separating them
+     * matters because the two answer different questions: "this is covering more than I meant, show
+     * me what you have" versus "I am done here".
+     */
+    @FXML
+    private void onStopQuery() {
+        logger.info("Stop requested for the running query");
+        viewModel.cancel();
+    }
+
     @FXML
     private void onCancelQuery() {
         logger.info("Query cancelled by user");
         
         // Commit any pending spinner edits and update global state before cancelling
-        logger.debug("CRAIG DEBUG: About to call updateGlobalQueryState()");
         updateGlobalQueryState();
-        logger.debug("CRAIG DEBUG: Finished calling updateGlobalQueryState()");
         
         viewModel.cancel();
         
@@ -1614,24 +1805,17 @@ public class DataExploreController implements Initializable {
     
     // Methods for updating global state in DpApplication
     private void updateGlobalQueryState() {
-        logger.debug("CRAIG DEBUG: updateGlobalQueryState() called");
-        
         if (dpApplication == null) {
             logger.warn("DpApplication reference is null, cannot update global query state");
             return;
         }
         
         // Commit any pending spinner edits before updating global state
-        logger.debug("CRAIG DEBUG: About to call commitSpinnerValues()");
         commitSpinnerValues();
-        
-        logger.debug("CRAIG DEBUG: About to call updateGlobalPvNames()");
         updateGlobalPvNames();
-        
-        logger.debug("CRAIG DEBUG: About to call updateGlobalTimeRange()");
         updateGlobalTimeRange();
-        
-        logger.debug("CRAIG DEBUG: Updated global query state in DpApplication");
+
+        logger.debug("Updated global query state in DpApplication");
     }
     
     private void updateGlobalPvNames() {

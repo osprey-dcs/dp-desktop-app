@@ -24,10 +24,13 @@ public class MainViewModel {
     private final BooleanProperty importEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty subscribeEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty dataEnabled = new SimpleBooleanProperty(false);
-    private final BooleanProperty pvMetadataEnabled = new SimpleBooleanProperty(false);
+    private final BooleanProperty pvStatsEnabled = new SimpleBooleanProperty(false);
+    private final BooleanProperty pvMetadataExploreEnabled = new SimpleBooleanProperty(false);
+    private final BooleanProperty configurationsExploreEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty providerMetadataEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty datasetsEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty annotationsEnabled = new SimpleBooleanProperty(false);
+    private final BooleanProperty sampleStatusesEnabled = new SimpleBooleanProperty(false);
     private final BooleanProperty dataEventsEnabled = new SimpleBooleanProperty(false);
 
     private DpApplication dpApplication;
@@ -84,8 +87,16 @@ public class MainViewModel {
         return dataEnabled;
     }
 
-    public BooleanProperty pvMetadataEnabledProperty() {
-        return pvMetadataEnabled;
+    public BooleanProperty pvStatsEnabledProperty() {
+        return pvStatsEnabled;
+    }
+
+    public BooleanProperty pvMetadataExploreEnabledProperty() {
+        return pvMetadataExploreEnabled;
+    }
+
+    public BooleanProperty configurationsExploreEnabledProperty() {
+        return configurationsExploreEnabled;
     }
 
     public BooleanProperty providerMetadataEnabledProperty() {
@@ -94,6 +105,10 @@ public class MainViewModel {
 
     public BooleanProperty datasetsEnabledProperty() {
         return datasetsEnabled;
+    }
+
+    public BooleanProperty sampleStatusesEnabledProperty() {
+        return sampleStatusesEnabled;
     }
 
     public BooleanProperty annotationsEnabledProperty() {
@@ -129,7 +144,14 @@ public class MainViewModel {
             dataEnabled.set(dpApplication.hasIngestedData());
             
             // Enable PV and Provider metadata menus if data has been ingested
-            pvMetadataEnabled.set(dpApplication.hasIngestedData());
+            pvStatsEnabled.set(dpApplication.hasIngestedData());
+            pvMetadataExploreEnabled.set(dpApplication.hasIngestedData());
+
+            // Configurations are curated records rather than ingestion-derived ones, so this view
+            // has something to show before any data exists.  It is gated with its Explore siblings
+            // anyway, for one menu with one rule rather than a lone exception -- the Metadata menu
+            // is where the always-enabled entry points live.
+            configurationsExploreEnabled.set(dpApplication.hasIngestedData());
             providerMetadataEnabled.set(dpApplication.hasIngestedData());
             
             // Enable datasets menu if data has been ingested
@@ -138,11 +160,15 @@ public class MainViewModel {
             // Enable annotations menu if data has been ingested
             annotationsEnabled.set(dpApplication.hasIngestedData());
             
+            // Sample statuses are written by the demo generator during ingestion, so like the
+            // other explore views this has nothing to show until data exists
+            sampleStatusesEnabled.set(dpApplication.hasIngestedData());
+
             // Enable data events menu if data has been ingested
             dataEventsEnabled.set(dpApplication.hasIngestedData());
             
-            logger.debug("Menu states updated - dataEnabled: {}, pvMetadataEnabled: {}, providerMetadataEnabled: {}, datasetsEnabled: {}, annotationsEnabled: {}, dataEventsEnabled: {}", 
-                dataEnabled.get(), pvMetadataEnabled.get(), providerMetadataEnabled.get(), datasetsEnabled.get(), annotationsEnabled.get(), dataEventsEnabled.get());
+            logger.debug("Menu states updated - dataEnabled: {}, pvStatsEnabled: {}, providerMetadataEnabled: {}, datasetsEnabled: {}, annotationsEnabled: {}, dataEventsEnabled: {}", 
+                dataEnabled.get(), pvStatsEnabled.get(), providerMetadataEnabled.get(), datasetsEnabled.get(), annotationsEnabled.get(), dataEventsEnabled.get());
         }
     }
     
@@ -189,9 +215,19 @@ public class MainViewModel {
         updateStatus("Opening data query...");
     }
 
-    public void handlePvMetadata() {
-        logger.info("PV Metadata action triggered");
+    public void handlePvStats() {
+        logger.info("PV Statistics action triggered");
+        updateStatus("Opening PV statistics browser...");
+    }
+
+    public void handlePvMetadataExplore() {
+        logger.info("PV Metadata explore action triggered");
         updateStatus("Opening PV metadata browser...");
+    }
+
+    public void handleConfigurationsExplore() {
+        logger.info("Machine Configurations explore action triggered");
+        updateStatus("Opening machine configuration browser...");
     }
 
     public void handleProviderMetadata() {
@@ -202,6 +238,10 @@ public class MainViewModel {
     public void handleDatasets() {
         logger.info("Datasets action triggered");
         updateStatus("Opening datasets browser...");
+    }
+
+    public void handleSampleStatuses() {
+        updateStatus("Opening sample status browser...");
     }
 
     public void handleAnnotations() {

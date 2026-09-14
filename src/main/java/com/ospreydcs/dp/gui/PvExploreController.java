@@ -1,6 +1,7 @@
 package com.ospreydcs.dp.gui;
 
 import com.ospreydcs.dp.gui.component.QueryPvsComponent;
+import com.ospreydcs.dp.gui.component.HyperlinkListTableCell;
 import com.ospreydcs.dp.gui.model.PvInfoTableRow;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.fxml.FXML;
@@ -9,7 +10,6 @@ import javafx.scene.control.*;
 import javafx.scene.control.cell.CheckBoxTableCell;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.stage.Stage;
-import javafx.util.Callback;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -43,6 +43,9 @@ public class PvExploreController implements Initializable {
     @FXML private TableColumn<PvInfoTableRow, Integer> numBucketsColumn;
     @FXML private Button addSelectedButton;
     @FXML private Label resultsStatusLabel;
+    @FXML private Label searchStatusLabel;
+    @FXML private Label resultCountLabel;
+    @FXML private ProgressIndicator searchProgressIndicator;
 
     // Dependencies
     private PvExploreViewModel viewModel;
@@ -86,10 +89,16 @@ public class PvExploreController implements Initializable {
         selectColumn.setEditable(true);
 
         // Set up PV name column as hyperlinks
-        pvNameColumn.setCellFactory(createPvNameHyperlinkCellFactory());
+        pvNameColumn.setCellFactory(HyperlinkListTableCell.forSingleValue(
+                PvInfoTableRow::getPvName,
+                (row, pvName) -> viewModel.addPvNameToQueryList(pvName)));
         
         // Set up Provider name column as hyperlinks
-        providerNameColumn.setCellFactory(createProviderNameHyperlinkCellFactory());
+        // the link is labelled with the provider NAME but navigates by provider ID, which is why
+        // the click handler takes the row rather than only the displayed value
+        providerNameColumn.setCellFactory(HyperlinkListTableCell.forSingleValue(
+                PvInfoTableRow::getProviderName,
+                (row, providerName) -> navigateToProviderExplore(row.getLastProviderId())));
 
         // Make table editable for checkboxes
         resultsTable.setEditable(true);
@@ -109,62 +118,18 @@ public class PvExploreController implements Initializable {
         selectColumn.setGraphic(headerCheckBox);
     }
 
-    private Callback<TableColumn<PvInfoTableRow, String>, TableCell<PvInfoTableRow, String>> createPvNameHyperlinkCellFactory() {
-        return column -> new TableCell<PvInfoTableRow, String>() {
-            private final Hyperlink hyperlink = new Hyperlink();
-
-            @Override
-            protected void updateItem(String item, boolean empty) {
-                super.updateItem(item, empty);
-
-                if (empty || item == null) {
-                    setGraphic(null);
-                } else {
-                    hyperlink.setText(item);
-                    hyperlink.setOnAction(e -> {
-                        // Add this PV name to the Query PVs list
-                        viewModel.addPvNameToQueryList(item);
-                    });
-                    setGraphic(hyperlink);
-                }
-            }
-        };
-    }
-
-    private Callback<TableColumn<PvInfoTableRow, String>, TableCell<PvInfoTableRow, String>> createProviderNameHyperlinkCellFactory() {
-        return column -> new TableCell<PvInfoTableRow, String>() {
-            private final Hyperlink hyperlink = new Hyperlink();
-
-            @Override
-            protected void updateItem(String item, boolean empty) {
-                super.updateItem(item, empty);
-
-                if (empty || item == null || item.trim().isEmpty()) {
-                    setGraphic(null);
-                } else {
-                    PvInfoTableRow tableRow = getTableRow().getItem();
-                    if (tableRow != null) {
-                        hyperlink.setText(item);
-                        hyperlink.setOnAction(e -> {
-                            // Navigate to provider-explore view and search for this provider
-                            navigateToProviderExplore(tableRow.getLastProviderId());
-                        });
-                        setGraphic(hyperlink);
-                    }
-                }
-            }
-        };
-    }
-
     private void bindUIToViewModel() {
         // Bind search UI to view model
         pvSearchTextField.textProperty().bindBidirectional(viewModel.pvSearchTextProperty());
         nameListRadio.selectedProperty().bindBidirectional(viewModel.searchByNameListProperty());
-        searchButton.disableProperty().bind(viewModel.isSearchingProperty());
+        searchButton.disableProperty().bind(viewModel.searchInProgressProperty());
         
         // Bind results table
         resultsTable.setItems(viewModel.getSearchResults());
         resultsStatusLabel.textProperty().bind(viewModel.statusMessageProperty());
+        searchStatusLabel.textProperty().bind(viewModel.searchStatusMessageProperty());
+        resultCountLabel.textProperty().bind(viewModel.resultCountMessageProperty());
+        searchProgressIndicator.visibleProperty().bind(viewModel.searchInProgressProperty());
         
         // Set up listeners for checkbox changes to enable/disable "Add Selected" button
         viewModel.getSearchResults().addListener((javafx.collections.ListChangeListener<PvInfoTableRow>) change -> {

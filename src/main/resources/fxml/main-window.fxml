@@ -31,10 +31,13 @@
             <Menu text="Explore">
                <items>
                   <MenuItem fx:id="dataMenuItem" disable="true" onAction="#onData" text="Data" />
-                  <MenuItem fx:id="pvMetadataMenuItem" disable="true" onAction="#onPvMetadata" text="PVs" />
+                  <MenuItem fx:id="pvStatsMenuItem" disable="true" onAction="#onPvStats" text="PV Statistics" />
+                  <MenuItem fx:id="pvMetadataExploreMenuItem" disable="true" onAction="#onPvMetadataExplore" text="PV Metadata" />
                   <MenuItem fx:id="providerMetadataMenuItem" disable="true" onAction="#onProviderMetadata" text="Providers" />
                   <MenuItem fx:id="datasetsMenuItem" disable="true" onAction="#onDatasets" text="Datasets" />
                   <MenuItem fx:id="annotationsMenuItem" disable="true" onAction="#onAnnotations" text="Annotations" />
+                  <MenuItem fx:id="configurationsExploreMenuItem" disable="true" onAction="#onConfigurationsExplore" text="Machine Configurations" />
+                  <MenuItem fx:id="sampleStatusesMenuItem" disable="true" onAction="#onSampleStatuses" text="Sample Statuses" />
                   <MenuItem fx:id="dataEventsMenuItem" disable="true" onAction="#onDataEvents" text="Data Events" />
                </items>
             </Menu>

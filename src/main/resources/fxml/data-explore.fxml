@@ -40,9 +40,12 @@
                             <HBox spacing="10" alignment="CENTER_LEFT">
                                 <Label styleClass="control-label" text="PV Names:" />
                                 <Region HBox.hgrow="ALWAYS" />
+                                <Button fx:id="selectPvsButton" onAction="#onSelectPvs"
+                                        styleClass="btn, btn-default" text="Select PVs..." />
                                 <Button fx:id="explorePvsButton" onAction="#onExplorePvs" 
                                         styleClass="btn, btn-primary" text="Explore PVs" />
                             </HBox>
+                            <Label fx:id="pvSelectionLabel" styleClass="text-info" wrapText="true" />
                             <ListView fx:id="pvNamesList" prefHeight="120.0" />
                         </VBox>
                         
@@ -71,10 +74,24 @@
                             <Spinner fx:id="endSecondSpinner" prefWidth="60.0" GridPane.columnIndex="4" GridPane.rowIndex="1" />
                             <Label styleClass="text-muted" text="(H:M:S)" GridPane.columnIndex="5" GridPane.rowIndex="1" />
                         </GridPane>
-                        
+
+                        <!-- Optional Filters Section -->
+                        <VBox spacing="5">
+                            <HBox spacing="10" alignment="CENTER_LEFT">
+                                <Label styleClass="control-label" text="Filters:" />
+                                <Region HBox.hgrow="ALWAYS" />
+                                <Button fx:id="queryFiltersButton" onAction="#onQueryFilters"
+                                        styleClass="btn, btn-default" text="Query Filters..." />
+                            </HBox>
+                            <Label fx:id="queryFiltersLabel" styleClass="text-info" wrapText="true" />
+                        </VBox>
+
                         <!-- Action Buttons -->
                         <HBox spacing="10" alignment="CENTER_LEFT">
                             <Button fx:id="submitQueryButton" onAction="#onSubmitQuery" styleClass="btn, btn-primary, btn-lg" text="Submit Query" />
+                            <!-- Stops the running query, distinct from Cancel below, which leaves
+                                 the view.  Shown only while a query is running. -->
+                            <Button fx:id="stopQueryButton" onAction="#onStopQuery" styleClass="btn, btn-warning" text="Stop Query" visible="false" managed="false" />
                             <Button fx:id="addToDatasetButton" onAction="#onAddToDataset" styleClass="btn, btn-info" text="Add to Dataset" />
                             <Button fx:id="cancelQueryButton" onAction="#onCancelQuery" styleClass="btn, btn-default" text="Cancel" />
                             <Region HBox.hgrow="ALWAYS" />

@@ -1,0 +1,291 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.geometry.Insets?>
+
+<VBox xmlns="http://javafx.com/javafx/11.0.1" xmlns:fx="http://javafx.com/fxml/1"
+      fx:controller="com.ospreydcs.dp.gui.ConfigurationExploreController"
+      styleClass="container-fluid"
+      spacing="10.0">
+
+   <!--
+      Two independent searches, not one search with two result tables.  A Configuration and a
+      ConfigurationActivation are separate records with disjoint criteria, and either question is
+      useful on its own, so each tab carries its own criteria, progress indicator and status labels.
+   -->
+   <TabPane fx:id="searchTabPane" VBox.vgrow="ALWAYS" tabClosingPolicy="UNAVAILABLE">
+      <tabs>
+
+         <!-- ============================ Configurations ============================ -->
+         <Tab text="Configurations">
+            <content>
+               <VBox spacing="10.0">
+                  <padding><Insets top="10.0" right="10.0" bottom="10.0" left="10.0" /></padding>
+                  <children>
+
+                     <VBox spacing="10.0" styleClass="panel, panel-default">
+                        <children>
+                           <Label styleClass="panel-heading" text="Configuration Query Editor" />
+
+                           <GridPane hgap="10.0" vgap="10.0">
+                              <columnConstraints>
+                                 <ColumnConstraints hgrow="NEVER" minWidth="140.0" prefWidth="140.0" />
+                                 <ColumnConstraints hgrow="ALWAYS" />
+                                 <ColumnConstraints hgrow="NEVER" minWidth="120.0" prefWidth="120.0" />
+                              </columnConstraints>
+                              <rowConstraints>
+                                 <RowConstraints />
+                                 <RowConstraints />
+                                 <RowConstraints />
+                                 <RowConstraints />
+                                 <RowConstraints />
+                              </rowConstraints>
+
+                              <Label text="Name:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                              <TextField fx:id="configurationNameField"
+                                        GridPane.columnIndex="1" GridPane.rowIndex="0"
+                                        styleClass="form-control"
+                                        promptText="Comma-separated; leave blank to match all..." />
+                              <ComboBox fx:id="configurationNameMatchModeCombo"
+                                       GridPane.columnIndex="2" GridPane.rowIndex="0"
+                                       prefWidth="120.0" />
+
+                              <Label text="Category:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+                              <TextField fx:id="configurationCategoryField"
+                                        GridPane.columnIndex="1" GridPane.rowIndex="1"
+                                        styleClass="form-control"
+                                        promptText="Comma-separated; any of these categories..." />
+
+                              <Label text="Parent:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+                              <TextField fx:id="configurationParentField"
+                                        GridPane.columnIndex="1" GridPane.rowIndex="2"
+                                        styleClass="form-control"
+                                        promptText="Comma-separated parent configuration names..." />
+
+                              <Label text="Tags:" GridPane.columnIndex="0" GridPane.rowIndex="3" />
+                              <TextField fx:id="configurationTagsField"
+                                        GridPane.columnIndex="1" GridPane.rowIndex="3"
+                                        styleClass="form-control"
+                                        promptText="Comma-separated; any of these tags..." />
+
+                              <Label text="Attribute:" GridPane.columnIndex="0" GridPane.rowIndex="4" />
+                              <HBox spacing="5.0" GridPane.columnIndex="1" GridPane.rowIndex="4">
+                                 <children>
+                                    <TextField fx:id="configurationAttributeKeyField"
+                                              styleClass="form-control"
+                                              HBox.hgrow="ALWAYS"
+                                              promptText="Key (required for an attribute search)..." />
+                                    <TextField fx:id="configurationAttributeValueField"
+                                              styleClass="form-control"
+                                              HBox.hgrow="ALWAYS"
+                                              promptText="Value (optional; blank matches any value)..." />
+                                 </children>
+                              </HBox>
+                           </GridPane>
+
+                           <HBox spacing="10.0" alignment="CENTER_LEFT">
+                              <children>
+                                 <Button fx:id="configurationSearchButton" text="Search"
+                                        styleClass="btn, btn-primary" onAction="#onConfigurationSearch" />
+                                 <Button fx:id="configurationClearButton" text="Clear"
+                                        styleClass="btn, btn-default" onAction="#onConfigurationClear" />
+                                 <ProgressIndicator fx:id="configurationSearchProgressIndicator"
+                                                   prefWidth="20.0" prefHeight="20.0" visible="false" />
+                                 <Label fx:id="configurationSearchStatusLabel" styleClass="text-muted" />
+                              </children>
+                           </HBox>
+                        </children>
+                        <padding><Insets top="10.0" right="10.0" bottom="10.0" left="10.0" /></padding>
+                     </VBox>
+
+                     <VBox spacing="5.0" styleClass="panel, panel-default" VBox.vgrow="ALWAYS">
+                        <children>
+                           <HBox spacing="10.0" alignment="CENTER_LEFT">
+                              <children>
+                                 <Label styleClass="panel-heading" text="Configurations" />
+                                 <Label fx:id="configurationResultCountLabel" styleClass="text-muted" />
+                              </children>
+                           </HBox>
+
+                           <TableView fx:id="configurationResultsTable" VBox.vgrow="ALWAYS"
+                                     styleClass="table, table-striped">
+                              <columns>
+                                 <TableColumn fx:id="configurationNameColumn" prefWidth="170.0" text="Name" />
+                                 <TableColumn fx:id="configurationCategoryColumn" prefWidth="120.0" text="Category" />
+                                 <TableColumn fx:id="configurationParentColumn" prefWidth="150.0" text="Parent" />
+                                 <TableColumn fx:id="configurationDescriptionColumn" prefWidth="200.0" text="Description" />
+                                 <TableColumn fx:id="configurationTagsColumn" prefWidth="140.0" text="Tags" />
+                                 <TableColumn fx:id="configurationAttributesColumn" prefWidth="170.0" text="Attributes" />
+                                 <TableColumn fx:id="configurationModifiedByColumn" prefWidth="120.0" text="Modified By" />
+                                 <TableColumn fx:id="configurationUpdatedTimeColumn" prefWidth="150.0" text="Updated" />
+                                 <!-- Drill-down into this configuration's activations. A separate
+                                      column rather than a second action on the name, because the
+                                      name already means "edit" and one link cannot mean both. -->
+                                 <TableColumn fx:id="configurationActivationsColumn" prefWidth="110.0" text="Activations" />
+                              </columns>
+                           </TableView>
+
+                           <Label fx:id="configurationResultsStatusLabel" styleClass="text-muted" />
+                           <Label styleClass="text-muted" wrapText="true"
+                                 text="Click a configuration name to edit it. Editing replaces the entire record under that name, so fields cleared here are cleared in the archive. Click Activations to list that configuration's activation intervals." />
+                        </children>
+                        <padding><Insets top="10.0" right="10.0" bottom="10.0" left="10.0" /></padding>
+                     </VBox>
+                  </children>
+               </VBox>
+            </content>
+         </Tab>
+
+         <!-- ============================= Activations ============================= -->
+         <Tab text="Activations">
+            <content>
+               <VBox spacing="10.0">
+                  <padding><Insets top="10.0" right="10.0" bottom="10.0" left="10.0" /></padding>
+                  <children>
+
+                     <VBox spacing="10.0" styleClass="panel, panel-default">
+                        <children>
+                           <Label styleClass="panel-heading" text="Activation Query Editor" />
+
+                           <GridPane hgap="10.0" vgap="10.0">
+                              <columnConstraints>
+                                 <ColumnConstraints hgrow="NEVER" minWidth="140.0" prefWidth="140.0" />
+                                 <ColumnConstraints hgrow="ALWAYS" />
+                              </columnConstraints>
+                              <rowConstraints>
+                                 <RowConstraints />
+                                 <RowConstraints />
+                                 <RowConstraints />
+                                 <RowConstraints />
+                                 <RowConstraints />
+                              </rowConstraints>
+
+                              <Label text="Configuration:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                              <TextField fx:id="activationConfigurationNamesField"
+                                        GridPane.columnIndex="1" GridPane.rowIndex="0"
+                                        styleClass="form-control"
+                                        promptText="Comma-separated configuration names..." />
+
+                              <Label text="Activation ID:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+                              <TextField fx:id="activationIdsField"
+                                        GridPane.columnIndex="1" GridPane.rowIndex="1"
+                                        styleClass="form-control"
+                                        promptText="Comma-separated client activation ids..." />
+
+                              <Label text="Category:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+                              <TextField fx:id="activationCategoryField"
+                                        GridPane.columnIndex="1" GridPane.rowIndex="2"
+                                        styleClass="form-control"
+                                        promptText="Comma-separated; any of these categories..." />
+
+                              <Label text="Tags:" GridPane.columnIndex="0" GridPane.rowIndex="3" />
+                              <TextField fx:id="activationTagsField"
+                                        GridPane.columnIndex="1" GridPane.rowIndex="3"
+                                        styleClass="form-control"
+                                        promptText="Comma-separated; any of these tags..." />
+
+                              <Label text="Attribute:" GridPane.columnIndex="0" GridPane.rowIndex="4" />
+                              <HBox spacing="5.0" GridPane.columnIndex="1" GridPane.rowIndex="4">
+                                 <children>
+                                    <TextField fx:id="activationAttributeKeyField"
+                                              styleClass="form-control"
+                                              HBox.hgrow="ALWAYS"
+                                              promptText="Key (required for an attribute search)..." />
+                                    <TextField fx:id="activationAttributeValueField"
+                                              styleClass="form-control"
+                                              HBox.hgrow="ALWAYS"
+                                              promptText="Value (optional; blank matches any value)..." />
+                                 </children>
+                              </HBox>
+                           </GridPane>
+
+                           <!-- Temporal criteria, both optional and independent of each other -->
+                           <VBox spacing="5.0" styleClass="panel, panel-default">
+                              <children>
+                                 <Label styleClass="panel-heading" text="Time Criteria (optional)" />
+
+                                 <HBox spacing="5.0" alignment="CENTER_LEFT">
+                                    <children>
+                                       <CheckBox fx:id="activeAtEnabledCheckBox" text="Active at:" />
+                                       <DatePicker fx:id="activeAtDatePicker" prefWidth="150.0" />
+                                       <Spinner fx:id="activeAtHourSpinner" prefWidth="65.0" editable="true" />
+                                       <Label text=":" />
+                                       <Spinner fx:id="activeAtMinuteSpinner" prefWidth="65.0" editable="true" />
+                                       <Label text=":" />
+                                       <Spinner fx:id="activeAtSecondSpinner" prefWidth="65.0" editable="true" />
+                                    </children>
+                                 </HBox>
+
+                                 <HBox spacing="5.0" alignment="CENTER_LEFT">
+                                    <children>
+                                       <CheckBox fx:id="rangeEnabledCheckBox" text="Overlapping:" />
+                                       <DatePicker fx:id="rangeStartDatePicker" prefWidth="150.0" />
+                                       <Spinner fx:id="rangeStartHourSpinner" prefWidth="65.0" editable="true" />
+                                       <Label text=":" />
+                                       <Spinner fx:id="rangeStartMinuteSpinner" prefWidth="65.0" editable="true" />
+                                       <Label text="to" />
+                                       <DatePicker fx:id="rangeEndDatePicker" prefWidth="150.0" />
+                                       <Spinner fx:id="rangeEndHourSpinner" prefWidth="65.0" editable="true" />
+                                       <Label text=":" />
+                                       <Spinner fx:id="rangeEndMinuteSpinner" prefWidth="65.0" editable="true" />
+                                    </children>
+                                 </HBox>
+
+                                 <Label styleClass="text-muted" wrapText="true"
+                                       text="An overlapping-range search needs BOTH bounds: the server's time range criterion requires a start and an end, and a half-filled range is dropped entirely rather than rejected, which would silently widen the search." />
+                              </children>
+                              <padding><Insets top="10.0" right="10.0" bottom="10.0" left="10.0" /></padding>
+                           </VBox>
+
+                           <HBox spacing="10.0" alignment="CENTER_LEFT">
+                              <children>
+                                 <Button fx:id="activationSearchButton" text="Search"
+                                        styleClass="btn, btn-primary" onAction="#onActivationSearch" />
+                                 <Button fx:id="activationClearButton" text="Clear"
+                                        styleClass="btn, btn-default" onAction="#onActivationClear" />
+                                 <ProgressIndicator fx:id="activationSearchProgressIndicator"
+                                                   prefWidth="20.0" prefHeight="20.0" visible="false" />
+                                 <Label fx:id="activationSearchStatusLabel" styleClass="text-muted" />
+                              </children>
+                           </HBox>
+                        </children>
+                        <padding><Insets top="10.0" right="10.0" bottom="10.0" left="10.0" /></padding>
+                     </VBox>
+
+                     <VBox spacing="5.0" styleClass="panel, panel-default" VBox.vgrow="ALWAYS">
+                        <children>
+                           <HBox spacing="10.0" alignment="CENTER_LEFT">
+                              <children>
+                                 <Label styleClass="panel-heading" text="Activations" />
+                                 <Label fx:id="activationResultCountLabel" styleClass="text-muted" />
+                              </children>
+                           </HBox>
+
+                           <TableView fx:id="activationResultsTable" VBox.vgrow="ALWAYS"
+                                     styleClass="table, table-striped">
+                              <columns>
+                                 <TableColumn fx:id="activationIdColumn" prefWidth="170.0" text="Activation ID" />
+                                 <TableColumn fx:id="activationConfigurationNameColumn" prefWidth="170.0" text="Configuration" />
+                                 <TableColumn fx:id="activationStartTimeColumn" prefWidth="150.0" text="Start" />
+                                 <TableColumn fx:id="activationEndTimeColumn" prefWidth="150.0" text="End" />
+                                 <TableColumn fx:id="activationDescriptionColumn" prefWidth="180.0" text="Description" />
+                                 <TableColumn fx:id="activationTagsColumn" prefWidth="130.0" text="Tags" />
+                                 <TableColumn fx:id="activationAttributesColumn" prefWidth="160.0" text="Attributes" />
+                                 <TableColumn fx:id="activationModifiedByColumn" prefWidth="120.0" text="Modified By" />
+                              </columns>
+                           </TableView>
+
+                           <Label fx:id="activationResultsStatusLabel" styleClass="text-muted" />
+                           <Label styleClass="text-muted" wrapText="true"
+                                 text="An activation with no end time shows as &quot;open-ended&quot;. Click a configuration name to edit that configuration record." />
+                        </children>
+                        <padding><Insets top="10.0" right="10.0" bottom="10.0" left="10.0" /></padding>
+                     </VBox>
+                  </children>
+               </VBox>
+            </content>
+         </Tab>
+      </tabs>
+   </TabPane>
+</VBox>

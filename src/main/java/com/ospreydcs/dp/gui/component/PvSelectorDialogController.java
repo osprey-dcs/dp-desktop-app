@@ -284,6 +284,47 @@ public class PvSelectorDialogController implements Initializable {
      */
     public static PvSelection showDialog(PvSelection current, List<String> pvNames, Stage ownerStage) {
         try {
+            final PreparedDialog prepared = prepareDialog(current, pvNames, ownerStage);
+            final Dialog<ButtonType> dialog = prepared.dialog();
+            final PvSelectorDialogController controller = prepared.controller();
+            final ButtonType applyButton = prepared.applyButton();
+
+            final ButtonType result = dialog.showAndWait().orElse(ButtonType.CANCEL);
+            if (result != applyButton) {
+                logger.debug("PV selector dialog cancelled");
+                return null;
+            }
+
+            final PvSelection selection = controller.getSelection();
+            logger.info("PV selection applied: {}", selection.describe(pvNames));
+            return selection;
+
+        } catch (Exception e) {
+            logger.error("Failed to show PV selector dialog", e);
+            return null;
+        }
+    }
+
+    /** A dialog with its controller and Apply button, built but not yet shown. */
+    record PreparedDialog(
+            Dialog<ButtonType> dialog,
+            PvSelectorDialogController controller,
+            ButtonType applyButton
+    ) {
+    }
+
+    /**
+     * Builds the dialog and wires every listener, stopping short of showing it.
+     *
+     * <p>Split out of {@link #showDialog} so the wiring is reachable from a test.  {@code
+     * showAndWait()} blocks the FX thread, so a test calling the factory could never observe what
+     * the listeners do -- which is how the first version of the sizing regression test came to
+     * assert on a {@code sizeToScene()} it called ITSELF, passing identically whether or not
+     * production wired one up.  A seam that stops before the blocking call is the difference
+     * between testing the fix and testing the platform.
+     */
+    static PreparedDialog prepareDialog(PvSelection current, List<String> pvNames, Stage ownerStage)
+            throws java.io.IOException {
             final Dialog<ButtonType> dialog = new Dialog<>();
             dialog.setTitle("Select PVs");
             dialog.setResizable(true);
@@ -315,23 +356,29 @@ public class PvSelectorDialogController implements Initializable {
             controller.modeToggleGroup.selectedToggleProperty().addListener(
                     (obs, oldVal, newVal) -> applyNode.setDisable(!controller.isAcceptable()));
 
+            // Re-fit the window when the mode changes.  Switching modes swaps which detail pane is
+            // MANAGED, which changes the content's preferred height -- but a Dialog sizes itself
+            // once, when first shown, so it keeps the height it was laid out for.  Name list is by
+            // far the smallest mode and is the default, so opening there and switching to metadata
+            // grew the content past the bottom of the window and pushed APPLY OFF SCREEN.  The
+            // dialog is resizable, so the user could drag it larger -- which is precisely why this
+            // presented as a confusing feature rather than as an obvious bug: the button was
+            // reachable, just invisible until you thought to resize.
+            DialogSizing.resizeToFitOnModeChange(dialog, controller.modeToggleGroup);
+
+            // The mode is not the only thing that changes this dialog's height.  warningLabel is
+            // managed=false until it has something to say, so it grows the content on any edit that
+            // raises or clears a warning -- clearing the last metadata criterion, or replacing a
+            // valid pattern with the longer match-all text.  Watching only the mode would leave the
+            // dialog sized for the shorter state and push Apply back below the window, which is the
+            // very defect this change exists to fix.
+            controller.warningLabel.managedProperty().addListener(
+                    (obs, oldVal, newVal) -> DialogSizing.resizeToFit(dialog));
+
             if (ownerStage != null) {
                 dialog.initOwner(ownerStage);
             }
 
-            final ButtonType result = dialog.showAndWait().orElse(ButtonType.CANCEL);
-            if (result != applyButton) {
-                logger.debug("PV selector dialog cancelled");
-                return null;
-            }
-
-            final PvSelection selection = controller.getSelection();
-            logger.info("PV selection applied: {}", selection.describe(pvNames));
-            return selection;
-
-        } catch (Exception e) {
-            logger.error("Failed to show PV selector dialog", e);
-            return null;
-        }
+            return new PreparedDialog(dialog, controller, applyButton);
     }
 }

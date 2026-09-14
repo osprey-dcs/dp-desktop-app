@@ -35,6 +35,18 @@ public class PvMetadataExploreViewModel {
     private static final Logger logger = LogManager.getLogger();
 
     /**
+     * Identifies the search whose result is allowed to be published.
+     *
+     * <p>Incremented by every search AND by {@link #clearSearch()}, so a superseded task drops its
+     * result rather than repopulating a table the user just cleared. The Search button is disabled
+     * while a search runs, but Clear is not -- and disabling Clear would be the wrong remedy, since
+     * abandoning a slow search is exactly when it is reached for.
+     *
+     * <p>FX thread only, like the properties it guards.
+     */
+    private long searchGeneration = 0;
+
+    /**
      * How a typed name is matched.
      *
      * <p>Exposed as an explicit choice rather than guessed from the input, because the three modes
@@ -124,6 +136,8 @@ public class PvMetadataExploreViewModel {
         final List<String> tags = parseCommaSeparatedList(tagsText.get());
         final List<AttributeCriterion> attributes = attributeCriteria();
 
+        final long generation = ++searchGeneration;
+
         searchInProgress.set(true);
         searchStatusMessage.set("Searching for PV metadata...");
         searchResults.clear();
@@ -138,6 +152,10 @@ public class PvMetadataExploreViewModel {
         };
 
         searchTask.setOnSucceeded(event -> {
+            if (generation != searchGeneration) {
+                logger.debug("Discarding results of a superseded PV metadata search");
+                return;
+            }
             publishSearchResults(searchTask.getValue());
             searchInProgress.set(false);
         });
@@ -145,6 +163,10 @@ public class PvMetadataExploreViewModel {
         searchTask.setOnFailed(event -> {
             final Throwable failure = searchTask.getException();
             logger.error("PV metadata search failed", failure);
+            if (generation != searchGeneration) {
+                // A superseded search must not overwrite the current state with its failure either.
+                return;
+            }
             searchStatusMessage.set("Search failed: " + failure.getMessage());
             statusMessage.set("Search failed: " + failure.getMessage());
             searchInProgress.set(false);
@@ -232,6 +254,10 @@ public class PvMetadataExploreViewModel {
     }
 
     public void clearSearch() {
+        // Supersede any in-flight search, so its results cannot land on top of the cleared state.
+        searchGeneration++;
+        searchInProgress.set(false);
+
         pvNameText.set("");
         aliasText.set("");
         tagsText.set("");

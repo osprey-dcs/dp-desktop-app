@@ -375,10 +375,12 @@ public class DataExploreViewModel {
 
         // The outcome is RETURNED from call() and applied here, never published from inside the
         // loop via Platform.runLater -- see QueryOutcome for why that ordering is load-bearing.
+        // Captured HERE, on the FX thread, before the task starts -- see QuerySnapshot.
+        final QuerySnapshot snapshot = captureQuerySnapshot();
         Task<QueryOutcome> queryTask = new Task<QueryOutcome>() {
             @Override
             protected QueryOutcome call() throws Exception {
-                return executeSamplesQuery(this);
+                return executeSamplesQuery(snapshot, this);
             }
         };
         runningQueryTask = queryTask;
@@ -508,24 +510,16 @@ public class DataExploreViewModel {
      *
      * @param task the running task, polled for cancellation between pages
      */
-    private QueryOutcome executeSamplesQuery(Task<?> task) throws Exception {
-        final Instant beginInstant = getQueryBeginDateTime().atZone(ZoneId.systemDefault()).toInstant();
-        final Instant endInstant = getQueryEndDateTime().atZone(ZoneId.systemDefault()).toInstant();
-        // Read on the FX thread's behalf before the loop: the selection and the observable name
-        // list both belong to the UI, and the loop below runs on a background thread.
-        final QueryClient.PvSelectorParams pvSelector =
-                pvSelection.get().toSelectorParams(new ArrayList<>(pvNameList));
-        // Null, not an empty list, when no configuration restriction is asked for -- an empty list
-        // is a rejected request rather than an unfiltered one.  ConfigurationFilter.toCriteria()
-        // encodes that; this call site must not "helpfully" substitute List.of().
+    private QueryOutcome executeSamplesQuery(QuerySnapshot snapshot, Task<?> task) throws Exception {
+        final Instant beginInstant = snapshot.beginTime();
+        final Instant endInstant = snapshot.endTime();
+        final QueryClient.PvSelectorParams pvSelector = snapshot.pvSelector();
         final List<QueryClient.ConfigurationCriterion> configurationCriteria =
-                configurationFilter.get().toCriteria();
-        final QueryClient.SampleStatusSelectorParams statusSelector =
-                sampleStatusFilter.get().toSelectorParams();
-        final String selectionDescription = describeQueryScope();
+                snapshot.configurationCriteria();
+        final QueryClient.SampleStatusSelectorParams statusSelector = snapshot.statusSelector();
 
         logger.debug("Query time range: {} to {} selecting {}",
-                beginInstant, endInstant, selectionDescription);
+                beginInstant, endInstant, snapshot.scopeDescription());
 
         String pageToken = null;
         boolean firstPage = true;
@@ -622,6 +616,46 @@ public class DataExploreViewModel {
      * reported as a total" this cap exists to prevent.
      */
     private record QueryOutcome(int totalRows, boolean truncated) {
+    }
+
+    /**
+     * Everything the paging loop needs, captured on the FX thread before the task starts.
+     *
+     * <p><strong>The loop must not read the view's state itself.</strong>  It runs on a background
+     * thread, while the date pickers, the PV list and both filter dialogs stay editable during a
+     * query -- only Submit and Add to Dataset are disabled.  Reading them from the loop is wrong
+     * twice over: JavaFX properties and ObservableLists are not thread-safe, and an edit landing
+     * mid-query would be picked up by later pages, assembling one result set from a MIXED snapshot
+     * whose rows came from two different queries. Nothing downstream could detect that; the table
+     * would simply hold rows for a PV set the user never asked for as a whole.
+     *
+     * <p>Capturing once also makes the loop agree with the completion message, which describes the
+     * scope that was queried rather than whatever the controls hold when it finishes.
+     */
+    private record QuerySnapshot(
+            Instant beginTime,
+            Instant endTime,
+            QueryClient.PvSelectorParams pvSelector,
+            List<QueryClient.ConfigurationCriterion> configurationCriteria,
+            QueryClient.SampleStatusSelectorParams statusSelector,
+            String scopeDescription
+    ) {
+    }
+
+    /** Captures the current query inputs.  FX thread only -- it reads properties and the PV list. */
+    private QuerySnapshot captureQuerySnapshot() {
+        return new QuerySnapshot(
+                getQueryBeginDateTime().atZone(ZoneId.systemDefault()).toInstant(),
+                getQueryEndDateTime().atZone(ZoneId.systemDefault()).toInstant(),
+                // The name list is COPIED here, not referenced: it is the app's most widely shared
+                // observable list and five other flows can write to it while a query runs.
+                pvSelection.get().toSelectorParams(new ArrayList<>(pvNameList)),
+                // Null, not an empty list, when no configuration restriction is asked for -- an
+                // empty list is a rejected request rather than an unfiltered one.
+                // ConfigurationFilter.toCriteria() encodes that; this must not substitute List.of().
+                configurationFilter.get().toCriteria(),
+                sampleStatusFilter.get().toSelectorParams(),
+                describeQueryScope());
     }
 
     /**

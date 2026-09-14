@@ -43,6 +43,21 @@ public class SampleStatusExploreViewModel {
     static final int MAX_DISPLAYED_STATUSES = 10_000;
 
     /**
+     * Identifies the search whose result is allowed to be published.
+     *
+     * <p>Incremented by every search AND by {@link #clearSearch()}, so a task whose generation no
+     * longer matches drops its result instead of publishing it. Without this, Clear pressed during
+     * an in-flight search looks like it worked and then the old query's rows reappear on top of
+     * "Search cleared" -- the Search button is disabled while a search runs, but Clear is not, and
+     * disabling Clear would be the wrong remedy: abandoning a search is exactly when a user reaches
+     * for it.
+     *
+     * <p>FX thread only: bumped in the two methods below and read in the completion handlers, all
+     * of which run there.
+     */
+    private long searchGeneration = 0;
+
+    /**
      * Status code labels, by domain.
      *
      * <p>Only {@code epics_alarm} is known, and only because this application's own demo generator
@@ -141,6 +156,8 @@ public class SampleStatusExploreViewModel {
         final List<String> domainList = parseCommaSeparatedList(domains.get());
         final List<String> layerList = parseCommaSeparatedList(layers.get());
 
+        final long generation = ++searchGeneration;
+
         searchInProgress.set(true);
         searchStatusMessage.set("Searching for sample statuses...");
         searchResults.clear();
@@ -160,6 +177,10 @@ public class SampleStatusExploreViewModel {
         };
 
         searchTask.setOnSucceeded(event -> {
+            if (generation != searchGeneration) {
+                logger.debug("Discarding results of a superseded sample status search");
+                return;
+            }
             publishSearchResults(searchTask.getValue());
             searchInProgress.set(false);
         });
@@ -167,6 +188,10 @@ public class SampleStatusExploreViewModel {
         searchTask.setOnFailed(event -> {
             final Throwable failure = searchTask.getException();
             logger.error("Sample status search failed", failure);
+            if (generation != searchGeneration) {
+                // A superseded search must not overwrite the current state with its failure either.
+                return;
+            }
             searchStatusMessage.set("Search failed: " + failure.getMessage());
             statusMessage.set("Search failed: " + failure.getMessage());
             searchInProgress.set(false);
@@ -255,6 +280,10 @@ public class SampleStatusExploreViewModel {
     }
 
     public void clearSearch() {
+        // Supersede any in-flight search, so its results cannot land on top of the cleared state.
+        searchGeneration++;
+        searchInProgress.set(false);
+
         pvNames.set("");
         domains.set("");
         layers.set("");

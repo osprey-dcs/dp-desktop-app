@@ -119,6 +119,10 @@
                                  <TableColumn fx:id="configurationAttributesColumn" prefWidth="170.0" text="Attributes" />
                                  <TableColumn fx:id="configurationModifiedByColumn" prefWidth="120.0" text="Modified By" />
                                  <TableColumn fx:id="configurationUpdatedTimeColumn" prefWidth="150.0" text="Updated" />
+                                 <!-- Drill-down into this configuration's activations. A separate
+                                      column rather than a second action on the name, because the
+                                      name already means "edit" and one link cannot mean both. -->
+                                 <TableColumn fx:id="configurationActivationsColumn" prefWidth="110.0" text="Activations" />
                               </columns>
                            </TableView>
 

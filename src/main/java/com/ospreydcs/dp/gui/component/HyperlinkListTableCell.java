@@ -180,8 +180,25 @@ public class HyperlinkListTableCell<S> extends TableCell<S, String> {
      * index is out of range, closes it for all of them at once.
      */
     private S resolveRow() {
-        final int index = getIndex();
-        final TableView<S> table = getTableView();
+        return resolveRow(this);
+    }
+
+    /**
+     * Resolves the row a cell is currently rendering, by index rather than through its
+     * {@code TableRow}.
+     *
+     * <p>Exposed as a static so cells that cannot use this component still get the same resolution.
+     * {@code AnnotationExploreController.CalculationsDataFrameTableCell} is the case: it renders a
+     * <em>presence</em> link rather than a value list, so it is not a {@code HyperlinkListTableCell}
+     * — but it has exactly the same virtualization hazard, and a second hand-written copy of this
+     * logic would be free to drift from the one the tests cover.
+     *
+     * @param cell the cell asking; its index and table are read, never its {@code TableRow} unless
+     *             the index is unusable
+     */
+    public static <S> S resolveRow(TableCell<S, ?> cell) {
+        final int index = cell.getIndex();
+        final TableView<S> table = cell.getTableView();
 
         if (table != null && table.getItems() != null
                 && index >= 0 && index < table.getItems().size()) {
@@ -190,6 +207,6 @@ public class HyperlinkListTableCell<S> extends TableCell<S, String> {
 
         // No usable index (a cell past the end of the data, or one not yet attached to a table):
         // fall back to the row, which is null in exactly those cases too.
-        return (getTableRow() != null) ? getTableRow().getItem() : null;
+        return (cell.getTableRow() != null) ? cell.getTableRow().getItem() : null;
     }
 }

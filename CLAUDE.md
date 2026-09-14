@@ -586,6 +586,17 @@ them would let either search clear the other's results or overwrite its count.
 to a bare int cannot say "first N of more", so it would read "5000 results" beside a status message
 saying the query was capped — the exact dishonesty transparent paging exists to prevent.
 
+**Clear supersedes an in-flight search.** Each search carries a generation counter, incremented by
+both the search and its Clear, and a completion handler whose generation no longer matches drops its
+result. Without it, Clear pressed during a slow search empties the table and sets "Search cleared",
+and then the old query's rows arrive and repopulate it — which reads as a bug in Clear rather than in
+the search. The Search button is disabled during a search but Clear deliberately is not: abandoning a
+slow search is exactly when it is reached for.
+
+**The counter is per SEARCH, not per view**, for the same reason the T2b vocabulary is:
+`ConfigurationExploreViewModel` hosts two independent searches, so one shared counter would let
+either Clear silently discard the other search's results.
+
 **Search results are returned from `call()` and published in `setOnSucceeded`, never from a
 `Platform.runLater` inside the task.** `setOnSucceeded` and `setOnFailed` already run on the FX
 thread. Publishing from inside `call()` via `runLater` does not order anything — it *queues* the
@@ -692,6 +703,24 @@ what enforces it.
 `activeAt` is an independent criterion and may be combined with a range, so `activeAt` alone is a
 complete search rather than half of one.
 
+**A ticked-but-blank temporal criterion is refused too, and it is a distinct case from the half-filled
+range.** An unticked checkbox and a ticked one whose date picker is still blank both reach the view
+model as `null`, but they mean opposite things — "no restriction" versus an incomplete criterion the
+user intends to apply — and a null criterion is simply dropped, silently widening the search with
+every other criterion still applied. The controller therefore passes the checkbox states alongside
+the instants, and `hasIncompleteTemporalCriteria()` refuses the search. `hasPartialRange()` is checked
+**first**, because it names the more specific problem when both apply.
+
+**Clearing resets those enabled flags with the instants.** Leaving them set makes the next search
+look like it has two ticked-but-blank criteria and be refused — a cleared form that will not search,
+which is the stale-state bug the flags exist to prevent, reintroduced one level up.
+
+**The configurations table has an Activations column**, a fixed action link that populates and runs
+the activation search for that configuration and switches to its tab. It is a separate column rather
+than a second action on the name, because the name already means "edit this record" and one link
+cannot carry both meanings. Before it existed, `searchActivationsForConfiguration()` was unreachable
+and the panel's help text promised an action nothing could invoke.
+
 **The temporal controls are read only when their checkbox is ticked.** An unticked criterion is
 published as null rather than as whatever its date picker happens to hold, so a date left behind by
 an earlier search cannot silently narrow the next one. Clearing resets the spinners explicitly as
@@ -737,6 +766,11 @@ Expansion computes `start + index * periodNanos` in integer nanoseconds, never b
 running `Instant`. Status identity is exact `(pvName, timestamp)` equality at nanosecond precision, so
 a timestamp that drifts even one nanosecond silently fails to match the sample it labels — the same
 hazard documented for the *save* side, in the other direction.
+
+**The selected end second is INCLUDED.** The spinners select whole seconds, but the trim is
+half-open, so passing the selected end straight through would drop every status stamped within the
+second the user just named. The controller extends it to `.999999999`, the same adjustment
+`DataExploreViewModel.getQueryEndDateTime()` makes, so the two views agree on what an end time means.
 
 **Boundary trimming is required, not cosmetic.** Bucket selection is a `TimeRange` overlap test and
 boundary buckets are returned **whole**, so a bucket at either edge of the requested window carries
@@ -791,6 +825,19 @@ would attach the wrong confidence to a status, which is worse than omitting it.
 9. **Reset**: Clears all fields and all three list components
 
 **Full-replace upsert:** `savePvMetadata()` replaces the ENTIRE record for a given PV name — aliases, tags, attributes, description and modifiedBy are all overwritten, and omitted fields are not preserved. The view states this in the panel — which is why loading an existing record before editing matters, and `loadFromPvMetadata()` now provides it (see the PV Metadata Explore Workflow below).
+
+**An overwrite is confirmed before it happens.** `savePvMetadata()` is a full-replace upsert, so
+after a load-for-edit, clearing any field and saving erases that stored metadata with no error — the
+likeliest way to lose data in this view. The save now runs the same pre-save existence check as the
+machine-configuration editor: `getPvMetadata()`, branching on `isReject()` for not-found (an
+unreachable service sets `isError`, and reading that as "no existing record" would suppress the
+warning exactly when the system is unhealthy), then an FX-thread confirmation raised through a
+bounded wait, with a failed check aborting the save.
+
+**The confirmation names the record that was FOUND, not what was typed.** `getPvMetadata()` resolves
+aliases, so looking up a historical name returns the record under its canonical one — while the save
+targets the typed name, which would create a NEW record rather than replace the one found. Showing
+the found name is what lets a user notice that.
 
 **Critical Integration Pattern:** aliases/tags/attributes are read from the injected component instances, never from ViewModel properties. `PvMetadataViewModel` holds no collections for them. The component lists are copied on the FX thread before the background task starts, so the task never touches the observable lists off-thread.
 
@@ -1315,6 +1362,14 @@ turns a large unsigned reading into a negative one, and a transpose that reads i
 column truncates the whole page at once. All four were mutation-checked against the defect they
 claim to catch.
 
+**Search supersede tests** (`ExploreSearchSupersedeTest`): pins that Clear pressed during a slow
+search discards that search's results, and — the half that stops the guard from being vacuous — that
+an ordinary search still publishes. A generation check that never matched would make every search
+silently return nothing, which no test asserting only the superseded case would catch. The fake gates
+the service call so the race is deterministic: without the gate the search finishes before Clear runs
+and the test passes whether or not the guard exists. Mutation-checked by removing the guard, which
+failed with "a superseded search repopulated the table after Clear".
+
 **Query bounds tests** (`DataExploreQueryBoundsTest`): covers the display cap, cancellation, and the
 truncation reporting that makes either honest. The fake serves pages **endlessly**, always returning
 a next-page token, so only a client-side bound can end the loop — a fake that stopped on its own
@@ -1785,7 +1840,11 @@ When tags/attributes don't appear in the database:
 - `onClick` receives **the row and the clicked value**, because some links are labelled with one
   field and navigate by another: a provider-name link navigates by the row's provider *id*
 - `AnnotationExploreController.CalculationsDataFrameTableCell` deliberately does **not** use it — it
-  renders a *presence* link, not a value list (see the Calculations column note above)
+  renders a *presence* link, not a value list (see the Calculations column note above), but it
+  **does** use the shared `HyperlinkListTableCell.resolveRow(cell)` static, so the index-authoritative
+  resolution below is not reimplemented per cell. It had the same virtualization hazard: its link
+  captured the row via `getTableRow().getItem()`, so a recycled cell could fetch and open some other
+  annotation's calculation frames
 
 **Values come from the row's list accessor, never from the cell's display string.** The cell item is
 the already-joined ", " string, and re-splitting it to recover the values breaks on any value
@@ -1815,6 +1874,11 @@ behavior.
   metadata query covering the whole archive) is accepted downstream and would otherwise be silent
 - Reuses `PvMetadataExploreViewModel.textMatch()` / `parseCommaSeparatedList()` rather than
   reimplementing the criteria construction
+- **Apply is disabled for a blank pattern**, the one arm the server rejects. The warning previously
+  said so while Apply stayed enabled, so the selection was accepted here and failed at the server on
+  the next submit — a warning naming a rule that nothing enforced. The metadata mode deliberately
+  gets no such rule: an all-empty metadata query is valid and matches every PV in the archive, so
+  refusing it would invent a rule the server does not have
 
 **QueryFiltersDialogController** (`src/main/java/com/ospreydcs/dp/gui/component/QueryFiltersDialogController.java`)
 - Modal editor for the Query Editor's two optional filters — `configurationSelector` and

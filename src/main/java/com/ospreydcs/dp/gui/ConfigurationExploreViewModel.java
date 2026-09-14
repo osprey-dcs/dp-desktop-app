@@ -39,6 +39,24 @@ public class ConfigurationExploreViewModel {
     private static final Logger logger = LogManager.getLogger();
 
     /**
+     * Identifies the search whose result may be published -- ONE PER SEARCH, not one per view.
+     *
+     * <p>Two generations rather than one, for the same reason this view carries two of every other
+     * search property: the two searches are independent, so clearing the activations must not
+     * discard an in-flight configuration search's results, and vice versa. A single shared
+     * generation would make either Clear silently cancel the other search.
+     *
+     * <p>Each is incremented by its own search and its own clear, so a superseded task drops its
+     * result rather than repopulating a table the user just cleared. FX thread only.
+     */
+    private long configurationSearchGeneration = 0;
+    private long activationSearchGeneration = 0;
+
+    /** Whether each temporal criterion was ticked; see setActivationTemporalCriteria(). */
+    private boolean activeAtEnabled = false;
+    private boolean rangeEnabled = false;
+
+    /**
      * How a typed name is matched, the same three modes the PV metadata explore view offers.
      *
      * <p>Declared here rather than shared with {@link PvMetadataExploreViewModel} because the two
@@ -127,10 +145,45 @@ public class ConfigurationExploreViewModel {
         this.configurationNameMatchMode = mode != null ? mode : MatchMode.CONTAINS;
     }
 
+    /**
+     * Publishes the activation time criteria, along with whether each was actually ASKED FOR.
+     *
+     * <p>The two "enabled" flags exist because a null instant is ambiguous on its own: an unticked
+     * checkbox and a ticked one whose date picker is still blank both arrive here as null. Those
+     * mean opposite things -- the first is "no restriction", the second is an incomplete criterion
+     * the user intends to apply -- and treating the second as the first drops the filter silently,
+     * returning a result set BROADER than asked for with every other criterion still applied. That
+     * reads as a working search rather than as a dropped filter, which is the same failure mode
+     * {@link #hasPartialRange()} exists to prevent, one step earlier.
+     */
+    /**
+     * Publishes the activation time criteria, inferring "asked for" from the values themselves.
+     *
+     * <p>Safe only when a null really does mean "not asked for", which is true of every caller that
+     * builds instants directly rather than reading checkbox-gated controls. The view uses the
+     * five-argument form, because there a null can also mean "ticked but the date is still blank" —
+     * a distinction no value can carry.
+     */
     public void setActivationTemporalCriteria(Instant activeAt, Instant rangeStart, Instant rangeEnd) {
+        setActivationTemporalCriteria(
+                activeAt, rangeStart, rangeEnd,
+                activeAt != null, rangeStart != null || rangeEnd != null);
+    }
+
+    public void setActivationTemporalCriteria(
+            Instant activeAt, Instant rangeStart, Instant rangeEnd,
+            boolean activeAtEnabled, boolean rangeEnabled) {
         this.activeAt = activeAt;
         this.rangeStart = rangeStart;
         this.rangeEnd = rangeEnd;
+        this.activeAtEnabled = activeAtEnabled;
+        this.rangeEnabled = rangeEnabled;
+    }
+
+    /** Whether a ticked temporal criterion is missing the date it needs. */
+    public boolean hasIncompleteTemporalCriteria() {
+        return (activeAtEnabled && activeAt == null)
+                || (rangeEnabled && (rangeStart == null || rangeEnd == null));
     }
 
     // ---- Configuration form properties ----
@@ -178,6 +231,8 @@ public class ConfigurationExploreViewModel {
         final List<AttributeCriterion> attributes = attributeCriteria(
                 configurationAttributeKey.get(), configurationAttributeValue.get());
 
+        final long generation = ++configurationSearchGeneration;
+
         configurationSearchInProgress.set(true);
         configurationSearchStatusMessage.set("Searching for configurations...");
         configurationResults.clear();
@@ -193,6 +248,10 @@ public class ConfigurationExploreViewModel {
         };
 
         searchTask.setOnSucceeded(event -> {
+            if (generation != configurationSearchGeneration) {
+                logger.debug("Discarding results of a superseded configuration search");
+                return;
+            }
             publishConfigurationResults(searchTask.getValue());
             configurationSearchInProgress.set(false);
         });
@@ -200,6 +259,9 @@ public class ConfigurationExploreViewModel {
         searchTask.setOnFailed(event -> {
             final Throwable failure = searchTask.getException();
             logger.error("configuration search failed", failure);
+            if (generation != configurationSearchGeneration) {
+                return;
+            }
             configurationSearchStatusMessage.set("Search failed: " + failure.getMessage());
             configurationStatusMessage.set("Search failed: " + failure.getMessage());
             configurationSearchInProgress.set(false);
@@ -255,6 +317,14 @@ public class ConfigurationExploreViewModel {
             return;
         }
 
+        if (hasIncompleteTemporalCriteria()) {
+            // A ticked-but-blank criterion would reach the request as null, i.e. as no criterion at
+            // all -- silently widening the search rather than failing it.
+            activationSearchStatusMessage.set(
+                    "Fill in the date for each ticked time criterion, or untick it");
+            return;
+        }
+
         if (rangeStart != null && rangeEnd != null && !rangeEnd.isAfter(rangeStart)) {
             activationSearchStatusMessage.set("Range end must be after range start");
             return;
@@ -269,6 +339,8 @@ public class ConfigurationExploreViewModel {
         final List<String> tags = parseCommaSeparatedList(activationTagsText.get());
         final List<AttributeCriterion> attributes = attributeCriteria(
                 activationAttributeKey.get(), activationAttributeValue.get());
+
+        final long generation = ++activationSearchGeneration;
 
         activationSearchInProgress.set(true);
         activationSearchStatusMessage.set("Searching for activations...");
@@ -286,6 +358,10 @@ public class ConfigurationExploreViewModel {
         };
 
         searchTask.setOnSucceeded(event -> {
+            if (generation != activationSearchGeneration) {
+                logger.debug("Discarding results of a superseded activation search");
+                return;
+            }
             publishActivationResults(searchTask.getValue());
             activationSearchInProgress.set(false);
         });
@@ -293,6 +369,9 @@ public class ConfigurationExploreViewModel {
         searchTask.setOnFailed(event -> {
             final Throwable failure = searchTask.getException();
             logger.error("activation search failed", failure);
+            if (generation != activationSearchGeneration) {
+                return;
+            }
             activationSearchStatusMessage.set("Search failed: " + failure.getMessage());
             activationStatusMessage.set("Search failed: " + failure.getMessage());
             activationSearchInProgress.set(false);
@@ -367,6 +446,10 @@ public class ConfigurationExploreViewModel {
     // ---------------------------------------------------------------------------------------
 
     public void clearConfigurationSearch() {
+        // Supersede an in-flight configuration search only; the activation search is independent.
+        configurationSearchGeneration++;
+        configurationSearchInProgress.set(false);
+
         configurationNameText.set("");
         configurationCategoryText.set("");
         configurationTagsText.set("");
@@ -380,6 +463,10 @@ public class ConfigurationExploreViewModel {
     }
 
     public void clearActivationSearch() {
+        // Supersede an in-flight activation search only; the configuration search is independent.
+        activationSearchGeneration++;
+        activationSearchInProgress.set(false);
+
         activationConfigurationNamesText.set("");
         activationIdsText.set("");
         activationCategoryText.set("");
@@ -389,6 +476,12 @@ public class ConfigurationExploreViewModel {
         activeAt = null;
         rangeStart = null;
         rangeEnd = null;
+        // The "asked for" flags are cleared WITH the instants. Leaving them set would make the
+        // next search look like it had two ticked-but-blank criteria and be refused as incomplete
+        // -- a cleared form refusing to search, which is the stale-state bug these flags exist to
+        // prevent, reintroduced one level up.
+        activeAtEnabled = false;
+        rangeEnabled = false;
         activationResults.clear();
         activationResultCountMessage.set("0 activation(s)");
         activationSearchStatusMessage.set("Search cleared");

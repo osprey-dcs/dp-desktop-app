@@ -150,9 +150,15 @@ public class SampleStatusExploreController implements Initializable {
     private void onSearch() {
         // The controller owns the temporal controls, so it assembles the range and pushes it in
         // before each search rather than having the ViewModel reach into JavaFX controls.
+        // The END is extended to the last nanosecond of the selected second, because the trim in
+        // SampleStatusTableRow.expand() is HALF-OPEN: without this, an end of 12:00:00 would drop
+        // every status stamped within that second, including one exactly at 12:00:00 -- the second
+        // the user just named. The data query's getQueryEndDateTime() makes the same adjustment for
+        // the same reason, so the two views agree on what an end time means.
         viewModel.setTimeRange(
                 instantFrom(startDatePicker, startHourSpinner, startMinuteSpinner, startSecondSpinner),
-                instantFrom(endDatePicker, endHourSpinner, endMinuteSpinner, endSecondSpinner));
+                inclusiveEnd(
+                        instantFrom(endDatePicker, endHourSpinner, endMinuteSpinner, endSecondSpinner)));
         viewModel.executeSearch();
     }
 
@@ -179,6 +185,21 @@ public class SampleStatusExploreController implements Initializable {
                 hourSpinner.getValue(), minuteSpinner.getValue(), secondSpinner.getValue());
 
         return date.atTime(time).atZone(ZoneId.systemDefault()).toInstant();
+    }
+
+    /**
+     * Extends a selected end time to the last nanosecond of that second.
+     *
+     * <p>The spinners select whole seconds, but the range is compared against status timestamps at
+     * NANOSECOND precision and trimmed half-open, so the selected second would otherwise be
+     * excluded entirely rather than included — the same adjustment, and the same reasoning, as
+     * {@code DataExploreViewModel.getQueryEndDateTime()}.
+     *
+     * <p>Null passes through, so a missing end date is still reported as missing rather than
+     * becoming a time just after the epoch.
+     */
+    private static Instant inclusiveEnd(Instant end) {
+        return end == null ? null : end.plusNanos(999_999_999);
     }
 
     private void commitSpinnerValues(List<Spinner<Integer>> spinners) {

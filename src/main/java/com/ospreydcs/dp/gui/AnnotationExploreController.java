@@ -187,15 +187,22 @@ public class AnnotationExploreController implements Initializable {
                 setText(null);
             } else {
                 content.getChildren().clear();
-                
-                AnnotationInfoTableRow tableRow = getTableRow().getItem();
+
+                // Resolved by INDEX, not through getTableRow().  When a virtualized table recycles
+                // a cell it sets the new index and delivers the new item immediately but repoints
+                // the TableRow in a later pass, so reading the row directly here would capture the
+                // PREVIOUS annotation in the link's handler -- and this link fetches and opens
+                // calculation frames, so the symptom is opening some other annotation's frames with
+                // nothing visibly wrong beforehand.  Shared with HyperlinkListTableCell rather than
+                // reimplemented, so the two cannot drift.
+                AnnotationInfoTableRow tableRow = HyperlinkListTableCell.resolveRow(this);
                 if (tableRow != null && tableRow.hasCalculations()) {
                     // one link per row rather than one per frame: queryAnnotations() no longer
                     // returns frame names, so they are resolved by the fetch this link triggers
                     Hyperlink calculationsLink = new Hyperlink(item);
                     calculationsLink.getStyleClass().addAll("hyperlink-small");
                     calculationsLink.setOnAction(e -> openCalculations(tableRow));
-                    
+
                     content.getChildren().add(calculationsLink);
                 }
                 

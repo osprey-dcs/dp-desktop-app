@@ -110,6 +110,16 @@ public class ConfigurationExploreColumnBindingTest {
                         "column \"" + header + "\" has no cellValueFactory, so it renders blank -- "
                                 + "setupConfigurationColumns() does not bind it");
 
+                if ("Activations".equals(header)) {
+                    // An ACTION column, not a field: it renders a fixed "Activations" link that
+                    // drills into that configuration's activations, so there is no row property for
+                    // it to resolve. Still checked for a cellValueFactory above, since an unbound
+                    // action column renders blank and the link becomes unreachable.
+                    assertEquals("Activations", column.getCellData(row),
+                            "the Activations column should render its fixed action label");
+                    continue;
+                }
+
                 if ("Updated".equals(header)) {
                     final Object cellData = column.getCellData(row);
                     assertNotNull(cellData, "the Updated column binding does not resolve");
@@ -128,9 +138,11 @@ public class ConfigurationExploreColumnBindingTest {
                                 + "property");
             }
 
-            assertEquals(expected.size() + 1, table.getColumns().size(),
+            // expected + Updated + Activations: the two columns handled above, one a formatted
+            // date and one a fixed action label, neither a plain row property.
+            assertEquals(expected.size() + 2, table.getColumns().size(),
                     "configurations table column count changed; expected: " + expected.keySet()
-                            + " plus Updated");
+                            + " plus Updated and Activations");
         });
     }
 

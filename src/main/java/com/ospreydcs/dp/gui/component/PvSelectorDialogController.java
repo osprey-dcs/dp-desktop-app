@@ -199,6 +199,23 @@ public class PvSelectorDialogController implements Initializable {
      * reject, and it is called out here because the Submit button is disabled for it, which would
      * otherwise look like the dialog rather than the field.
      */
+    /**
+     * Whether the dialog may be applied.
+     *
+     * <p>Only the blank pattern is refused, and it is the one arm the SERVER rejects. The metadata
+     * mode deliberately has no rule — an all-empty metadata query is valid and matches every PV in
+     * the archive — so refusing it here would invent a rule the server does not have; its warning
+     * says what it will cover instead of blocking it.
+     */
+    public boolean isAcceptable() {
+        final PvSelection selection = getSelection();
+        if (selection.getMode() != PvSelection.Mode.NAME_PATTERN) {
+            return true;
+        }
+        final String pattern = selection.getNamePattern();
+        return pattern != null && !pattern.isBlank();
+    }
+
     private static String warningFor(PvSelection selection) {
         return switch (selection.getMode()) {
             case NAME_PATTERN -> {
@@ -282,6 +299,21 @@ public class PvSelectorDialogController implements Initializable {
             dialog.getDialogPane().setContent(content);
             final ButtonType applyButton = new ButtonType("Apply", ButtonBar.ButtonData.OK_DONE);
             dialog.getDialogPane().getButtonTypes().addAll(applyButton, ButtonType.CANCEL);
+
+            // Apply is disabled while the selection cannot be sent, matching the query filters
+            // dialog.  Without this the warning said a blank pattern would be rejected while Apply
+            // stayed enabled, so the selection was accepted here and failed at the SERVER on the
+            // next submit -- the warning naming a rule that nothing enforced.
+            final javafx.scene.Node applyNode = dialog.getDialogPane().lookupButton(applyButton);
+            applyNode.setDisable(!controller.isAcceptable());
+            // The summary is rewritten on every edit in every mode, so it is the one signal that
+            // always fires; the warning is watched too for the edit that only changes the warning.
+            controller.summaryLabel.textProperty().addListener(
+                    (obs, oldVal, newVal) -> applyNode.setDisable(!controller.isAcceptable()));
+            controller.warningLabel.textProperty().addListener(
+                    (obs, oldVal, newVal) -> applyNode.setDisable(!controller.isAcceptable()));
+            controller.modeToggleGroup.selectedToggleProperty().addListener(
+                    (obs, oldVal, newVal) -> applyNode.setDisable(!controller.isAcceptable()));
 
             if (ownerStage != null) {
                 dialog.initOwner(ownerStage);

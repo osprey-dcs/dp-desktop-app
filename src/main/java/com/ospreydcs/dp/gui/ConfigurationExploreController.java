@@ -56,6 +56,7 @@ public class ConfigurationExploreController implements Initializable {
     @FXML private TableColumn<ConfigurationTableRow, String> configurationAttributesColumn;
     @FXML private TableColumn<ConfigurationTableRow, String> configurationModifiedByColumn;
     @FXML private TableColumn<ConfigurationTableRow, String> configurationUpdatedTimeColumn;
+    @FXML private TableColumn<ConfigurationTableRow, String> configurationActivationsColumn;
 
     // ---- Activation search ----
     @FXML private TextField activationConfigurationNamesField;
@@ -155,6 +156,24 @@ public class ConfigurationExploreController implements Initializable {
         configurationNameColumn.setCellFactory(HyperlinkListTableCell.forSingleValue(
                 ConfigurationTableRow::getConfigurationName,
                 (row, name) -> viewModel.editConfiguration(row)));
+
+        // The activations drill-down: a fixed label rather than a row value, since the link is an
+        // ACTION, not a field.  It lives in its own column because the name column already means
+        // "edit this record" and one link cannot carry both meanings.
+        //
+        // This is what makes searchActivationsForConfiguration() reachable -- the help text
+        // promised the action while nothing invoked it, so the helper was unreachable code and the
+        // instruction was impossible to follow.
+        configurationActivationsColumn.setCellValueFactory(
+                row -> new javafx.beans.property.SimpleStringProperty("Activations"));
+        configurationActivationsColumn.setCellFactory(HyperlinkListTableCell.forSingleValue(
+                row -> "Activations",
+                (row, ignored) -> {
+                    viewModel.searchActivationsForConfiguration(row);
+                    // Switch to the tab the results land in: running a search whose output is on a
+                    // tab the user cannot see would look like the link did nothing.
+                    searchTabPane.getSelectionModel().select(1);
+                }));
 
         configurationCategoryColumn.setCellValueFactory(
                 new PropertyValueFactory<>(ConfigurationTableRow.PROPERTY_CATEGORY));
@@ -312,7 +331,11 @@ public class ConfigurationExploreController implements Initializable {
                 ? instantFrom(rangeEndDatePicker, rangeEndHourSpinner, rangeEndMinuteSpinner, null)
                 : null;
 
-        viewModel.setActivationTemporalCriteria(activeAt, rangeStart, rangeEnd);
+        // The checkbox states go with the instants: a ticked box whose date is blank yields a null
+        // instant that is otherwise indistinguishable from an unticked one, and the two mean
+        // opposite things.
+        viewModel.setActivationTemporalCriteria(activeAt, rangeStart, rangeEnd,
+                activeAtEnabledCheckBox.isSelected(), rangeEnabledCheckBox.isSelected());
     }
 
     private void clearTemporalFields() {

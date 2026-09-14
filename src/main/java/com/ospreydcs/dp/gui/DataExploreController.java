@@ -69,9 +69,18 @@ public class DataExploreController implements Initializable {
     @FXML private Spinner<Integer> endMinuteSpinner;
     @FXML private Spinner<Integer> endSecondSpinner;
     
+    /**
+     * Whether a coalesced chart rebuild is already queued.
+     *
+     * <p>FX thread only, like every other field touched by the listeners here, so it needs no
+     * synchronization.
+     */
+    private boolean chartUpdatePending = false;
+
     // Action Buttons FXML components
     @FXML private Button submitQueryButton;
     @FXML private Button addToDatasetButton;
+    @FXML private Button stopQueryButton;
     @FXML private Button cancelQueryButton;
     @FXML private Label queryStatusLabel;
     
@@ -301,6 +310,11 @@ public class DataExploreController implements Initializable {
         // Button state bindings
         submitQueryButton.disableProperty().bind(viewModel.isQueryingProperty().or(viewModel.isQueryValidProperty().not()));
         addToDatasetButton.disableProperty().bind(viewModel.isQueryingProperty().or(viewModel.isQueryValidProperty().not()));
+
+        // Stop is shown only while a query is running.  Both flags together: visible-but-unmanaged
+        // takes no space, and managed-but-invisible leaves a gap where the button would be.
+        stopQueryButton.visibleProperty().bind(viewModel.isQueryingProperty());
+        stopQueryButton.managedProperty().bind(viewModel.isQueryingProperty());
         
         // Status and progress bindings
         queryStatusLabel.textProperty().bind(viewModel.statusMessageProperty());
@@ -419,8 +433,39 @@ public class DataExploreController implements Initializable {
             }
         });
         
-        // Set up chart data updates when table data changes
+        // Set up chart data updates when table data changes.
+        //
+        // COALESCED rather than rebuilt per change.  updateChart() re-reads every accumulated row
+        // and rebuilds every series from scratch, so running it once per arriving page makes the
+        // total work quadratic in the number of pages -- on the FX thread, while rows are still
+        // being added.  That was tolerable when a query was chopped into a handful of one-minute
+        // windows; with server-driven paging over a selector that can resolve to the whole archive,
+        // it is the difference between a responsive table and a frozen one.
+        //
+        // A rebuild is not made incremental instead because it cannot be: the dynamic sample
+        // interval is computed from the TOTAL row count, so appending one page's points to series
+        // sampled for a smaller total would mix two sampling rates in one line.  Coalescing keeps
+        // one consistent rebuild per burst and drops only the intermediate frames a user could not
+        // have perceived anyway.
         viewModel.getTableData().addListener((javafx.collections.ListChangeListener<ObservableList<Object>>) change -> {
+            requestChartUpdate();
+        });
+    }
+
+    /**
+     * Queues a chart rebuild, collapsing any already queued for this pulse.
+     *
+     * <p>{@code Platform.runLater} from the FX thread defers to the next pulse rather than running
+     * inline, so a burst of page arrivals within one pulse yields exactly one rebuild -- against
+     * the fully accumulated data, which is the only state worth drawing.
+     */
+    private void requestChartUpdate() {
+        if (chartUpdatePending) {
+            return;
+        }
+        chartUpdatePending = true;
+        javafx.application.Platform.runLater(() -> {
+            chartUpdatePending = false;
             updateChart();
         });
     }
@@ -875,9 +920,7 @@ public class DataExploreController implements Initializable {
         
         // Initialize UI from existing global state BEFORE injecting into ViewModel
         // This prevents the listeners from overwriting the global state during initialization
-        logger.debug("CRAIG DEBUG: About to call initializeUIFromGlobalState()");
         initializeUIFromGlobalState();
-        logger.debug("CRAIG DEBUG: Finished calling initializeUIFromGlobalState()");
         
         if (viewModel != null) {
             viewModel.setDpApplication(dpApplication);
@@ -1089,14 +1132,25 @@ public class DataExploreController implements Initializable {
         }
     }
     
+    /**
+     * Stops the running query, keeping the rows it has already displayed.
+     *
+     * <p>Distinct from {@link #onCancelQuery()}, which leaves the view entirely.  Separating them
+     * matters because the two answer different questions: "this is covering more than I meant, show
+     * me what you have" versus "I am done here".
+     */
+    @FXML
+    private void onStopQuery() {
+        logger.info("Stop requested for the running query");
+        viewModel.cancel();
+    }
+
     @FXML
     private void onCancelQuery() {
         logger.info("Query cancelled by user");
         
         // Commit any pending spinner edits and update global state before cancelling
-        logger.debug("CRAIG DEBUG: About to call updateGlobalQueryState()");
         updateGlobalQueryState();
-        logger.debug("CRAIG DEBUG: Finished calling updateGlobalQueryState()");
         
         viewModel.cancel();
         
@@ -1751,24 +1805,17 @@ public class DataExploreController implements Initializable {
     
     // Methods for updating global state in DpApplication
     private void updateGlobalQueryState() {
-        logger.debug("CRAIG DEBUG: updateGlobalQueryState() called");
-        
         if (dpApplication == null) {
             logger.warn("DpApplication reference is null, cannot update global query state");
             return;
         }
         
         // Commit any pending spinner edits before updating global state
-        logger.debug("CRAIG DEBUG: About to call commitSpinnerValues()");
         commitSpinnerValues();
-        
-        logger.debug("CRAIG DEBUG: About to call updateGlobalPvNames()");
         updateGlobalPvNames();
-        
-        logger.debug("CRAIG DEBUG: About to call updateGlobalTimeRange()");
         updateGlobalTimeRange();
-        
-        logger.debug("CRAIG DEBUG: Updated global query state in DpApplication");
+
+        logger.debug("Updated global query state in DpApplication");
     }
     
     private void updateGlobalPvNames() {

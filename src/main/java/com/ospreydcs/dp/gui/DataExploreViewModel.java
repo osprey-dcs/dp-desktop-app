@@ -42,6 +42,33 @@ public class DataExploreViewModel {
      */
     static final String TIMESTAMP_COLUMN_NAME = "timestamp";
 
+    /**
+     * Maximum rows rendered from a sample query, independent of any server-side bound.
+     *
+     * <p><strong>The server's page bound cannot stand in for this one.</strong>  It bounds a single
+     * PAGE -- by a row count and a byte budget, whichever trips first -- and then hands back a
+     * resume token, so following that token to exhaustion is an unbounded read no matter how small
+     * each page is.  Without a client bound this view would move the unbounded read from the server
+     * to the client, which is precisely what server paging exists to prevent; the same reasoning
+     * gives {@link SampleStatusExploreViewModel#MAX_DISPLAYED_STATUSES} and
+     * {@link DpApplication#QUERY_RESULT_CAP} their caps.
+     *
+     * <p>The bound matters more here than it did before the V2 migration.  The retired V1 path was
+     * bounded in practice because the only way to choose PVs was to type them into the name list:
+     * the row count was the user's own PV list times their own time range.  The pattern and
+     * metadata selector arms remove that implicit ceiling, and an all-empty metadata query is NOT
+     * rejected server-side -- it matches every PV in the archive (see {@link PvSelection}).  So the
+     * one query path that can now resolve to the whole archive is the one that most needs a limit.
+     *
+     * <p>The server's {@code maxResolvedPvCount} catches only the extreme of that: a selector
+     * resolving to just under the limit over a wide window is accepted and would otherwise
+     * accumulate without end into an ObservableList on the FX thread.
+     *
+     * <p>Rows are capped rather than pages, because a page is a server-side accounting unit whose
+     * size the client does not control; only a row count bounds what the table actually holds.
+     */
+    static final int MAX_DISPLAYED_ROWS = 50_000;
+
     // Query Specification properties
     private final ObservableList<String> pvNameList = FXCollections.observableArrayList();
 
@@ -97,6 +124,29 @@ public class DataExploreViewModel {
     private final ObservableList<ObservableList<Object>> tableData = FXCollections.observableArrayList();
     private final IntegerProperty totalRowsLoaded = new SimpleIntegerProperty(0);
     private final BooleanProperty isQuerying = new SimpleBooleanProperty(false);
+
+    /**
+     * Whether the displayed rows are a prefix of the result rather than the whole of it, because
+     * {@link #MAX_DISPLAYED_ROWS} tripped or the user cancelled.
+     *
+     * <p>Kept so the completion message can never state a bare count for a partial result.  A
+     * truncated table reported as a total is the same defect transparent paging exists to prevent,
+     * and here it is worse than a wrong number: a query capped mid-archive looks exactly like one
+     * that genuinely had nothing more to return.
+     */
+    private final BooleanProperty resultsTruncated = new SimpleBooleanProperty(false);
+
+    /**
+     * The task running the current query, so {@link #cancel()} can actually stop it.
+     *
+     * <p>Held rather than discarded because the paging loop is otherwise uninterruptible: it
+     * follows resume tokens until the server stops issuing them, and a whole-archive selection can
+     * keep issuing them for a long time.  Written and read on the FX thread only (submitQuery(),
+     * cancel() and the task's own completion handlers all run there), so it needs no
+     * synchronization; the background loop reads the task's own {@code isCancelled()} flag, which
+     * is thread-safe by contract.
+     */
+    private Task<QueryOutcome> runningQueryTask;
     
     // Status properties
     private final StringProperty statusMessage = new SimpleStringProperty("Ready to query data");
@@ -259,6 +309,10 @@ public class DataExploreViewModel {
     public IntegerProperty totalRowsLoadedProperty() { return totalRowsLoaded; }
     public BooleanProperty isQueryingProperty() { return isQuerying; }
 
+    /** Whether the displayed rows are a prefix of the result -- capped, or cancelled part way. */
+    public BooleanProperty resultsTruncatedProperty() { return resultsTruncated; }
+    public boolean isResultsTruncated() { return resultsTruncated.get(); }
+
     // Status property getters
     public StringProperty statusMessageProperty() { return statusMessage; }
     public BooleanProperty hasQueryResultsProperty() { return hasQueryResults; }
@@ -316,51 +370,113 @@ public class DataExploreViewModel {
         tableData.clear();
         tableColumnNames.clear();
         totalRowsLoaded.set(0);
+        resultsTruncated.set(false);
         statusMessage.set("Querying data...");
 
-        // Create background task for query
-        Task<Void> queryTask = new Task<Void>() {
+        // The outcome is RETURNED from call() and applied here, never published from inside the
+        // loop via Platform.runLater -- see QueryOutcome for why that ordering is load-bearing.
+        Task<QueryOutcome> queryTask = new Task<QueryOutcome>() {
             @Override
-            protected Void call() throws Exception {
-                executeSamplesQuery();
-                return null;
+            protected QueryOutcome call() throws Exception {
+                return executeSamplesQuery(this);
             }
         };
+        runningQueryTask = queryTask;
 
         queryTask.setOnSucceeded(e -> {
-            isQuerying.set(false);
+            runningQueryTask = null;
+
+            // The RESULT is applied before the in-progress flag clears, never after.  Setting a
+            // JavaFX property notifies its listeners synchronously, so anything watching
+            // isQuerying -- the progress indicator, the row-count label, a test observing the
+            // transition -- runs at that moment and must not see a stale count or a truncation
+            // flag left over from the previous query.  This is the same ordering the explore view
+            // models fixed as D-2, in its other direction.
+            final QueryOutcome outcome = queryTask.getValue();
+            totalRowsLoaded.set(outcome.totalRows());
+            resultsTruncated.set(outcome.truncated());
+
             hasQueryResults.set(true);
-            
+            isQuerying.set(false);
+
+            // describeResult(), not a bare row count: a capped or cancelled table reported as a
+            // total reads exactly like a query that had nothing more to return.
+            final String resultMessage = describeResult();
+
             // Update application state and notify home view
             if (dpApplication != null) {
                 dpApplication.setHasPerformedQueries(true);
-                // describeQueryScope(), not describePvSelection(): a row count reported without
-                // the active filters reads as an unfiltered result, and a status filter is exactly
-                // the thing that makes a small count expected rather than suspicious.
-                String resultMessage = "Successfully queried " + totalRowsLoaded.get()
-                    + " row(s) for " + describeQueryScope();
                 dpApplication.setLastOperationResult(resultMessage);
             }
-            
+
             if (mainController != null) {
-                String resultMessage = "Query completed: " + totalRowsLoaded.get()
-                    + " row(s) for " + describeQueryScope();
-                mainController.onQuerySuccess(resultMessage);
+                mainController.onQuerySuccess("Query completed: " + resultMessage);
             }
-            
-            statusMessage.set("Query completed successfully");
-            logger.info("Query completed successfully with {} rows", totalRowsLoaded.get());
+
+            statusMessage.set(resultsTruncated.get()
+                    ? "Query stopped early - " + resultMessage
+                    : "Query completed successfully");
+            logger.info("Query completed with {} rows (truncated: {})",
+                    totalRowsLoaded.get(), resultsTruncated.get());
         });
 
         queryTask.setOnFailed(e -> {
+            runningQueryTask = null;
             logger.error("Query failed", queryTask.getException());
+
+            // A failure can arrive after pages have already been displayed (a non-scalar PV is
+            // rejected mid-assembly, so a later page can fail once rows are on screen).  Those rows
+            // are real but incomplete, so they are counted and flagged rather than left reading as
+            // a whole result -- and, as above, before the in-progress flag clears.
+            totalRowsLoaded.set(tableData.size());
+            resultsTruncated.set(!tableData.isEmpty());
+
             statusMessage.set("Query failed: " + queryTask.getException().getMessage());
             isQuerying.set(false);
+        });
+
+        // A cancelled query keeps the rows it already displayed -- they are real data for a real
+        // sub-range of the request -- but must never present them as the complete result, which is
+        // what resultsTruncated records.
+        queryTask.setOnCancelled(e -> {
+            runningQueryTask = null;
+
+            // A cancelled task discards call()'s return value, so the count comes from the table
+            // itself -- the one place that is authoritative either way, since every page published
+            // to it did so via runLater and those blocks have all run by the time this handler does.
+            //
+            // Applied BEFORE isQuerying clears, for the same reason as the success path: a listener
+            // on that flag runs synchronously at the moment it changes.
+            totalRowsLoaded.set(tableData.size());
+            resultsTruncated.set(true);
+            hasQueryResults.set(tableData.size() > 0);
+
+            statusMessage.set("Query cancelled - " + describeResult());
+            isQuerying.set(false);
+            logger.info("Query cancelled after {} row(s)", tableData.size());
         });
 
         Thread queryThread = new Thread(queryTask);
         queryThread.setDaemon(true);
         queryThread.start();
+    }
+
+    /**
+     * Describes the result for the completion message, naming truncation and its cause.
+     *
+     * <p>Never states a bare count for a partial result: a capped table presented as a total is the
+     * defect transparent paging exists to prevent, and a cancelled one presented as a total is the
+     * same defect with a different cause.  The scope is always included, because a row count quoted
+     * without the active filters reads as an unfiltered result -- and a status filter is exactly
+     * the thing that makes a small count expected rather than suspicious.
+     */
+    String describeResult() {
+        final int rows = totalRowsLoaded.get();
+        if (resultsTruncated.get()) {
+            return "showing first " + rows + " row(s) of more for " + describeQueryScope()
+                    + " - narrow the time range or the PV selection for the rest";
+        }
+        return rows + " row(s) for " + describeQueryScope();
     }
 
     /**
@@ -377,8 +493,22 @@ public class DataExploreViewModel {
      * <p>The page token is never carried in from a previous query.  It encodes a position only, and
      * replaying one against a changed time range or PV list yields a well-formed but wrong result
      * rather than an error, so each query starts from null.
+     *
+     * <p><strong>The loop is bounded twice, and neither bound is the server's.</strong>  It stops at
+     * {@link #MAX_DISPLAYED_ROWS}, because following resume tokens to exhaustion is an unbounded
+     * read however small each page is; and it stops when the task is cancelled, because a
+     * whole-archive selection can keep issuing tokens for longer than a user is willing to wait.
+     * Both stops set {@code resultsTruncated}, so the rows already displayed are never reported as
+     * a complete result.
+     *
+     * <p>Cancellation is checked at the top of each iteration rather than mid-page: a page is one
+     * unary round trip that cannot be interrupted once issued, so the finest honest granularity is
+     * per page.  The rows from a page already received are kept rather than discarded -- they are
+     * real data for a real sub-range of the request.
+     *
+     * @param task the running task, polled for cancellation between pages
      */
-    private void executeSamplesQuery() throws Exception {
+    private QueryOutcome executeSamplesQuery(Task<?> task) throws Exception {
         final Instant beginInstant = getQueryBeginDateTime().atZone(ZoneId.systemDefault()).toInstant();
         final Instant endInstant = getQueryEndDateTime().atZone(ZoneId.systemDefault()).toInstant();
         // Read on the FX thread's behalf before the loop: the selection and the observable name
@@ -401,8 +531,18 @@ public class DataExploreViewModel {
         boolean firstPage = true;
         int totalRows = 0;
         int pageCount = 0;
+        boolean truncated = false;
 
         do {
+            // Between pages, not mid-page: a page is one unary round trip that cannot be
+            // interrupted once issued.  Checking before the call means a cancel that lands while
+            // the previous page was in flight costs no further round trip.
+            if (task != null && task.isCancelled()) {
+                logger.info("Query cancelled after {} page(s), {} row(s)", pageCount, totalRows);
+                truncated = true;
+                break;
+            }
+
             final QuerySamplesApiResult apiResult =
                     dpApplication.querySamples(pvSelector, configurationCriteria, statusSelector,
                             beginInstant, endInstant, pageToken);
@@ -437,21 +577,51 @@ public class DataExploreViewModel {
                 firstPage = false;
             }
 
-            final List<ObservableList<Object>> pageRows = reshapePage(columnTable);
+            List<ObservableList<Object>> pageRows = reshapePage(columnTable);
+
+            // Trim the page that crosses the cap rather than dropping it whole: the rows before the
+            // boundary are as real as any other, and discarding them would under-report the count
+            // for no benefit.
+            if (totalRows + pageRows.size() >= MAX_DISPLAYED_ROWS) {
+                pageRows = pageRows.subList(0, MAX_DISPLAYED_ROWS - totalRows);
+                truncated = true;
+            }
+
             totalRows += pageRows.size();
 
             if (!pageRows.isEmpty()) {
-                javafx.application.Platform.runLater(() -> tableData.addAll(pageRows));
+                final List<ObservableList<Object>> rowsToPublish = pageRows;
+                javafx.application.Platform.runLater(() -> tableData.addAll(rowsToPublish));
             }
 
             pageToken = apiResult.nextPageToken;
             logger.debug("Page {} yielded {} row(s); nextPageToken present: {}",
                     pageCount, pageRows.size(), pageToken != null && !pageToken.isEmpty());
 
+            if (truncated) {
+                logger.info("Query stopped at the {}-row display cap with more rows available",
+                        MAX_DISPLAYED_ROWS);
+                break;
+            }
+
         } while (pageToken != null && !pageToken.isEmpty());
 
-        final int finalTotalRows = totalRows;
-        javafx.application.Platform.runLater(() -> totalRowsLoaded.set(finalTotalRows));
+        return new QueryOutcome(totalRows, truncated);
+    }
+
+    /**
+     * What a completed paging loop produced: how many rows reached the table, and whether they are
+     * the whole result.
+     *
+     * <p>Returned from the task's {@code call()} and applied in {@code setOnSucceeded}, never
+     * published from inside the loop via {@code Platform.runLater}.  That distinction is the D-2
+     * defect this codebase already fixed once in the explore view models: {@code setOnSucceeded}
+     * runs on the FX thread and therefore runs BEFORE a block queued from the background thread, so
+     * a completion handler reading state published that way sees the pre-query values -- here, a
+     * row count of zero and a truncation flag of false, which is precisely the "capped result
+     * reported as a total" this cap exists to prevent.
+     */
+    private record QueryOutcome(int totalRows, boolean truncated) {
     }
 
     /**
@@ -536,6 +706,15 @@ public class DataExploreViewModel {
         return switch (dataValue.getValueCase()) {
             case STRINGVALUE -> dataValue.getStringValue();
             case BOOLEANVALUE -> dataValue.getBooleanValue();
+            // uint32 widens into a long without loss, so it stays a Number and the chart plots it
+            // directly.  uint64 cannot: its upper half exceeds Long.MAX_VALUE, and there is no
+            // Java integral type to hold it, so it is rendered as an unsigned decimal STRING.
+            // That is a deliberate asymmetry, not an oversight -- the alternatives are worse.
+            // Returning the signed long would display a large reading as a negative number, and
+            // converting to double would silently round past 2^53, turning an exact archived
+            // reading into a nearby wrong one.  The chart's parseNumericValue() still parses the
+            // string, so such a column plots (as a double, with that rounding) while the TABLE --
+            // which is what a reading is actually read from -- keeps every digit exact.
             case UINTVALUE -> Integer.toUnsignedLong(dataValue.getUintValue());
             case ULONGVALUE -> Long.toUnsignedString(dataValue.getUlongValue());
             case INTVALUE -> dataValue.getIntValue();
@@ -640,9 +819,30 @@ public class DataExploreViewModel {
     }
 
 
+    /**
+     * Stops a running query.
+     *
+     * <p>This used to set a status message and nothing else, so a query in flight kept following
+     * resume tokens after the user had asked it to stop -- and the message claimed otherwise.  That
+     * mattered little while the only way to choose PVs was to type them, but the V2 selector arms
+     * made "cancel" the natural remedy for a pattern or metadata selection that turned out to cover
+     * far more of the archive than intended, and it was the one remedy that did not work.
+     *
+     * <p>The task's own {@code setOnCancelled} handler owns the resulting state, so cancelling
+     * twice, or cancelling when nothing is running, is harmless.
+     */
     public void cancel() {
+        final Task<QueryOutcome> task = runningQueryTask;
+        if (task == null || task.isDone()) {
+            logger.debug("Cancel requested with no query running");
+            statusMessage.set("Operation cancelled");
+            return;
+        }
+
         logger.info("Data query cancelled by user");
-        statusMessage.set("Operation cancelled");
+        // The loop polls isCancelled() between pages; it cannot abandon a round trip already in
+        // flight, so the last page issued still arrives and is discarded by the task.
+        task.cancel(false);
     }
 
     public void updateStatus(String message) {

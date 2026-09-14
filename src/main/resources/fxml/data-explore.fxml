@@ -89,6 +89,9 @@
                         <!-- Action Buttons -->
                         <HBox spacing="10" alignment="CENTER_LEFT">
                             <Button fx:id="submitQueryButton" onAction="#onSubmitQuery" styleClass="btn, btn-primary, btn-lg" text="Submit Query" />
+                            <!-- Stops the running query, distinct from Cancel below, which leaves
+                                 the view.  Shown only while a query is running. -->
+                            <Button fx:id="stopQueryButton" onAction="#onStopQuery" styleClass="btn, btn-warning" text="Stop Query" visible="false" managed="false" />
                             <Button fx:id="addToDatasetButton" onAction="#onAddToDataset" styleClass="btn, btn-info" text="Add to Dataset" />
                             <Button fx:id="cancelQueryButton" onAction="#onCancelQuery" styleClass="btn, btn-default" text="Cancel" />
                             <Region HBox.hgrow="ALWAYS" />

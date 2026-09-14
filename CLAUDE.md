@@ -447,6 +447,14 @@ Blank now means genuinely missing; anything else in a cell means a decode gap.
 signed in Java, so the signed accessors would display a large unsigned reading as a negative number
 — a wrong value that looks like a real one.
 
+The two are **deliberately asymmetric**, and it is not an oversight: `uint32` widens into a `long`
+without loss and stays a `Number`, but `uint64` has no Java integral type that can hold its upper
+half, so it is rendered as an unsigned decimal **String**. Both alternatives are worse — the signed
+long displays a large reading as negative, and a `double` silently rounds past 2^53, turning an
+exact archived reading into a nearby wrong one. The chart's `parseNumericValue()` still parses the
+string, so such a column plots (as a double, with that rounding) while the **table** — which is what
+a reading is actually read from — keeps every digit exact.
+
 **The row count comes from the timestamp axis, never from a column.** The server guarantees one
 `DataValue` per column per timestamp, but reading the count from a column would silently truncate
 the whole page if that guarantee broke, whereas over-indexing a short column is caught per cell.
@@ -463,6 +471,52 @@ rather than implying the table is empty.
 to the `QuerySpec` that produced it beyond a coarse bucket-vs-sample kind check, so replaying one
 against an edited time range or PV list yields a well-formed but **semantically wrong** result
 rather than an error. Every query starts from null.
+
+**The paging loop is bounded twice, and neither bound is the server's.** It stops at
+`DataExploreViewModel.MAX_DISPLAYED_ROWS` (50,000), and it stops when the task is cancelled. The
+server's page bound cannot stand in for either: it bounds a single *page* and then hands back a
+resume token, so following tokens to exhaustion is an unbounded read however small each page is.
+
+**The V2 selector arms are what made that reachable.** The retired V1 path was bounded in practice
+because the only way to choose PVs was to type them into the name list — the row count was the
+user's own PV list times their own time range. A pattern or metadata selection removes that implicit
+ceiling, and an all-empty metadata query is *not* rejected: it matches every PV in the archive. The
+server's `maxResolvedPvCount` catches only the extreme; a selector resolving to just under it over a
+wide window is accepted, and would otherwise accumulate without end into an `ObservableList` on the
+FX thread.
+
+**Rows are capped, not pages**, because a page is a server-side accounting unit whose size the
+client does not control. The page crossing the boundary is **trimmed rather than dropped whole** —
+the rows before the boundary are as real as any other.
+
+**`cancel()` now actually cancels.** It previously set a status message and nothing else, so a query
+in flight kept following resume tokens after the user asked it to stop, and the message claimed
+otherwise. Cancellation is polled **between pages**: a page is one unary round trip that cannot be
+interrupted once issued, so the finest honest granularity is per page, and the rows from a page
+already received are kept rather than discarded. The Query Editor carries a **Stop Query** button,
+visible only while a query runs and distinct from **Cancel**, which leaves the view entirely.
+
+**Both bounds, and a mid-query failure, set `resultsTruncated`** — and the completion message is
+built by `describeResult()`, which never states a bare count for a partial result. A capped table
+reported as a total is indistinguishable, from the table alone, from a query that genuinely had
+nothing more to return; that is the same defect transparent paging exists to prevent.
+
+**The outcome is RETURNED from `call()` and applied in `setOnSucceeded`, never published from inside
+the loop via `Platform.runLater`** — and applied *before* `isQuerying` clears. Both halves are the
+D-2 ordering rule (see the explore-view search vocabulary above) in this view: `setOnSucceeded` runs
+on the FX thread and therefore runs *before* a block queued from the background thread, and setting
+a JavaFX property notifies its listeners synchronously, so anything watching `isQuerying` — the
+progress indicator, the row-count label — would otherwise read a stale count and a stale truncation
+flag. `DataExploreQueryBoundsTest` observes the count at the moment the flag clears rather than
+asserting the final value, which would pass against both the fixed and the broken version.
+
+**The chart rebuild is coalesced, not run per page.** `updateChart()` re-reads every accumulated row
+and rebuilds every series, so running it once per arriving page makes the total work quadratic in
+the number of pages, on the FX thread, while rows are still being added. It cannot be made
+incremental instead: the dynamic sample interval is computed from the *total* row count, so
+appending one page's points to series sampled for a smaller total would mix two sampling rates in
+one line. `requestChartUpdate()` collapses the rebuilds queued within a pulse into one, against the
+fully accumulated data.
 
 **`limit` is deliberately left unset.** The server does not `.limit()` the Mongo cursor — it drains
 buckets until the byte budget trips and then truncates — so a small limit causes repeated near-full
@@ -1260,6 +1314,21 @@ rendered as text is indistinguishable from a PV that really reported that text, 
 turns a large unsigned reading into a negative one, and a transpose that reads its row count from a
 column truncates the whole page at once. All four were mutation-checked against the defect they
 claim to catch.
+
+**Query bounds tests** (`DataExploreQueryBoundsTest`): covers the display cap, cancellation, and the
+truncation reporting that makes either honest. The fake serves pages **endlessly**, always returning
+a next-page token, so only a client-side bound can end the loop — a fake that stopped on its own
+could not distinguish a working cap from a query that simply ran out of data, and a regression that
+removes the cap hangs the test rather than passing it.
+
+All four guards were mutation-checked, and the cancellation one **failed that check on its first
+version**, which is worth recording. It used ten-row pages, and an in-memory fake serves 50,000
+single-row pages in a fraction of a second — so the query ended at the *cap* whether or not
+`cancel()` did anything, and the test passed against a `cancel()` that only set a status message:
+precisely the defect it claims to catch. It now uses one row per page *and* a per-page delay, which
+puts the cap over sixteen minutes out of reach, so only a working cancel can end the loop. The
+lesson generalizes: when two bounds can end the same loop, a test for one of them must put the other
+out of reach or it proves nothing.
 
 **Live V2 test** (`QuerySamplesLiveIT`): pins what the unit suite structurally cannot — the shape the
 **server** actually returns. That a `ColumnTable` carries its axis only in `timestampList` with no

@@ -11,8 +11,24 @@ import javafx.stage.Window;
  * <p><strong>A {@code Dialog} sizes itself once.</strong>  It computes its preferred size when the
  * scene is first laid out and then keeps it, so a dialog whose content grows later ends up with
  * part of that content -- including the button bar, which sits BELOW the content -- outside the
- * window.  Both selector dialogs do exactly that: they show one detail pane per mode and set the
- * others {@code managed=false}, so every mode change alters the content's preferred height.
+ * window.
+ *
+ * <p>The two dialogs reach that state by different routes, and a helper written for only one of
+ * them would miss the other:
+ *
+ * <ul>
+ *   <li>{@code PvSelectorDialogController} shows one detail pane per mode and sets the others
+ *       {@code managed=false}, so every MODE CHANGE alters the preferred height.  It also has a
+ *       warning label (below).</li>
+ *   <li>{@code QueryFiltersDialogController} keeps both filter panes managed and merely disables
+ *       them, so its mode-equivalent costs nothing.  Its height changes only through its WARNING
+ *       LABEL.</li>
+ * </ul>
+ *
+ * <p>Both carry a warning label that is {@code managed=false} until it has something to say, so in
+ * both dialogs a warning appearing or clearing grows the content exactly as a mode change does.
+ * That is why {@link #resizeToFit} is exposed separately from {@link #resizeToFitOnModeChange}:
+ * the toggle group is specific to one dialog, the warning is common to both.
  *
  * <p>The failure this fixes was reported as confusion rather than as a bug, which is the part worth
  * remembering.  The PV selector opens on Name list -- by far its smallest mode -- so switching to

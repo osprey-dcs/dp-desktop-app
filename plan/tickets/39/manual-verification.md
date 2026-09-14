@@ -244,6 +244,37 @@ db.providers.deleteMany({name: "manual-check"})
 
 ---
 
+## Known platform behaviour: dialog size persistence
+
+The selector dialogs (`Select PVs...`, `Query Filters...`) change height as their content changes —
+the PV selector swaps a detail pane per mode, and both raise a warning label that is unmanaged until
+it has something to say. On macOS this was observed opening **clipped**, with `Apply` below the
+bottom edge, on **every** open — until the window was resized once by hand, after which it
+"remembered" the larger size and behaved.
+
+That last part is the diagnostic: it is JavaFX dialog size **persistence** interacting with a first
+layout that ran before the taller pane was managed, not content merely outgrowing its window. Both
+dialogs now call `sizeToScene()` when their height changes (`DialogSizing`), which forces a re-fit
+past the cached size.
+
+**This is not reproducible in the test suite, and the tests do not claim to cover it.** Headlessly,
+a showing `Dialog` re-lays out on its own (measured: 452px of window for 424px of content, identical
+with the fix removed) and there is no prior user resize to have been cached. `DialogSizingTest`
+therefore checks only that the wiring is reachable and that the warning which grows the content
+really does appear. Verifying the behaviour itself needs a real window manager, which is why it
+lives here:
+
+- **D1** — Open `Select PVs...`. Switch to **Metadata criteria**. ❗ The dialog should grow to fit,
+  with `Apply` visible without resizing.
+- **D2** — With **Metadata criteria** selected and a tag entered, clear the tag field. ❗ The
+  whole-archive warning appears and the dialog should still show `Apply`.
+- **D3** — Resize the dialog larger, close it, reopen it, and switch modes. ❗ `Apply` stays
+  reachable. (This is the path where the cached size is in play.)
+- **D4** — Open `Query Filters...`, tick **Restrict by sample status**, and leave the domain blank
+  so the warning appears. ❗ `Apply` stays visible, and is disabled while the domain is blank.
+
+---
+
 ## Reporting
 
 For anything marked ❗ or ❗❗, note the step number and what you saw instead. The ❗❗ in **3c** is

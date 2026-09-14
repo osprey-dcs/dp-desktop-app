@@ -14,11 +14,42 @@ MongoClient:
   # MongoClient.dbPassword: Password for dbUser for connection to MongoDB by Data Platform services.
   dbPassword: admin
 
+# DpDesktopApp: Settings for the desktop GUI application itself.
+DpDesktopApp:
+
+  # DpDesktopApp.mode: Which gRPC targets the application runs against.
+  #   demo       - starts a self-contained in-process service ecosystem backed by the local
+  #                dp-demo MongoDB database.  This is the default, and what you get with
+  #                "mvn javafx:run" or by running DpDesktopApplicationRunner with no flags.
+  #   deployment - connects to already-running remote services at the GrpcClient.*ConnectString
+  #                targets below, and never constructs a MongoDB client.  Ingestion and metadata
+  #                authoring are disabled in this mode; the Explore views are enabled at launch.
+  # An absent or unrecognized value is treated as "demo".
+  # Override at launch with -Ddp.DpDesktopApp.mode=deployment, or ship a deployment
+  # application.yml and point at it with -Ddp.config=<path> or the DP.CONFIG environment variable.
+  mode: demo
+
 # GrpcClient: General settings for gRPC clients.
 GrpcClient:
 
   # GrpcClient.hostname: Name of host running Data Platform services.
+  # NOTE: not used for client channel construction -- the *ConnectString settings below are.
   hostname: localhost
+
+  # Connect strings ("host:port") for the four services, used in deployment mode only.
+  # GrpcClient.ingestionConnectString is also read by dp-service's IngestionServiceClientUtility.
+
+  # GrpcClient.ingestionConnectString: Ingestion Service gRPC target.
+  ingestionConnectString: "localhost:50051"
+
+  # GrpcClient.queryConnectString: Query Service gRPC target.
+  queryConnectString: "localhost:50052"
+
+  # GrpcClient.annotationConnectString: Annotation Service gRPC target.
+  annotationConnectString: "localhost:50053"
+
+  # GrpcClient.ingestionStreamConnectString: Ingestion Stream Service gRPC target.
+  ingestionStreamConnectString: "localhost:50054"
 
   # GrpcClient.keepAliveTimeSeconds: Sets the time (in seconds) since the last receipt before sending a keepalive ping.
   keepAliveTimeSeconds: 45

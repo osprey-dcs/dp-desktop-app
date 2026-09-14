@@ -12,10 +12,13 @@ import com.ospreydcs.dp.grpc.v1.common.*;
 import com.ospreydcs.dp.grpc.v1.ingestion.RegisterProviderResponse;
 import com.ospreydcs.dp.grpc.v1.ingestionstream.PvConditionTrigger;
 import com.ospreydcs.dp.grpc.v1.ingestionstream.SubscribeDataEventResponse;
+import com.ospreydcs.dp.gui.config.AppConfiguration;
+import com.ospreydcs.dp.gui.config.RemoteChannelFactory;
 import com.ospreydcs.dp.gui.model.*;
 import com.ospreydcs.dp.service.common.model.ResultStatus;
 import com.ospreydcs.dp.service.common.protobuf.TimestampUtility;
 import com.ospreydcs.dp.service.inprocess.InprocessServiceEcosystem;
+import io.grpc.ManagedChannel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -32,7 +35,9 @@ public class DpApplication {
     private static final Logger logger = LogManager.getLogger();
 
     // instance variables
+    private AppConfiguration configuration = null;
     private InprocessServiceEcosystem inprocessServiceEcosystem = null;
+    private List<ManagedChannel> remoteChannels = List.of();
     private ApiClient api = null;
     
     // state variables for cross-view usage
@@ -571,19 +576,17 @@ public class DpApplication {
 
     public boolean init() {
 
-        // create InprocessServiceEcosystem with default local grpc targets
-        inprocessServiceEcosystem = new InprocessServiceEcosystem();
-        if (!inprocessServiceEcosystem.init()) {
+        configuration = AppConfiguration.fromConfiguration();
+        logger.info("initializing application in mode: {}", configuration.describe());
+
+        final boolean channelsReady = configuration.isDeployment()
+                ? initRemoteChannels()
+                : initInprocessEcosystem();
+
+        if (!channelsReady) {
             return false;
         }
 
-        // initialize ApiClient with grpc targets from default inprocess service ecosystem
-        api = new ApiClient(
-            inprocessServiceEcosystem.ingestionService.getIngestionChannel(),
-            inprocessServiceEcosystem.queryService.getQueryChannel(),
-            inprocessServiceEcosystem.annotationService.getChannel(),
-            inprocessServiceEcosystem.ingestionStreamService.getChannel()
-        );
         if (!api.init()) {
             return false;
         }
@@ -591,10 +594,105 @@ public class DpApplication {
         return true;
     }
 
-    public boolean fini() {
-        api.fini();
-        inprocessServiceEcosystem.fini();
+    /**
+     * Demo mode: start the self-contained in-process service ecosystem and point the ApiClient at
+     * its four channels.  Unchanged behavior from before issue #4, and the default.
+     */
+    private boolean initInprocessEcosystem() {
+
+        inprocessServiceEcosystem = new InprocessServiceEcosystem();
+        if (!inprocessServiceEcosystem.init()) {
+            return false;
+        }
+
+        api = new ApiClient(
+            inprocessServiceEcosystem.ingestionService.getIngestionChannel(),
+            inprocessServiceEcosystem.queryService.getQueryChannel(),
+            inprocessServiceEcosystem.annotationService.getChannel(),
+            inprocessServiceEcosystem.ingestionStreamService.getChannel()
+        );
+
         return true;
+    }
+
+    /**
+     * Deployment mode: connect to four already-running remote services.
+     *
+     * <p>{@code inprocessServiceEcosystem} stays null on this path, and that is the safety
+     * property rather than an incidental one.  The in-process ecosystem is the only thing in the
+     * application that constructs a MongoDB client, so a deployment-mode launch cannot reach the
+     * demo database -- nor the drop path that used to run at launch -- however the rest of the
+     * application is later changed.  It is a structural guarantee, not a flag someone can get
+     * wrong.
+     *
+     * <p>{@code ApiClient} takes four plain {@code ManagedChannel}s, so every API call site is
+     * already transport-agnostic and none of them differ between the two modes.
+     */
+    private boolean initRemoteChannels() {
+
+        // Accumulated as they are built, rather than assigned once from a four-argument List.of(),
+        // so that a failure on the third connect string still leaves the first two reachable for
+        // shutdown below instead of leaking them.
+        final List<ManagedChannel> channels = new ArrayList<>();
+
+        try {
+            channels.add(RemoteChannelFactory.createChannel(configuration.getIngestionConnectString()));
+            channels.add(RemoteChannelFactory.createChannel(configuration.getQueryConnectString()));
+            channels.add(RemoteChannelFactory.createChannel(configuration.getAnnotationConnectString()));
+            channels.add(RemoteChannelFactory.createChannel(configuration.getIngestionStreamConnectString()));
+        } catch (Exception e) {
+            // A malformed connect string fails here rather than at first use, where it would
+            // surface as an unexplained query failure well after launch.
+            logger.error("failed creating remote grpc channels: {}", e.getMessage(), e);
+            for (ManagedChannel channel : channels) {
+                RemoteChannelFactory.shutdown(channel, "partially created remote service channel");
+            }
+            return false;
+        }
+
+        remoteChannels = channels;
+
+        api = new ApiClient(
+                remoteChannels.get(0),
+                remoteChannels.get(1),
+                remoteChannels.get(2),
+                remoteChannels.get(3)
+        );
+
+        return true;
+    }
+
+    public boolean fini() {
+
+        if (api != null) {
+            api.fini();
+        }
+
+        if (inprocessServiceEcosystem != null) {
+            inprocessServiceEcosystem.fini();
+        }
+
+        for (ManagedChannel channel : remoteChannels) {
+            RemoteChannelFactory.shutdown(channel, "remote service channel");
+        }
+        remoteChannels = List.of();
+
+        return true;
+    }
+
+    /**
+     * The mode and targets this application was launched with.
+     *
+     * <p>Non-null only after {@link #init()}.  Callers that run before init -- there are none
+     * today, since {@code DpDesktopApplication.init()} runs first -- would see null.
+     */
+    public AppConfiguration getConfiguration() {
+        return configuration;
+    }
+
+    /** True when running against remote services; see the mode matrix in plan/tickets/4/plan.md. */
+    public boolean isDeploymentMode() {
+        return configuration != null && configuration.isDeployment();
     }
 
     public ResultStatus registerProvider(

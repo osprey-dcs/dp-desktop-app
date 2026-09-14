@@ -1,5 +1,6 @@
 package com.ospreydcs.dp.gui;
 
+import com.ospreydcs.dp.service.inprocess.MongoInterface;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -114,5 +115,52 @@ public class HomeHintsModeTest {
         assertTrue(rendered.length() > 0, "failed to locate the rendered literals in HomeController");
         assertEquals(HomeViewModel.DEPLOYMENT_HINT, rendered.toString(),
                 "the sentence HomeController renders must match the hint HomeViewModel publishes");
+    }
+
+    // ---- demo data now survives a restart (#4 task 3) ----
+
+    /**
+     * The pre-ingestion details must not claim the archive is empty.
+     *
+     * <p>Before #4 task 3 they said "No data has been ingested yet", and that was true: the database
+     * was dropped at every launch, so "this session ingested nothing" and "the database is empty"
+     * were the same statement.  They are not any more, and this is the first screen a user sees when
+     * starting the app on top of a previous session's data -- so a message asserting emptiness is
+     * now simply wrong, and wrong in the direction that hides data rather than inventing it.
+     */
+    @Test
+    @DisplayName("demo details do not claim the archive is empty before ingestion")
+    public void testDemoDetailsDoNotClaimAnEmptyArchive() {
+        final HomeViewModel viewModel = new HomeViewModel();
+        viewModel.setDeploymentMode(false);
+
+        final String details = viewModel.detailsTextProperty().get();
+
+        assertTrue(details.contains("this session"),
+                "the details must scope their claim to the session rather than the archive: " + details);
+        assertTrue(details.contains(MongoInterface.DEMO_DATABASE_NAME),
+                "the details must name the database that Tools > Delete Demo Data drops, since "
+                        + "nothing else in the UI does: " + details);
+    }
+
+    /**
+     * The same message must be shown whether the view model has been reset or never used, because
+     * the situation it describes is identical: nothing ingested this session, unknown archive
+     * contents.  Reset previously restored a DIFFERENT pre-ingestion string than the initial one --
+     * harmless while both were wrong in the same way, and a divergence now that one of them says
+     * something specific.
+     */
+    @Test
+    @DisplayName("reset restores the same pre-ingestion details as launch")
+    public void testResetRestoresTheSameDetails() {
+        final HomeViewModel viewModel = new HomeViewModel();
+        viewModel.setDeploymentMode(false);
+        final String atLaunch = viewModel.detailsTextProperty().get();
+
+        viewModel.updateDataIngestedState(true);
+        viewModel.resetApplicationState();
+
+        assertEquals(atLaunch, viewModel.detailsTextProperty().get(),
+                "a reset describes the same situation as a fresh launch and must say the same thing");
     }
 }

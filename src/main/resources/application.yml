@@ -1,4 +1,12 @@
 # MongoClient: Settings for connection to MongoDB.
+#
+# NOTE: the database NAME is not configured here.  Demo mode overrides it in code to "dp-demo"
+# (MongoInterface.DEMO_DATABASE_NAME), before any service starts.  Deployment mode never constructs
+# a MongoDB client at all -- it talks to the GrpcClient.*ConnectString services below, which own
+# their own database connections.
+#
+# As of issue #4 the demo database is NO LONGER DROPPED at launch; it persists across restarts, and
+# Tools > Delete Demo Data clears it on request.
 MongoClient:
 
   # MongoClient.dbHost: The host that is running the MongoDB server.

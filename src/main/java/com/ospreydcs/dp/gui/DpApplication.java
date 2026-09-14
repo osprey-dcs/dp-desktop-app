@@ -542,6 +542,58 @@ public class DpApplication {
     public List<DataEventSubscription> getDataEventSubscriptions() {
         return new ArrayList<>(dataEventSubscriptions);
     }
+
+    /**
+     * Clears the session state that describes data in the archive, after the demo database has been
+     * deleted.
+     *
+     * <p>Called only from the Tools &gt; Delete Demo Data action, and only after the drop has
+     * actually succeeded.  The point is agreement between what the application claims and what the
+     * archive holds: {@code hasIngestedData} drives the Explore menu and the home view, so leaving
+     * it set after a delete would offer views onto an empty database and report counts for buckets
+     * that no longer exist -- which reads as the query paths being broken rather than as the data
+     * having been deleted on request.
+     *
+     * <p><b>Deliberately narrower than "reset everything".</b>  Three pieces of state are left
+     * alone, each for its own reason:
+     *
+     * <ul>
+     *   <li>{@code configuration} and the API client -- properties of how the application was
+     *       launched, not of the session.  The connection is still live and still correct.</li>
+     *   <li>{@code dataEventSubscriptions} -- each holds an open gRPC call.  Clearing the list would
+     *       leak those calls rather than end them, and cancelling them here would tear down streams
+     *       the user did not ask to stop.  They are left running, and they remain reachable through
+     *       {@link #getDataEventSubscriptions()}: the Data Events menu item going disabled hides the
+     *       view, it does not stop the subscriptions.  Ending them belongs to
+     *       {@code cancelDataEventSubscription()}, which is the only path that closes the call
+     *       rather than dropping the reference.</li>
+     *   <li>{@code dataBeginTime} / {@code dataEndTime} -- a query window the user chose, which is
+     *       still a perfectly good window to query once new data exists.</li>
+     * </ul>
+     */
+    public void resetIngestedDataState() {
+
+        hasIngestedData = false;
+        hasPerformedQueries = false;
+        totalPvsIngested = 0;
+        totalBucketsCreated = 0;
+
+        // The PV list describes PVs that were in the archive.  Note the convention this field
+        // carries throughout DpApplication: empty means null, not an empty list -- setPvNames() and
+        // removePvName() both collapse to null, and getPvNames() callers are written against that.
+        pvNames = null;
+
+        // Provider registration is state held in the database that was just dropped, so the id no
+        // longer resolves.  Leaving it set would let a subsequent ingestion attempt reference a
+        // provider that does not exist -- generateAndIngestData() guards on providerId being
+        // non-null and would sail past that guard into a server rejection.
+        providerId = null;
+        providerName = null;
+
+        lastOperationResult = null;
+
+        logger.info("session state reset after demo database delete");
+    }
     
     // Individual PV name management methods (for pv-explore view)
     public void addPvName(String pvName) {

@@ -41,6 +41,13 @@
                   <MenuItem fx:id="dataEventsMenuItem" disable="true" onAction="#onDataEvents" text="Data Events" />
                </items>
             </Menu>
+            <Menu text="Tools">
+               <items>
+                  <!-- demo mode only; disabled by MainViewModel.deleteDemoDataEnabled in deployment
+                       mode, and re-checked against the mode in MainController.onDeleteDemoData() -->
+                  <MenuItem fx:id="deleteDemoDataMenuItem" onAction="#onDeleteDemoData" text="Delete Demo Data" />
+               </items>
+            </Menu>
          </menus>
       </MenuBar>
    </top>

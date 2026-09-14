@@ -1,5 +1,6 @@
 package com.ospreydcs.dp.gui;
 
+import com.ospreydcs.dp.service.inprocess.MongoInterface;
 import javafx.beans.property.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -38,6 +39,23 @@ public class HomeViewModel {
                     + "The Explore views are available immediately.";
 
     /**
+     * Shown in demo mode before this session has ingested anything.
+     *
+     * <p>It deliberately does not say the archive is empty, which is what it said before #4.  The
+     * demo database is no longer dropped at launch, so "nothing ingested <i>this session</i>" and
+     * "nothing in the database" stopped being the same statement -- and this is the screen a user
+     * reads right after starting the app on top of a previous session's data.
+     *
+     * <p>Naming the database is the other half: {@code dp-demo} is what Tools &gt; Delete Demo Data
+     * actually drops, and this is the only place in the UI that says so.
+     */
+    static final String DEMO_DETAILS_NO_SESSION_DATA =
+            "Nothing has been ingested in this session. The demo database ("
+                    + MongoInterface.DEMO_DATABASE_NAME
+                    + ") keeps data between runs, so it may still hold data from a previous one -- "
+                    + "use Explore to look, or Tools \u2192 Delete Demo Data to clear it.";
+
+    /**
      * Whether the application is pointed at remote services.  Fixed at launch, like
      * {@code MainViewModel}'s copy, and for the same reason it is a plain field rather than a
      * property.
@@ -56,7 +74,7 @@ public class HomeViewModel {
             detailsText.set(DEPLOYMENT_DETAILS);
         } else {
             hintsText.set("Start by using the Ingest→Generate or Ingest→Import menus to generate or import some PV data and ingest it to the MLDP archive.");
-            detailsText.set("No data has been ingested yet.");
+            detailsText.set(DEMO_DETAILS_NO_SESSION_DATA);
         }
         statusText.set("Ready");
     }
@@ -92,7 +110,7 @@ public class HomeViewModel {
             }
         } else {
             hintsText.set("Start by using the Ingest→Generate or Ingest→Import menus to generate or import some PV data and ingest it to the MLDP archive.");
-            detailsText.set("No data has been ingested yet. Generate some sample data to get started.");
+            detailsText.set(DEMO_DETAILS_NO_SESSION_DATA);
         }
 
         // Update status with last operation result if available

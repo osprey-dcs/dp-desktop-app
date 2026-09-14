@@ -46,6 +46,14 @@ public class MainViewModel {
     private final BooleanProperty machineConfigCreateEnabled = new SimpleBooleanProperty(true);
 
     /**
+     * Tools &gt; Delete Demo Data.  Demo-mode only, and it is the one item whose binding is not the
+     * last line of defense: {@code MainController.onDeleteDemoData()} re-checks the mode before
+     * acting, so a refactor that breaks this binding cannot turn the action into a delete against a
+     * production archive.
+     */
+    private final BooleanProperty deleteDemoDataEnabled = new SimpleBooleanProperty(true);
+
+    /**
      * Whether the application is pointed at remote services rather than the in-process demo
      * ecosystem.  Held as a plain field rather than a property: it is fixed at launch (File >
      * Connection, which would change it at runtime, is a disabled stub), and a property would
@@ -174,6 +182,10 @@ public class MainViewModel {
         return machineConfigCreateEnabled;
     }
 
+    public BooleanProperty deleteDemoDataEnabledProperty() {
+        return deleteDemoDataEnabled;
+    }
+
     // Business logic methods
     public void updateStatus(String status) {
         statusText.set(status);
@@ -244,6 +256,12 @@ public class MainViewModel {
         // Metadata menu -- curated records, authored here, so writes
         pvMetadataCreateEnabled.set(writeEnabled);
         machineConfigCreateEnabled.set(writeEnabled);
+
+        // Tools menu.  Deleting the demo database is only meaningful when there is one -- in
+        // deployment mode no Mongo client is ever constructed, so the action has no target at all.
+        // It follows writeEnabled rather than carrying its own rule because it IS a write, and the
+        // most destructive one the application offers.
+        deleteDemoDataEnabled.set(writeEnabled);
 
         // Explore menu
         dataEnabled.set(exploreEnabled);

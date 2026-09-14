@@ -133,6 +133,42 @@ public class MenuGatingTest {
         assertFalse(demoMode().dataEventsEnabledProperty().get(), "Explore > Data Events");
     }
 
+    // ---- tools menu ----
+
+    /**
+     * Tools &gt; Delete Demo Data drops a database.  In deployment mode there is no demo database to
+     * drop -- no Mongo client is ever constructed -- so the item is gated with the write features.
+     *
+     * <p>Asserted in both directions on purpose: an implementation that disabled it unconditionally
+     * would pass a deployment-only assertion while removing the action entirely, which is how the
+     * stale demo data this release introduces would become permanent.
+     */
+    @Test
+    @DisplayName("Delete Demo Data is enabled in demo mode and disabled in deployment mode")
+    public void testDeleteDemoDataFollowsTheMode() {
+        assertTrue(demoMode().deleteDemoDataEnabledProperty().get(),
+                "Tools > Delete Demo Data must be available in demo mode -- the database is no "
+                        + "longer dropped at launch, so this is the only way to clear it");
+        assertFalse(deploymentMode().deleteDemoDataEnabledProperty().get(),
+                "Tools > Delete Demo Data must be disabled in deployment mode");
+    }
+
+    /**
+     * The delete action is gated on the mode alone, never on whether this session ingested.  Demo
+     * data now survives a restart, so the database can hold a previous session's data while
+     * {@code hasIngestedData} is false -- gating on it would leave exactly that data undeletable.
+     */
+    @Test
+    @DisplayName("Delete Demo Data is enabled before this session has ingested anything")
+    public void testDeleteDemoDataDoesNotDependOnIngestion() {
+        final MainViewModel viewModel = demoMode();
+        assertFalse(viewModel.dataEnabledProperty().get(),
+                "precondition: nothing has been ingested in this session");
+        assertTrue(viewModel.deleteDemoDataEnabledProperty().get(),
+                "a previous session's data can still be in the database, so the delete action must "
+                        + "not depend on this session having ingested");
+    }
+
     // ---- mode is readable, and is not a property that something can flip ----
 
     @Test

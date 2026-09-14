@@ -99,6 +99,7 @@ File → Connection, Preferences, Exit
 Ingest → Generate, Import (Fixed and Subscribe removed)
 Metadata → PV, Machine Configuration
 Explore → Data, PV Statistics, PV Metadata, Providers, Datasets, Annotations, Machine Configurations, Sample Statuses, Data Events
+Tools → Delete Demo Data
 ```
 
 **Menu Item Logic:**
@@ -1453,6 +1454,36 @@ mutation-checked: dropping the criteria failed with "the configuration selector 
 rows, so it is being DROPPED rather than applied", and neutering the codes failed with "the CODES are
 being ignored and only the domain is applied -- which silently widens every INCLUDE filter".
 
+**Demo database lifecycle test** (`DemoDatabaseLifecycleLiveIT`, added by #4 task 3): pins the
+behavior change that the demo database is no longer dropped at launch. Every claim in it is about
+what MongoDB still holds after a call returns, so none of it is reachable without a database:
+ingested data survives an ecosystem restart; this run's buckets are in `dp-demo` and **not** in
+dp-service's default `dp`; `deleteDemoDatabase()` actually removes the database; and the session
+reset clears what the delete invalidated.
+
+**It drops the configured database**, unlike the other live ITs, which avoid that by stamping
+individual records and cleaning them up. Here the drop *is* the subject. Running it wipes whatever
+demo data is present.
+
+Two of its guards failed their mutation check on the first version, both the same shape — asserting
+a condition that already held:
+
+- the name-override guard asserted that the database `dp-demo` **exists**, which a previous run had
+  already made true. With the override removed it passed while 41 buckets went to `dp`. It now
+  counts documents per database, and asserts zero in `dp` — the negative half is what stops the
+  positive one passing on a leftover database.
+- the session-reset guard asserted `providerId` was null without ever registering a provider, so it
+  passed against a reset that cleared nothing. It now sets every field it asserts, and checks each
+  precondition first.
+
+Note also that the restart assertion deliberately does **not** poll: the data is confirmed visible
+*before* the restart, so anything less than an immediate hit afterward means the restart removed it.
+Polling there would mask the exact failure the test exists to catch. The initial ingest does gate on
+visibility, for the documented asynchronous-ingestion lag.
+
+Run it alone with `mvn test -Dtest=DemoDatabaseLifecycleLiveIT`; watch it skip with
+`-Ddp.MongoClient.dbPort=1`.
+
 **What live coverage still does not reach**: FXML rendering, clicks, navigation between views, and
 the editor forms. Those need the manual scenario in `plan/tickets/39/manual-verification.md`.
 
@@ -1501,9 +1532,47 @@ not redden the build, and leftover stamped records are inert and identifiable. T
 
 ## MongoDB Integration
 - Default database: `dp-demo`
-- Managed through `InprocessServiceEcosystem`
+- Managed through `InprocessServiceEcosystem` — **demo mode only**. Deployment mode never constructs
+  a MongoDB client, so `MongoInterface` is unreachable there (see the Application Modes section)
 - Data persistence handled by gRPC service layer
 - MongoDB drivers: sync, reactive streams, core, and BSON
+
+### The demo database is not dropped at launch (changed in #4)
+
+`MongoInterface.init()` used to do **two** unrelated things in one call: override the database name
+globally, and drop the database. Issue #4 removed only the drop.
+
+**This is the first release in which demo data survives a restart.** A demo that always started
+clean can now start with a previous session's providers, buckets, sample statuses and metadata.
+`Tools → Delete Demo Data` clears it on request, with a confirmation dialog naming the database.
+
+**The name override must stay in `MongoInterface.init()`**, and this is the hazard in the split
+rather than the drop. `MongoClientBase.setMongoDatabaseName()` is `protected static`, so only a
+subclass can call it — which is why the two operations shared a method in the first place. Removing
+the override along with the drop would silently point the demo at dp-service's default database
+name (`dp`), which in a real installation is **production**, and **nothing would error**: ingestion
+and query would both work, in the wrong database, because reads and writes would agree on the wrong
+name. `DemoDatabaseLifecycleLiveIT` counts buckets *per database* rather than asserting the demo
+name merely exists — an earlier version of that guard asserted existence and passed against a
+removed override, because a previous run's `dp-demo` was still on the server.
+
+**`hasIngestedData` and "the database is empty" stopped being the same statement.** The home view's
+pre-ingestion details used to say "No data has been ingested yet"; they now scope the claim to the
+session and name the database, because the archive may hold a previous run's data while
+`hasIngestedData` is false. For the same reason `Tools → Delete Demo Data` is gated on the **mode
+alone**, never on `hasIngestedData` — gating it on ingestion would leave exactly that leftover data
+undeletable.
+
+**The delete action re-checks the mode at invocation**, in addition to its menu binding. This is the
+one action that earns defense in depth: a broken binding is invisible (a disabled item that becomes
+enabled still looks like a working menu), and the consequence in deployment mode would be a drop
+against someone else's archive. Note also that `MongoInterface.init()` sets the database name
+*globally* for the process, so reaching `deleteDemoDatabase()` in deployment mode would repoint the
+whole process even before the drop.
+
+**A failed drop must not clear the session state.** `deleteDemoDatabase()` returns false when the
+database is untouched, and the UI reports the failure rather than resetting — an application showing
+a pre-ingestion home view over a fully populated archive is worse than one showing an error.
 
 ## Debugging and Logging
 - Log4j2 configuration in `src/main/resources/log4j2.xml` (currently set to DEBUG level)

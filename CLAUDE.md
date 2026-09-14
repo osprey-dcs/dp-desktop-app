@@ -1487,6 +1487,13 @@ Run it alone with `mvn test -Dtest=DemoDatabaseLifecycleLiveIT`; watch it skip w
 **What live coverage still does not reach**: FXML rendering, clicks, navigation between views, and
 the editor forms. Those need the manual scenario in `plan/tickets/39/manual-verification.md`.
 
+**Remote deployment targets are not reachable by any automated test** (#4), and cannot be: CI has no
+running dp-service instances. `plan/tickets/4/manual-verification.md` carries that scenario, along
+with the launch recipes -- note that **`mvn javafx:run -Ddp.DpDesktopApp.mode=deployment` silently
+launches DEMO mode**, because the plugin forks a JVM that does not inherit Maven's system properties.
+Use the shaded jar with `-D`, or `env "DP.CONFIG=<file>" mvn javafx:run`. A verification run against
+the wrong mode passes every check while proving nothing, which is why that document leads with it.
+
 **Calculations import fixture** (`CalculationsWorkbookFixture`, added by #43): generates the
 multi-sheet XLSX used to exercise Annotation Builder → Import Calculations by hand, and through it
 the Calculations presence column, the fetch-on-click, and the multi-frame chooser.

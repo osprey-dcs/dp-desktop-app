@@ -315,6 +315,16 @@ public class PvSelectorDialogController implements Initializable {
             controller.modeToggleGroup.selectedToggleProperty().addListener(
                     (obs, oldVal, newVal) -> applyNode.setDisable(!controller.isAcceptable()));
 
+            // Re-fit the window when the mode changes.  Switching modes swaps which detail pane is
+            // MANAGED, which changes the content's preferred height -- but a Dialog sizes itself
+            // once, when first shown, so it keeps the height it was laid out for.  Name list is by
+            // far the smallest mode and is the default, so opening there and switching to metadata
+            // grew the content past the bottom of the window and pushed APPLY OFF SCREEN.  The
+            // dialog is resizable, so the user could drag it larger -- which is precisely why this
+            // presented as a confusing feature rather than as an obvious bug: the button was
+            // reachable, just invisible until you thought to resize.
+            DialogSizing.resizeToFitOnModeChange(dialog, controller.modeToggleGroup);
+
             if (ownerStage != null) {
                 dialog.initOwner(ownerStage);
             }

@@ -309,6 +309,14 @@ public class QueryFiltersDialogController implements Initializable {
             controller.warningLabel.textProperty().addListener(
                     (obs, oldVal, newVal) -> applyNode.setDisable(!controller.isAcceptable()));
 
+            // Re-fit when the warning appears or disappears.  This dialog keeps both filter panes
+            // MANAGED and merely disables them, so its content height is stable in a way the PV
+            // selector's is not -- but the warning label is managed=false until it has something to
+            // say, so it grows the content exactly like a mode change does.  Same fix, same reason:
+            // a Dialog sizes itself once, and what sits below the content is the button bar.
+            controller.warningLabel.managedProperty().addListener(
+                    (obs, oldVal, newVal) -> DialogSizing.resizeToFit(dialog));
+
             if (ownerStage != null) {
                 dialog.initOwner(ownerStage);
             }

@@ -44,23 +44,31 @@ for p in 50051 50052 50053 50054; do printf "%s: " "$p"; \
 > succeeded and logged `creating remote grpc channel to: localhost:50054` with no error. Data Events
 > is disabled in deployment mode for this release anyway, so nothing reaches that channel.
 
-Launch in deployment mode. **Two forms are verified to work; the obvious one does not.**
+Launch in deployment mode. **Prefer `--mode`; note the `-D` trap below.**
+
+**Form A — `--mode` (simplest, works everywhere):**
+
+```bash
+# shaded jar
+mvn clean package -DskipTests
+java -jar target/dp-desktop-app-1.16.0-shaded.jar --mode=deployment
+
+# or through the plugin
+mvn javafx:run -Djavafx.args=--mode=deployment
+```
+
+Also the form to use in an IDE run configuration: put `--mode=deployment` in the program arguments
+of a `DpDesktopApplicationRunner` configuration.
 
 > ❗ **`mvn javafx:run -Ddp.DpDesktopApp.mode=deployment` does NOT work, and fails silently.**
 > The plugin forks a JVM that does not inherit Maven's system properties, so the flag is ignored and
-> **the app launches in demo mode while appearing to honor the flag**. Verified: with that flag the
-> startup log read `application configuration: Demo (in-process)`. `-Djavafx.options=...` and
-> `-Djavafx.options.0=...` are ignored the same way. This is the most dangerous failure in the whole
-> procedure — every check below would then be run against the wrong target and would "pass".
+> **the app launches in demo mode while appearing to honor the flag**. Verified: that invocation
+> logged `application configuration: Demo (in-process)`. `-Djavafx.options=...` is ignored the same
+> way. This is the most dangerous failure in the procedure — every check below would then run
+> against the wrong target and "pass". The `-D` form *is* correct on the shaded jar
+> (`java -Ddp.DpDesktopApp.mode=deployment -jar ...`), which is why the two are easy to confuse.
 
-**Form A — the shaded jar** (simplest; `-D` reaches the JVM directly):
-
-```bash
-mvn clean package -DskipTests
-java -Ddp.DpDesktopApp.mode=deployment -jar target/dp-desktop-app-1.16.0-shaded.jar
-```
-
-**Form B — `javafx:run` with a config file** (an environment variable does reach the forked JVM):
+**Form B — a config file** (the shape a real install uses):
 
 ```bash
 sed -E 's/^([[:space:]]*)mode: demo$/\1mode: deployment/' \
@@ -73,12 +81,13 @@ env "DP.CONFIG=/tmp/deployment.yml" mvn javafx:run
 > (the macOS default) with `no such file or directory: DP.CONFIG=...`, because the variable name
 > contains a dot. Bash accepts the inline form; zsh does not.
 
-Both were verified to log `application configuration: Deployment — localhost:50051`.
+> ℹ️ Do check the `grep` output: a substitution that matches the line but leaves the value unchanged
+> will launch demo mode with a config-override line in the log that looks like success.
 
-> ℹ️ Form B is also the shape a real install uses — ship a deployment `application.yml` and point
-> `DP.CONFIG` (or `-Ddp.config=<path>`) at it. Do check the `grep` output: a substitution that
-> matches the line but leaves the value unchanged will launch demo mode with a config-override line
-> in the log that looks like success.
+> ℹ️ **Precedence**: an explicit `-Ddp.DpDesktopApp.mode` wins over `--mode`, so a launcher script
+> that always appends `--mode=demo` cannot override a mode an operator set deliberately. A
+> misspelled value (`--mode=deploymnt`) resolves to **demo** and logs
+> `unrecognized application mode`, never a connection attempt against production.
 
 ---
 

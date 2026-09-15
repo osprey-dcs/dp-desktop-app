@@ -1489,10 +1489,30 @@ the editor forms. Those need the manual scenario in `plan/tickets/39/manual-veri
 
 **Remote deployment targets are not reachable by any automated test** (#4), and cannot be: CI has no
 running dp-service instances. `plan/tickets/4/manual-verification.md` carries that scenario, along
-with the launch recipes -- note that **`mvn javafx:run -Ddp.DpDesktopApp.mode=deployment` silently
-launches DEMO mode**, because the plugin forks a JVM that does not inherit Maven's system properties.
-Use the shaded jar with `-D`, or `env "DP.CONFIG=<file>" mvn javafx:run`. A verification run against
-the wrong mode passes every check while proving nothing, which is why that document leads with it.
+with the launch recipes.
+
+**Selecting the mode at launch.** Prefer the `--mode` argument, which works everywhere:
+
+```bash
+java -jar target/dp-desktop-app-1.16.0-shaded.jar --mode=deployment
+mvn javafx:run -Djavafx.args=--mode=deployment
+```
+
+It is also what an IDE run configuration should carry, in the program arguments of a
+`DpDesktopApplicationRunner` configuration.
+
+**`mvn javafx:run -Ddp.DpDesktopApp.mode=deployment` silently launches DEMO mode** -- the plugin
+forks a JVM that does not inherit Maven's system properties. The same `-D` *is* correct on the
+shaded jar, which is what makes the two easy to confuse. `DP.CONFIG=<file>` (with an `env` prefix in
+zsh) is the third working path and the shape a real install uses.
+
+`--mode` is translated into that same system property in `DpDesktopApplication.init()` rather than
+parsed locally, so there is ONE mode-resolution path: the typo rule (an unrecognized value resolves
+to DEMO, never DEPLOYMENT) therefore applies to the command line too. A local parser would be free
+to drift from it, and the direction it would drift is a misspelling becoming a connection attempt
+against production. An explicit `-D` wins over the argument, so a launcher script that always
+appends `--mode=demo` cannot override what an operator set deliberately. Both rules are
+mutation-checked in `ModeArgumentTest`.
 
 **Calculations import fixture** (`CalculationsWorkbookFixture`, added by #43): generates the
 multi-sheet XLSX used to exercise Annotation Builder → Import Calculations by hand, and through it

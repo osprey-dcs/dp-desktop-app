@@ -1,6 +1,7 @@
 package com.ospreydcs.dp.gui.config;
 
 import com.ospreydcs.dp.service.common.config.ConfigurationManager;
+import com.ospreydcs.dp.service.inprocess.MongoInterface;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -123,7 +124,10 @@ public class AppConfiguration {
      */
     public String describe() {
         return switch (mode) {
-            case DEMO -> "Demo (in-process)";
+            // Names the database for the same reason deployment names its host: "which archive am I
+            // looking at" must be answerable from the UI in BOTH modes.  A demo label that named
+            // nothing meant a demo pointed at the wrong database looked exactly like a correct one.
+            case DEMO -> "Demo (in-process) — " + MongoInterface.DEMO_DATABASE_NAME;
             case DEPLOYMENT -> "Deployment — " + ingestionConnectString;
         };
     }

@@ -26,7 +26,15 @@ public class InprocessServiceEcosystem {
 
         logger.debug("InprocessGrpcServiceEcosystem init");
 
-        MongoInterface.prepareDemoDatabase(); // Globally changes default database name to dp-demo
+        // Globally changes the default database name to dp-demo, and VERIFIES that it took.
+        // This must stay the first thing that happens here: the override is process-global, so any
+        // service that inits ahead of it binds to the deployment's default database name instead.
+        // A false return means the name is not dp-demo, and starting anyway would run the demo
+        // against the deployment's data with nothing in the UI indicating it.
+        if (!MongoInterface.prepareDemoDatabase()) {
+            logger.error("aborting in-process ecosystem init: demo database could not be prepared");
+            return false;
+        }
 
         // init ingestion service
         if (!ingestionService.init()) {

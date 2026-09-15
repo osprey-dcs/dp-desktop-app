@@ -79,9 +79,42 @@ public class MongoInterface extends MongoSyncClient {
      * than the stale data it was fixing, and an easy one to make while the two operations shared a
      * method.
      */
-    public static void prepareDemoDatabase() {
-        MongoInterface mongoInterface = new MongoInterface();
-        mongoInterface.init();
+    public static boolean prepareDemoDatabase() {
+
+        final MongoInterface mongoInterface = new MongoInterface();
+
+        if (!mongoInterface.init()) {
+            logger.error("demo database preparation failed: mongo client init returned false");
+            return false;
+        }
+
+        // Verify the invariant rather than trusting that init() applied it.  The override is a
+        // process-global static set inside init(), so "we called the method that sets it" and "it
+        // is actually set" are different claims -- and the gap between them is silent: every read
+        // and write would agree on the WRONG database and nothing would error.
+        final String effective = getMongoDatabaseName();
+        if (!DEMO_DATABASE_NAME.equals(effective)) {
+            logger.error(
+                    "REFUSING TO START DEMO MODE: the effective database name is '{}', not '{}'. "
+                            + "Demo mode would be reading and writing the deployment's database.",
+                    effective, DEMO_DATABASE_NAME);
+            return false;
+        }
+
+        logger.info("demo database prepared, effective database name verified as: {}", effective);
+        return true;
+    }
+
+    /**
+     * The database name the process will actually use, for callers outside this package.
+     *
+     * <p>{@code MongoClientBase.getMongoDatabaseName()} is {@code protected static}, so this class
+     * is one of the few places that can read it at all -- the same access that lets it perform the
+     * override in the first place.  Exposed so the invariant is assertable from a test rather than
+     * inferred from a log line.
+     */
+    public static String effectiveDatabaseName() {
+        return getMongoDatabaseName();
     }
 
     /**

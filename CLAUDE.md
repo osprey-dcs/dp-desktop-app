@@ -1553,6 +1553,27 @@ globally, and drop the database. Issue #4 removed only the drop.
 clean can now start with a previous session's providers, buckets, sample statuses and metadata.
 `Tools → Delete Demo Data` clears it on request, with a confirmation dialog naming the database.
 
+**The override is now VERIFIED, not just performed.** `prepareDemoDatabase()` returns a boolean and
+`InprocessServiceEcosystem.init()` aborts on false: after applying the override it re-reads
+`getMongoDatabaseName()` and refuses to start demo mode unless the effective name is `dp-demo`.
+"We called the method that sets it" and "it is actually set" are different claims, and the gap
+between them is silent — every read and write would agree on the WRONG database and nothing would
+error. Mutation-checked: removing the override now makes `DpApplication.init()` return false with
+`REFUSING TO START DEMO MODE: the effective database name is 'dp', not 'dp-demo'`, so no data
+reaches the deployment's database at all. That is prevention rather than the after-the-fact
+detection the bucket-location assertions provide.
+
+**The ordering requirement is real and was measured.** Moving one service's init ahead of
+`prepareDemoDatabase()` binds that service's Mongo clients to `dp` while the rest get `dp-demo` — a
+split-brain ecosystem, ingestion writing to one database while queries read another. Mutation-
+checked: two clients bound to `dp`, and all five tests in `DemoDatabaseLifecycleLiveIT` failed.
+`prepareDemoDatabase()` must stay the first statement in that method.
+
+**The demo status label names its database** (`Demo (in-process) — dp-demo`), for the same reason
+the deployment label names its host: "which archive am I looking at" has to be answerable from the
+UI in both modes. A demo label that named nothing meant a demo pointed at the wrong database looked
+exactly like a correct one.
+
 **The name override must stay in `MongoInterface.init()`**, and this is the hazard in the split
 rather than the drop. `MongoClientBase.setMongoDatabaseName()` is `protected static`, so only a
 subclass can call it — which is why the two operations shared a method in the first place. Removing

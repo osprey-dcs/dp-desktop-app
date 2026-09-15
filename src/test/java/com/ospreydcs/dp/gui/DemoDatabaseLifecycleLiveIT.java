@@ -341,6 +341,12 @@ public class DemoDatabaseLifecycleLiveIT {
         assertEquals(0L, bucketCountForThisRun(DEFAULT_DATABASE_NAME),
                 "this run's buckets must NOT be in \"" + DEFAULT_DATABASE_NAME + "\", dp-service's "
                         + "default database -- in a real installation that is the production one");
+
+        // The invariant itself, stated directly rather than inferred from where documents landed.
+        // The assertions above prove where THIS run's data went; this one proves what the process
+        // would use for any FUTURE client, which is what a reordering would break first.
+        assertEquals(MongoInterface.DEMO_DATABASE_NAME, MongoInterface.effectiveDatabaseName(),
+                "the process-global database name must be the demo one while demo mode is running");
     }
 
     /**

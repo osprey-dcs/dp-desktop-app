@@ -202,9 +202,12 @@ mvn javafx:run
 |---|---|
 | Status bar reads `Demo (in-process)` | mode defaulting is broken; an absent or unrecognized value **must** resolve to demo, never to a connection attempt against a production host |
 | All Ingest / Metadata / Tools items are enabled | the mode predicate is inverted |
-| Explore items are disabled until something is ingested | `exploreEnabled` lost its `hasIngestedData` arm, and the views will be empty with nothing explaining why |
+| Explore items are disabled on an **empty** demo archive | `exploreEnabled` lost its archive/ingestion arms, and the views will be empty with nothing explaining why |
+| Explore items are **enabled** when the demo database already holds data | the launch probe is not running or its result is not reaching the menu. This was a real bug found during verification: leftover demo data was unreachable because the menu was gated on this session having ingested |
 | `Ingest > Generate` ingests successfully | the in-process path regressed |
 | **Relaunching shows the previous session's data** | the drop is back on the launch path — the #4 behavior change has been reverted |
+| After relaunching on a populated demo database, **Explore is enabled without ingesting** | the archive probe regressed; leftover data is present but unreachable from the UI |
+| After `Tools > Delete Demo Data`, Explore goes **disabled** again | `resetIngestedDataState()` is not clearing `archiveHasData`, leaving the menu enabled over a dropped database |
 | `Tools > Delete Demo Data` prompts, naming `dp-demo`, and clears the data | covered by `DemoDatabaseLifecycleLiveIT` at the API level; this is the dialog and menu-state half |
 
 ---
@@ -225,6 +228,11 @@ mvn javafx:run
 - `queryProviders` returned 3 records through the remote channel.
 - **Zero** Mongo client log lines in deployment mode, against **7** in demo mode.
 - A closed 50054 did not prevent launch.
+
+> ℹ️ **Note on the startup log in Part 4.** A failed archive probe logs a WARN saying the Explore
+> menu is being enabled without confirming the archive holds anything. That is the designed
+> behavior, not an error: a probe that cannot reach the query service must not hide data. Observed
+> in practice when the query service was down — the menu stayed reachable, which is the point.
 
 **Not established, and still worth a human at the keyboard:**
 

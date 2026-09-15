@@ -96,6 +96,17 @@ public class MainViewModel {
         updateMenuStatesFromApplicationState();
     }
 
+    /**
+     * Test seam for the application state the derivation reads, without going through
+     * {@link #setDpApplication(DpApplication)} -- which also reads the configuration to update the
+     * connection status, and therefore needs a fully initialized application.  The mode is left as
+     * the caller set it, so this composes with {@code setDeploymentModeForTesting}.
+     */
+    void setDpApplicationForTesting(DpApplication dpApplication) {
+        this.dpApplication = dpApplication;
+        updateMenuStatesFromApplicationState();
+    }
+
     public boolean isDeploymentMode() {
         return deploymentMode;
     }
@@ -210,7 +221,7 @@ public class MainViewModel {
      * per item:
      *
      * <pre>
-     *   exploreEnabled = deploymentMode || hasIngestedData
+     *   exploreEnabled = deploymentMode || archiveHasData || hasIngestedData
      *   writeEnabled   = !deploymentMode
      * </pre>
      *
@@ -228,6 +239,12 @@ public class MainViewModel {
      * a live archive.  It therefore keeps {@code hasIngestedData && !deploymentMode}, which is
      * neither rule.  Re-enabling it is a named follow-on rather than an oversight.
      *
+     * <p><b>{@code archiveHasData} is the third input, added after #4 made it necessary.</b>  Once
+     * the demo database stopped being dropped at launch, "this session ingested" and "there is
+     * something to explore" came apart in demo mode too -- a demo started on top of a previous
+     * session's data had every Explore item disabled over a populated archive.  The flag is probed
+     * once at init and answers the question the menu is actually asking.
+     *
      * <p>This runs without a {@link DpApplication}: the mode rules do not need one, and the
      * ingestion rules read false, which is the correct pre-injection state.  An early return on a
      * null application would leave the write menus enabled in deployment mode until something else
@@ -236,10 +253,13 @@ public class MainViewModel {
     public void updateMenuStatesFromApplicationState() {
 
         final boolean hasIngestedData = dpApplication != null && dpApplication.hasIngestedData();
+        final boolean archiveHasData = dpApplication != null && dpApplication.archiveHasData();
 
-        // The archive has something worth browsing: either this session put it there, or we are
-        // pointed at a deployment that was already populated.
-        final boolean exploreEnabled = deploymentMode || hasIngestedData;
+        // The archive has something worth browsing: this session put it there, it was already there
+        // when we launched (a previous demo session, or a populated deployment), or we are pointed
+        // at a deployment at all.  hasIngestedData alone is not enough -- it goes true only for
+        // THIS session, and demo data now survives a restart.
+        final boolean exploreEnabled = deploymentMode || archiveHasData || hasIngestedData;
 
         // Writes to the archive.  Deployment mode admits no ingestion and no metadata authoring;
         // dataset save, annotation save and export stay enabled and live inside data-explore rather
@@ -286,9 +306,10 @@ public class MainViewModel {
         dataEventsEnabled.set(hasIngestedData && !deploymentMode);
 
         logger.debug(
-                "Menu states updated - deploymentMode: {}, hasIngestedData: {}, "
+                "Menu states updated - deploymentMode: {}, hasIngestedData: {}, archiveHasData: {}, "
                         + "exploreEnabled: {}, writeEnabled: {}, dataEventsEnabled: {}",
-                deploymentMode, hasIngestedData, exploreEnabled, writeEnabled, dataEventsEnabled.get());
+                deploymentMode, hasIngestedData, archiveHasData, exploreEnabled, writeEnabled,
+                dataEventsEnabled.get());
     }
 
     /**

@@ -187,6 +187,32 @@ public class DemoDatabaseLifecycleLiveIT {
                         + VISIBILITY_TIMEOUT_MILLIS + "ms of a successful ingest");
     }
 
+    /**
+     * Ingests one bucket for the named PV and waits until it is queryable.
+     *
+     * <p>Used to put data back after the delete, so the launch probe has something to find.  Sets
+     * {@code pvName} so {@link #awaitIngestedPvVisible()} polls for this PV rather than the one the
+     * earlier tests ingested and the delete removed.
+     */
+    private static void ingestOneBucket(String newPvName) throws InterruptedException {
+
+        final var registered = app.registerProvider(
+                "reingest-provider-" + STAMP, "session reset IT re-ingest", List.of(), Map.of());
+        assertFalse(registered.isError, "re-ingest registerProvider failed: " + registered.msg);
+
+        pvName = newPvName;
+        final Instant dataBegin =
+                Instant.now().minus(10, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.SECONDS);
+        final Instant dataEnd = dataBegin.plus(5, ChronoUnit.SECONDS);
+        final PvDetail pv = new PvDetail(pvName, "float", 10, "1.0", "0.5");
+
+        final var status = app.generateAndIngestData(
+                dataBegin, dataEnd, null, List.of(pv), 5, List.of(), false);
+        assertFalse(status.isError, "re-ingest failed: " + status.msg);
+
+        awaitIngestedPvVisible();
+    }
+
     /** Whether the named database currently exists on the configured server. */
     private static boolean databaseExists(String databaseName) {
         try (MongoClient client = MongoClients.create(mongoConnectString())) {
@@ -346,7 +372,7 @@ public class DemoDatabaseLifecycleLiveIT {
     @Test
     @Order(50)
     @DisplayName("the session state reset clears what the delete invalidated")
-    public void resetClearsSessionState() {
+    public void resetClearsSessionState() throws InterruptedException {
 
         stopApplication();
         startApplication();
@@ -369,8 +395,29 @@ public class DemoDatabaseLifecycleLiveIT {
         assertTrue(app.hasPerformedQueries(), "precondition: hasPerformedQueries is set");
         assertNotNull(app.getLastOperationResult(), "precondition: lastOperationResult is set");
 
+        // The launch probe ran against the database test 40 had just dropped, so it correctly found
+        // nothing -- which is worth asserting in its own right, since it is the half of the probe
+        // that keeps Explore disabled on a genuinely empty demo archive.
+        assertFalse(app.archiveHasData(),
+                "the probe must report an empty archive as empty, or Explore would be enabled over "
+                        + "a database with nothing in it");
+
+        // Now put data back, so archiveHasData is genuinely set before the reset is asked to clear
+        // it.  Asserting the reset against an already-false flag would pass whether or not the
+        // reset touches it -- exactly the vacuous-guard shape the provider registration above
+        // exists to avoid.
+        ingestOneBucket("IT:RESET:" + STAMP);
+        stopApplication();
+        startApplication();
+        assertTrue(app.archiveHasData(),
+                "precondition: the probe found the data just ingested, so archiveHasData is set");
+
         app.resetIngestedDataState();
 
+        assertFalse(app.archiveHasData(),
+                "the delete emptied the archive, so archiveHasData must clear too -- leaving it set "
+                        + "keeps every Explore item enabled over a dropped database, the mirror of "
+                        + "the bug the launch probe fixes");
         assertFalse(app.hasIngestedData(), "hasIngestedData");
         assertFalse(app.hasPerformedQueries(), "hasPerformedQueries");
         assertNull(app.getPvNames(),

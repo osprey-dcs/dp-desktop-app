@@ -1570,6 +1570,35 @@ session and name the database, because the archive may hold a previous run's dat
 alone**, never on `hasIngestedData` — gating it on ingestion would leave exactly that leftover data
 undeletable.
 
+**The Explore menu needed the same correction, and did not get it in the first pass.** Gating it on
+`hasIngestedData` left a demo relaunched on a populated database with every Explore item disabled
+over hundreds of buckets — data in the archive, unreachable from the UI. `DpApplication` now probes
+the archive once at init and exposes `archiveHasData()`, so the rule is:
+
+```
+exploreEnabled = deploymentMode || archiveHasData || hasIngestedData
+```
+
+**The probe asks over gRPC (`queryPvStats`), never MongoDB.** Counting documents directly would be
+cheaper and is the obvious implementation, but it would construct a MongoDB client — and deployment
+mode never constructing one is a structural safety property, not an incidental detail.
+
+**A failed probe assumes the archive HAS data.** The asymmetry is deliberate and reads like a typo:
+guessing empty on an unreachable or slow service disables every Explore view over an archive that
+may be full — the exact bug the probe fixes, arriving precisely when the system is already
+unhealthy. Guessing non-empty at worst opens a view that reports its own emptiness. The wrong guess
+must be the recoverable one. `archiveHasDataFrom()` is static so that policy is testable without a
+service ecosystem (`ArchiveProbeTest`), and the mutation that flips it is caught by two tests —
+it escaped the suite entirely until the decision was extracted from the private probe method.
+
+**`resetIngestedDataState()` clears `archiveHasData` too.** Leaving it set would keep every Explore
+item enabled over the database the delete just dropped — the mirror image of the bug the probe
+fixes. `archiveHasData` is kept separate from `hasIngestedData` rather than folded into it, because
+that flag also drives the home view's text and the Data Events gate: setting it at launch would make
+the home view claim this session ingested data it never touched, trading a menu bug for a
+truthfulness one. Data Events accordingly does **not** follow `archiveHasData` — leftover archive
+data says nothing about whether this session has subscriptions.
+
 **The delete action re-checks the mode at invocation**, in addition to its menu binding. This is the
 one action that earns defense in depth: a broken binding is invisible (a disabled item that becomes
 enabled still looks like a working menu), and the consequence in deployment mode would be a drop

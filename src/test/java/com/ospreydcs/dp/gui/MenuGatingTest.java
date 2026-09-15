@@ -191,4 +191,100 @@ public class MenuGatingTest {
         assertFalse(viewModel.generateEnabledProperty().get(),
                 "write menus must be disabled in deployment mode before any application is injected");
     }
+
+    // ---- leftover demo data reaches the Explore menu (#4 follow-up) ----
+
+    /**
+     * A DpApplication that reports a pre-populated archive without starting a service ecosystem.
+     *
+     * <p>Overriding the two accessors is enough because the derivation reads exactly those, which
+     * is also what keeps this test in the same no-ecosystem style as the rest of the file.
+     */
+    private static class StubApplication extends DpApplication {
+
+        private final boolean archiveHasData;
+        private final boolean hasIngestedData;
+
+        StubApplication(boolean archiveHasData, boolean hasIngestedData) {
+            this.archiveHasData = archiveHasData;
+            this.hasIngestedData = hasIngestedData;
+        }
+
+        @Override
+        public boolean archiveHasData() {
+            return archiveHasData;
+        }
+
+        @Override
+        public boolean hasIngestedData() {
+            return hasIngestedData;
+        }
+
+        @Override
+        public boolean isDeploymentMode() {
+            return false;
+        }
+    }
+
+    private static MainViewModel demoModeWith(boolean archiveHasData, boolean hasIngestedData) {
+        final MainViewModel viewModel = new MainViewModel();
+        viewModel.setDeploymentModeForTesting(false);
+        viewModel.setDpApplicationForTesting(new StubApplication(archiveHasData, hasIngestedData));
+        return viewModel;
+    }
+
+    /**
+     * THE BUG THIS FIXES.  Demo data survives a restart as of #4, so a demo launched on top of a
+     * previous session's data has {@code hasIngestedData} false and an archive full of buckets.
+     * Gating Explore on the session flag alone left every one of those views disabled over a
+     * populated database -- data present in the archive and unreachable from the UI.
+     */
+    @Test
+    @DisplayName("Explore is enabled in demo mode when the archive already holds data")
+    public void testExploreEnabledForLeftoverDemoData() {
+        final MainViewModel viewModel = demoModeWith(true, false);
+        assertTrue(viewModel.dataEnabledProperty().get(), "Explore > Data");
+        assertTrue(viewModel.pvStatsEnabledProperty().get(), "Explore > PV Statistics");
+        assertTrue(viewModel.providerMetadataEnabledProperty().get(), "Explore > Providers");
+        assertTrue(viewModel.sampleStatusesEnabledProperty().get(), "Explore > Sample Statuses");
+    }
+
+    /**
+     * The negative half, and it is what stops the test above from passing vacuously.  A rule that
+     * simply enabled Explore unconditionally in demo mode would satisfy the leftover-data case
+     * while also enabling eight views that have nothing to show on a genuinely empty archive.
+     */
+    @Test
+    @DisplayName("Explore stays disabled in demo mode when the archive is empty")
+    public void testExploreDisabledWhenArchiveIsEmpty() {
+        final MainViewModel viewModel = demoModeWith(false, false);
+        assertFalse(viewModel.dataEnabledProperty().get(), "Explore > Data");
+        assertFalse(viewModel.pvStatsEnabledProperty().get(), "Explore > PV Statistics");
+        assertFalse(viewModel.providerMetadataEnabledProperty().get(), "Explore > Providers");
+    }
+
+    /**
+     * Ingesting during the session still enables Explore even when the archive started empty --
+     * the original path, which must survive the new one being added beside it.
+     */
+    @Test
+    @DisplayName("Explore is enabled after this session ingests into an empty archive")
+    public void testExploreEnabledAfterSessionIngest() {
+        final MainViewModel viewModel = demoModeWith(false, true);
+        assertTrue(viewModel.dataEnabledProperty().get(), "Explore > Data");
+    }
+
+    /**
+     * Data Events keeps its own rule and must NOT follow the archive flag.  It was built against
+     * subscriptions created during this session's ingestion, so leftover data in the archive says
+     * nothing about whether it has anything to show.
+     */
+    @Test
+    @DisplayName("Data Events does not follow the archive flag")
+    public void testDataEventsIgnoresArchiveData() {
+        assertFalse(demoModeWith(true, false).dataEventsEnabledProperty().get(),
+                "leftover archive data must not enable Data Events");
+        assertTrue(demoModeWith(true, true).dataEventsEnabledProperty().get(),
+                "this session ingesting must still enable Data Events");
+    }
 }

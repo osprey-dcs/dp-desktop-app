@@ -50,6 +50,22 @@ public class DpApplication {
     
     // application state tracking for home view
     private boolean hasIngestedData = false;
+
+    /**
+     * Whether the archive already held data when this application launched.
+     *
+     * <p><b>Distinct from {@code hasIngestedData}, and #4 is what made them distinct.</b>  That
+     * flag records that <i>this session</i> ingested; this one records that there is something to
+     * explore regardless of who put it there.  Before the demo database stopped being dropped at
+     * launch the two were the same statement in demo mode, which is why one flag used to serve
+     * both questions.
+     *
+     * <p>Kept separate rather than folded into {@code hasIngestedData} deliberately: that flag also
+     * drives the home view's text and the Data Events gate, so setting it here would make the home
+     * view claim this session ingested data it did not ingest -- trading a menu bug for a
+     * truthfulness one.
+     */
+    private boolean archiveHasData = false;
     private boolean hasPerformedQueries = false;
     private String lastOperationResult = null;
     private int totalPvsIngested = 0;
@@ -494,6 +510,12 @@ public class DpApplication {
 
     // Getters for application state tracking (for home view)
     public boolean hasIngestedData() { return hasIngestedData; }
+
+    /**
+     * Whether the archive held data at launch.  See the field for why this is not
+     * {@link #hasIngestedData()}.
+     */
+    public boolean archiveHasData() { return archiveHasData; }
     public boolean hasPerformedQueries() { return hasPerformedQueries; }
     public String getLastOperationResult() { return lastOperationResult; }
     public int getTotalPvsIngested() { return totalPvsIngested; }
@@ -578,6 +600,12 @@ public class DpApplication {
         totalPvsIngested = 0;
         totalBucketsCreated = 0;
 
+        // The delete emptied the archive, so what the launch probe found is no longer true.  Left
+        // set, this would keep every Explore item enabled over an archive that was just dropped --
+        // the exact mirror of the bug the probe exists to fix, and the reason the reset must clear
+        // it rather than only the session flag.
+        archiveHasData = false;
+
         // The PV list describes PVs that were in the archive.  Note the convention this field
         // carries throughout DpApplication: empty means null, not an empty list -- setPvNames() and
         // removePvName() both collapse to null, and getPvNames() callers are written against that.
@@ -643,7 +671,82 @@ public class DpApplication {
             return false;
         }
 
+        archiveHasData = probeArchiveForData();
+
         return true;
+    }
+
+    /**
+     * Asks the archive whether it already holds anything worth exploring.
+     *
+     * <p><b>Why this exists.</b>  Before #4 the demo database was dropped on every launch, so
+     * "this session ingested" and "there is something to explore" were the same statement and one
+     * flag answered both.  Demo data now survives a restart, and the Explore menu was left keyed on
+     * the session flag -- so a demo launched on top of a previous session's data showed every
+     * Explore item disabled with hundreds of buckets sitting in the database, unreachable from the
+     * UI.
+     *
+     * <p><b>It asks over gRPC, never MongoDB.</b>  Counting documents directly would be cheaper and
+     * is the obvious implementation, but it would construct a MongoDB client -- and deployment mode
+     * never constructing one is a structural safety property of this release, not an incidental
+     * detail.  {@code queryPvStats} is the same read the Explore views themselves perform, so a
+     * probe that succeeds is real evidence those views will have something to show.
+     *
+     * <p><b>A failure means "assume there is data", not "assume there is none".</b>  The two
+     * mistakes are not symmetric.  Guessing empty on an unreachable service hides an archive that
+     * may be full, reproducing exactly the bug this method fixes and offering no way to reach the
+     * data; guessing non-empty at worst opens views that report their own emptiness, which is a
+     * far better failure than a menu that cannot be clicked.  Note this also keeps a slow or
+     * briefly-unavailable service from silently disabling the application.
+     */
+    private boolean probeArchiveForData() {
+        try {
+            return archiveHasDataFrom(queryPvStats(".*"));
+        } catch (Exception e) {
+            logger.warn(
+                    "archive probe threw ({}); assuming the archive has data so the Explore views "
+                            + "stay reachable",
+                    e.getMessage(), e);
+            return true;
+        }
+    }
+
+    /**
+     * Reads a probe result into the archive-has-data answer.
+     *
+     * <p>Package-private and static so the failure policy is testable without a service ecosystem,
+     * the same reasoning that keeps {@code accumulatePages()} and {@code emptyToNull()} static.  The
+     * policy is the part worth pinning: it is a deliberate asymmetry that reads like a typo.
+     *
+     * <p><b>A failed probe answers "yes", not "no".</b>  Guessing empty on an unreachable or slow
+     * service disables every Explore view over an archive that may be full -- the exact bug the
+     * probe exists to fix, with no way for the user to reach the data or to know why.  Guessing
+     * non-empty at worst opens views that report their own emptiness.  The wrong guess must be the
+     * recoverable one.
+     */
+    static boolean archiveHasDataFrom(QueryPvStatsApiResult result) {
+
+        if (result == null || result.isError()) {
+            final String msg = result == null ? "null result" : result.resultStatus.msg;
+            // Deliberately assuming data rather than none -- see the method javadoc.  Logged at
+            // WARN with the consequence spelled out, because the Explore menu being enabled over an
+            // archive nobody has confirmed is non-empty is a state worth being able to explain.
+            logger.warn(
+                    "archive probe failed, so the Explore menu is being ENABLED without confirming "
+                            + "the archive holds anything (a failed probe must not hide data). "
+                            + "Cause: {}",
+                    msg);
+            return true;
+        }
+
+        if (result.queryPvStatsResponse == null) {
+            logger.warn("archive probe returned success with no response; assuming the archive has data");
+            return true;
+        }
+
+        final int pvCount = result.queryPvStatsResponse.getStatsResult().getPvStatsCount();
+        logger.info("archive probe found {} PV(s)", pvCount);
+        return pvCount > 0;
     }
 
     /**

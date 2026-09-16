@@ -1712,7 +1712,8 @@ delete**: the data really is gone by then, so that is not strictly accurate, but
 would leave the user on a silently degraded database with nothing to act on, while reporting failure
 sends them to the log and to a restart, which is what repairs it.
 
-**`MongoInterface.fini()` overrides an inherited no-op, to actually close the client.**
+**`MongoInterface.fini()` overrides an inherited no-op, to actually close the client — a workaround
+for dp-service #282, to be removed when that lands.**
 `MongoClientBase.fini()` logs and returns true; nothing anywhere in dp-service calls
 `MongoClient.close()`. That is tolerable for the long-lived clients the services hold, which live as
 long as the process, but not for the short-lived ones this class constructs — one per demo launch in

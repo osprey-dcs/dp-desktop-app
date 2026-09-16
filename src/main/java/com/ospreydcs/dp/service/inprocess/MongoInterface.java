@@ -70,6 +70,12 @@ public class MongoInterface extends MongoSyncClient {
      * <p>{@code mongoClient} is {@code protected} on {@code MongoSyncClient}, so a subclass is the
      * only place this can be fixed without changing dp-service.  Closing is idempotent and safe on
      * a client that was never connected, so this needs no guard beyond the null check.
+     *
+     * <p><b>This is a workaround in the wrong repo, and it is tracked upstream as dp-service #282.</b>
+     * The leak is dp-service's: every current and future subclass needs this same override, which is
+     * exactly the duplication {@code MongoClientBase} exists to prevent.  Measured there at 2 threads
+     * per unclosed client plus its connection pool.  Remove this override once #282 lands and closes
+     * the client in {@code MongoSyncClient.fini()}.
      */
     @Override
     public boolean fini() {

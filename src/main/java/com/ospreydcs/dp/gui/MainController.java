@@ -440,7 +440,15 @@ public class MainController implements Initializable {
             FXMLLoader loader = new FXMLLoader(getClass().getResource(fxmlPath));
             contentPane.getChildren().clear();
             contentPane.getChildren().add(loader.load());
-            
+
+            // The home view is no longer displayed, so release it.  The field is otherwise a
+            // reference to a controller whose scene graph has just been discarded, and the
+            // "if (homeController != null)" guards elsewhere -- onDemoDataDeleted() in particular --
+            // read as handling that case while actually operating on the detached view.  Nothing is
+            // lost: loadHomeView() rebuilds the controller and refreshHomeView() re-derives its
+            // state from DpApplication, which is the authority either way.
+            homeController = null;
+
             // Inject dependencies into the new controller if it needs them
             Object controller = loader.getController();
             if (controller instanceof DataGenerationController) {

@@ -118,9 +118,14 @@ public class AppConfiguration {
      * window title and the startup log.  "Which archive am I looking at" is otherwise unanswerable
      * from the UI, and in deployment mode it is the question that matters most.
      *
-     * <p>The ingestion connect string stands in for the target as a whole.  The four services are
-     * expected to belong to one deployment, and a label carrying all four would not fit the status
-     * bar; a mismatched set is a configuration error the startup log shows in full.
+     * <p><b>The QUERY connect string stands in for the target as a whole, not the ingestion one.</b>
+     * The four services are expected to belong to one deployment, and a label carrying all four
+     * would not fit the status bar -- so the label names the service whose target the user can
+     * actually verify from what they see.  Deployment mode disables every ingestion path, so the
+     * ingestion target is the one service the application never calls there: a label naming it
+     * would be a host whose correctness has no observable consequence, printed beside results
+     * fetched from a different host that the label never mentions.  A mismatched set is a
+     * configuration error the startup log shows in full.
      */
     public String describe() {
         return switch (mode) {
@@ -128,7 +133,7 @@ public class AppConfiguration {
             // looking at" must be answerable from the UI in BOTH modes.  A demo label that named
             // nothing meant a demo pointed at the wrong database looked exactly like a correct one.
             case DEMO -> "Demo (in-process) — " + MongoInterface.DEMO_DATABASE_NAME;
-            case DEPLOYMENT -> "Deployment — " + ingestionConnectString;
+            case DEPLOYMENT -> "Deployment — " + queryConnectString;
         };
     }
 }

@@ -78,6 +78,12 @@ public class DemoDatabaseLifecycleLiveIT {
     private static final String BUCKETS_COLLECTION = MongoClientBase.COLLECTION_NAME_BUCKETS;
 
     /**
+     * A collection carrying a <b>unique</b> index, which is what makes losing its indexes more than
+     * a performance matter.  Taken from dp-service's constant for the same reason as above.
+     */
+    private static final String PV_METADATA_COLLECTION = MongoClientBase.COLLECTION_NAME_PV_METADATA;
+
+    /**
      * dp-service's database name when nothing overrides it.  Named here because it is what the demo
      * would silently fall back to -- and in a real installation it is the production database.
      */
@@ -108,8 +114,27 @@ public class DemoDatabaseLifecycleLiveIT {
         }
     }
 
+    /**
+     * The system property that opts in to running this IT.
+     *
+     * <p><b>Reachability is not sufficient consent for this one test.</b>  Every other live IT here
+     * stamps the records it creates and deletes only those, so running it against a developer's
+     * database is harmless.  This one drops the entire configured database -- that <i>is</i> the
+     * behavior under test -- so gating it on a reachable socket would make a routine {@code mvn
+     * test} silently destroy whatever demo data the developer had accumulated.  Since #4 that data
+     * survives restarts and is therefore worth keeping, which is exactly what makes the old gate
+     * unsafe: before #4 a relaunch would have dropped it anyway.
+     */
+    static final String OPT_IN_PROPERTY = "dp.test.allowDemoDatabaseDrop";
+
     @BeforeAll
     public static void checkPrerequisites() {
+
+        assumeTrue(Boolean.getBoolean(OPT_IN_PROPERTY),
+                "skipping the demo database lifecycle IT: it DROPS the \"" 
+                        + MongoInterface.DEMO_DATABASE_NAME + "\" database, including any demo data "
+                        + "in it. Opt in with -D" + OPT_IN_PROPERTY + "=true");
+
         assumeTrue(mongoIsReachable(),
                 "MongoDB is not reachable; skipping the demo database lifecycle IT");
     }
@@ -222,6 +247,29 @@ public class DemoDatabaseLifecycleLiveIT {
                 }
             }
             return false;
+        }
+    }
+
+    /**
+     * How many indexes the named collection currently carries, including the automatic {@code _id}
+     * one.
+     *
+     * <p>Read through the driver rather than the application for the same reason
+     * {@link #bucketCountForThisRun(String)} is: the application cannot see its own indexes, and
+     * their absence does not make it fail -- which is precisely why a missing index has to be
+     * asserted from outside.
+     */
+    private static int indexCount(String databaseName, String collectionName) {
+        try (MongoClient client = MongoClients.create(mongoConnectString())) {
+            int count = 0;
+            for (org.bson.Document ignored :
+                    client.getDatabase(databaseName).getCollection(collectionName).listIndexes()) {
+                count++;
+            }
+            return count;
+        } catch (RuntimeException absent) {
+            // A collection that does not exist has no indexes.
+            return 0;
         }
     }
 
@@ -352,20 +400,45 @@ public class DemoDatabaseLifecycleLiveIT {
     /**
      * The delete action's actual effect, read back from the server rather than taken from the
      * return value.
+     *
+     * <p>The invariant is <b>the data is gone and the schema is intact</b>, not "the database name
+     * no longer exists".  The delete drops the database and then rebuilds its collections and
+     * indexes empty, so the name is present again by the time this returns -- asserting its absence
+     * would be asserting the bug this rebuild exists to prevent.
      */
     @Test
     @Order(40)
-    @DisplayName("delete removes the demo database")
+    @DisplayName("delete removes the demo data and rebuilds the schema")
     public void deleteRemovesTheDemoDatabase() {
 
         assertTrue(ingestedPvIsPresent(), "precondition: there is data to delete");
+
+        final int bucketIndexesBefore = indexCount(MongoInterface.DEMO_DATABASE_NAME, BUCKETS_COLLECTION);
+        assertTrue(bucketIndexesBefore > 1,
+                "precondition: the buckets collection carries real indexes, not just _id");
 
         // Issued while the application still holds open connections to the database, exactly as it
         // does when the user picks the menu item mid-session.
         assertTrue(MongoInterface.deleteDemoDatabase(), "deleteDemoDatabase() reported failure");
 
-        assertFalse(databaseExists(MongoInterface.DEMO_DATABASE_NAME),
-                "the demo database must be gone after the delete");
+        assertEquals(0L, bucketCountForThisRun(MongoInterface.DEMO_DATABASE_NAME),
+                "the ingested data must be gone after the delete");
+
+        // THE HALF THAT THE PLAIN DROP FAILED.  Dropping a database destroys its collections and
+        // every index on them, while MongoDB silently recreates a collection on the next write --
+        // so without the rebuild the still-running services continue against an unindexed database,
+        // reporting success the whole way.  Measured before the rebuild existed: buckets fell from
+        // 3 indexes to 1, and pvMetadata from 5 to 0.
+        assertEquals(bucketIndexesBefore, indexCount(MongoInterface.DEMO_DATABASE_NAME, BUCKETS_COLLECTION),
+                "the buckets indexes must be rebuilt after the delete -- an unindexed database is "
+                        + "silently degraded, not visibly broken");
+        assertTrue(indexCount(MongoInterface.DEMO_DATABASE_NAME, PV_METADATA_COLLECTION) > 1,
+                "the pvMetadata indexes must be rebuilt after the delete, including the unique one");
+
+        // The rebuilt schema is EMPTY, which is what lets the next test assert that the launch probe
+        // reports an empty archive as empty.  Rebuilding the collections must not put anything back.
+        assertEquals(0L, bucketCountForThisRun(MongoInterface.DEMO_DATABASE_NAME),
+                "the rebuild must recreate the schema empty, not restore data");
     }
 
     /**
@@ -440,5 +513,39 @@ public class DemoDatabaseLifecycleLiveIT {
         // The connection is untouched: the mode is a property of the launch, not of the session,
         // and the ecosystem is still running.
         assertNotNull(app.getConfiguration(), "configuration must survive the reset");
+    }
+
+    /**
+     * The running session keeps working against the rebuilt database, and the database stays
+     * indexed while it does.
+     *
+     * <p>This is what the post-delete schema rebuild is actually for, and it runs last because it
+     * puts data back -- the empty-archive probe assertion above depends on the archive still being
+     * empty at that point.
+     *
+     * <p><b>The ingest assertion alone proves nothing</b>, which is the trap here: MongoDB silently
+     * recreates a dropped collection on the next write, so an ingest into an unindexed database
+     * reports success exactly as one into a healthy database does.  Measured against the plain drop,
+     * before the rebuild existed: the ingest succeeded while buckets held 1 index and pvMetadata
+     * held 0.  The index assertions are the ones that distinguish the two.
+     */
+    @Test
+    @Order(60)
+    @DisplayName("the session still works after a delete, against a still-indexed database")
+    public void theSessionStillWorksAfterDelete() throws InterruptedException {
+
+        assertTrue(MongoInterface.deleteDemoDatabase(), "deleteDemoDatabase() reported failure");
+
+        // Issued through the SAME long-running ecosystem that was up before the drop, whose service
+        // clients hold collection handles bound at their own init -- which is the condition that
+        // makes a missing rebuild matter at all.
+        ingestOneBucket("IT:POSTDELETE:" + STAMP);
+
+        assertTrue(ingestedPvIsPresent(), "re-ingested data must be visible after the delete");
+        assertTrue(indexCount(MongoInterface.DEMO_DATABASE_NAME, BUCKETS_COLLECTION) > 1,
+                "the buckets collection must still be indexed after re-ingesting post-delete -- an "
+                        + "unindexed database is silently degraded, not visibly broken");
+        assertTrue(indexCount(MongoInterface.DEMO_DATABASE_NAME, PV_METADATA_COLLECTION) > 1,
+                "the pvMetadata unique index must still be present after re-ingesting post-delete");
     }
 }

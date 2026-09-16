@@ -78,16 +78,31 @@ public class AppConfigurationTest {
         // describe() is the status bar, window title and startup log line, and in deployment mode
         // it is the only thing in the UI answering "which archive am I pointed at".  A label that
         // said only "Deployment" would leave that unanswerable.
+        //
+        // The four targets are given DISTINCT hosts here on purpose: the label must name the QUERY
+        // target, since deployment mode disables every ingestion path and therefore never calls the
+        // ingestion service.  Naming the ingestion host would print a host with no observable
+        // consequence beside results fetched from a host the label never mentions -- and a test
+        // using one host for all four would pass either way.
         final AppConfiguration deployment = new AppConfiguration(
-                AppMode.DEPLOYMENT, "archive.example.org:50051", "q:50052", "a:50053", "s:50054");
-        assertTrue(deployment.describe().contains("archive.example.org:50051"));
+                AppMode.DEPLOYMENT,
+                "ingest.example.org:50051",
+                "query.example.org:50052",
+                "annotation.example.org:50053",
+                "stream.example.org:50054");
+        assertTrue(deployment.describe().contains("query.example.org:50052"),
+                "the deployment label must name the query target, which is what the enabled "
+                        + "features actually read from");
+        assertFalse(deployment.describe().contains("ingest.example.org"),
+                "the deployment label must NOT name the ingestion target: deployment mode never "
+                        + "calls that service, so naming it invites verifying the wrong host");
 
         final AppConfiguration demo = new AppConfiguration(
                 AppMode.DEMO, "localhost:50051", "localhost:50052", "localhost:50053", "localhost:50054");
         assertTrue(demo.describe().toLowerCase().contains("demo"));
         // The demo label must not name a connect string -- demo mode does not connect to one, and
-        // showing "localhost:50051" there would claim a remote target that is not in use.
-        assertFalse(demo.describe().contains("50051"));
+        // showing "localhost:50052" there would claim a remote target that is not in use.
+        assertFalse(demo.describe().contains("50052"));
     }
 
     @Test

@@ -24,9 +24,15 @@ import org.apache.logging.log4j.Logger;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 public class DpApplication {
@@ -668,6 +674,12 @@ public class DpApplication {
         }
 
         if (!api.init()) {
+            // Release whatever init built before returning.  DpDesktopApplication.init() throws on a
+            // false return here, so fini() is never reached -- without this, a failed remote startup
+            // leaves all four channels and their event-loop threads alive for the life of the
+            // process, and a failed demo startup leaves the ecosystem running.
+            logger.error("api client init failed; releasing partially initialized resources");
+            fini();
             return false;
         }
 
@@ -675,6 +687,24 @@ public class DpApplication {
 
         return true;
     }
+
+    /**
+     * How long {@link #probeArchiveForData()} waits before giving up and assuming the archive has
+     * data.
+     *
+     * <p><b>Bounded because the probe runs before there is a window to look at.</b>
+     * {@code DpApplication.init()} is called from {@code DpDesktopApplication.init()}, which JavaFX
+     * runs before {@code start()} -- so anything slow here is a blank screen with no feedback, not a
+     * slow view.  The underlying call cannot bound itself: {@code queryPvStats} goes through
+     * dp-service's {@code ApiResponseObserverBase.await()}, whose timeout is 60 seconds, which is
+     * a minute of nothing on a wedged query service.  The #4 manual verification hit exactly that
+     * server state.
+     *
+     * <p>Five seconds is generous for a single aggregation against a local service and short enough
+     * that a user does not conclude the application failed to start.  Timing out costs nothing,
+     * because the fallback answer is the same one a failure gets.
+     */
+    private static final int ARCHIVE_PROBE_TIMEOUT_SECONDS = 5;
 
     /**
      * Asks the archive whether it already holds anything worth exploring.
@@ -700,14 +730,78 @@ public class DpApplication {
      * briefly-unavailable service from silently disabling the application.
      */
     private boolean probeArchiveForData() {
+
+        // Deployment mode never asks the question.  MainViewModel derives
+        // exploreEnabled = deploymentMode || archiveHasData || hasIngestedData, so the answer is
+        // unused there -- and paying for it means a remote launch waits on the query service
+        // before showing a window.  Returning true rather than false keeps the flag consistent with
+        // what the menu rule concludes anyway, so a future reader of archiveHasData() in deployment
+        // mode is not told the archive is empty.
+        if (isDeploymentMode()) {
+            logger.info("skipping the archive probe: deployment mode enables the Explore views regardless");
+            return true;
+        }
+
+        return probeArchiveWithin(() -> queryPvStats(".*"), ARCHIVE_PROBE_TIMEOUT_SECONDS);
+    }
+
+    /**
+     * Runs an archive probe with a bounded wait, answering "the archive has data" for anything that
+     * is not a clean, timely, empty result.
+     *
+     * <p>Package-private and static, taking the query as a supplier, so the <b>bound</b> is testable
+     * without a service ecosystem -- the same reasoning that keeps {@code accumulatePages()} and
+     * {@code archiveHasDataFrom()} static.  It is worth pinning separately from
+     * {@code archiveHasDataFrom()} because it is a different failure: that method decides what a
+     * returned result means, this one decides what happens when no result returns at all.
+     *
+     * <p><b>Every abnormal outcome answers the same way</b> -- timeout, interruption, and a thrown
+     * exception all yield true, for the reason spelled out on {@code archiveHasDataFrom()}: the
+     * wrong guess must be the recoverable one.  A timed-out probe is <b>abandoned rather than
+     * waited on</b>; it runs on a daemon thread, so an answer that arrives late is simply discarded
+     * and cannot hold up shutdown.
+     */
+    static boolean probeArchiveWithin(
+            Supplier<QueryPvStatsApiResult> probeSupplier,
+            int timeoutSeconds
+    ) {
+
+        final ExecutorService probeExecutor =
+                Executors.newSingleThreadExecutor(runnable -> {
+                    final Thread thread = new Thread(runnable, "archive-probe");
+                    thread.setDaemon(true);
+                    return thread;
+                });
+
         try {
-            return archiveHasDataFrom(queryPvStats(".*"));
+            final Future<QueryPvStatsApiResult> probe = probeExecutor.submit(probeSupplier::get);
+            return archiveHasDataFrom(probe.get(timeoutSeconds, TimeUnit.SECONDS));
+
+        } catch (TimeoutException e) {
+            // The same answer a failed probe gets, for the same reason -- see archiveHasDataFrom().
+            logger.warn(
+                    "archive probe did not answer within {} seconds; assuming the archive has data "
+                            + "so the Explore views stay reachable",
+                    timeoutSeconds);
+            return true;
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("archive probe interrupted; assuming the archive has data");
+            return true;
+
         } catch (Exception e) {
             logger.warn(
                     "archive probe threw ({}); assuming the archive has data so the Explore views "
                             + "stay reachable",
                     e.getMessage(), e);
             return true;
+
+        } finally {
+            // shutdownNow() rather than shutdown(): on the timeout path the task is still running
+            // and its result is no longer wanted.  The thread is a daemon, so an uninterruptible
+            // call blocked in gRPC cannot keep the JVM alive either way.
+            probeExecutor.shutdownNow();
         }
     }
 

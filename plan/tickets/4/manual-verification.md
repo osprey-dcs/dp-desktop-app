@@ -11,8 +11,9 @@ for exactly that reason — a green build does not prove deployment mode works.
 | Mode parsing (`demo` / `deployment` / absent / unrecognized / mixed case) | `AppConfigurationTest` |
 | The menu matrix in both modes | `MenuGatingTest` |
 | The new Tools menu loads (FXML, `fx:id`, handler reference) | `ViewLoadSmokeTest` |
-| Demo data survives a restart; the delete drops it; the session reset clears it | `DemoDatabaseLifecycleLiveIT` |
+| Demo data survives a restart; the delete drops it and rebuilds the schema; the session reset clears it | `DemoDatabaseLifecycleLiveIT` (needs `-Ddp.test.allowDemoDatabaseDrop=true`) |
 | This run's buckets land in `dp-demo` and **not** in dp-service's default `dp` | `DemoDatabaseLifecycleLiveIT` |
+| The archive probe is bounded, and skipped in deployment mode | `ArchiveProbeTest` |
 
 What remains is what genuinely needs running remote services, plus the UI-level checks no headless
 test reaches.
@@ -68,7 +69,22 @@ of a `DpDesktopApplicationRunner` configuration.
 > against the wrong target and "pass". The `-D` form *is* correct on the shaded jar
 > (`java -Ddp.DpDesktopApp.mode=deployment -jar ...`), which is why the two are easy to confuse.
 
-**Form B — a config file** (the shape a real install uses):
+**Form B — environment variables** (the shape a container install uses):
+
+```bash
+env DP_DP_DESKTOP_APP_MODE=deployment \
+    DP_GRPC_CLIENT_QUERY_CONNECT_STRING=archive.example.org:50052 \
+    DP_GRPC_CLIENT_ANNOTATION_CONNECT_STRING=archive.example.org:50053 \
+    java -jar target/dp-desktop-app-1.16.0-shaded.jar
+```
+
+> ℹ️ These are the same variable names dp-service itself uses. They work because this app's
+> `application.yml` repeats the `${VAR:default}` forms — it **shadows** dp-service's file on the
+> classpath, so written as plain literals the variables would be silently ignored and the app would
+> connect to `localhost` while appearing to honor them. Precedence is `-Ddp.<key>` > environment
+> variable > the file's default.
+
+**Form C — a config file** (the shape a real install uses):
 
 ```bash
 sed -E 's/^([[:space:]]*)mode: demo$/\1mode: deployment/' \
@@ -92,12 +108,12 @@ env "DP.CONFIG=/tmp/deployment.yml" mvn javafx:run
 ---
 
 > ❗ **Confirm the mode took effect before trusting anything below.** The startup log line
-> `application configuration:` must read `Deployment — localhost:50051`. In the resolved
+> `application configuration:` must read `Deployment — localhost:50052`. In the resolved
 > configuration line (`initialize dp configuration`), `DpDesktopApp.mode` must be `deployment`.
 > Note that the line above it (`initialize config file properties`) may still say `mode=demo` when
 > using the `-D` form — that is the file's value before the per-key override is applied, and it is
 > **not** a failure. The status bar is the quickest check: it must read
-> `Deployment — localhost:50051`.
+> `Deployment — localhost:50052`.
 
 ---
 
@@ -105,11 +121,14 @@ env "DP.CONFIG=/tmp/deployment.yml" mvn javafx:run
 
 1. Read the status bar (bottom right) and the window title.
 
-**Expect**: both say `Deployment — localhost:50051`. In demo mode they say `Demo (in-process)`.
+**Expect**: both say `Deployment — localhost:50052`. The label names the **query** target, not the
+ingestion one: deployment mode never calls the ingestion service, so naming it would be a host whose
+correctness has no observable consequence. In demo mode they say `Demo (in-process) — dp-demo`.
 
 | Check | What a failure means |
 |---|---|
-| Status bar names the deployment and its host | `AppConfiguration.describe()` is not reaching `MainViewModel`, and the user has no way to tell which archive they are on — the single cheapest safeguard against running a demo against production |
+| Status bar names the deployment and its **query** host | `AppConfiguration.describe()` is not reaching `MainViewModel`, and the user has no way to tell which archive they are on — the single cheapest safeguard against running a demo against production |
+| The window appears promptly, with no multi-second blank pause | the archive probe is running in deployment mode when it should be skipped, or has lost its bound. Unbounded it waits out dp-service's 60-second client await against a slow or wedged query service, before there is any window to show a message in |
 | Startup log has **no** MongoDB client activity | deployment mode constructed a Mongo client, which the whole design says is structurally impossible; treat as a release blocker |
 
 > ℹ️ **How to check the Mongo claim honestly.** Grepping for `mongo` matches the configuration dump,
@@ -219,6 +238,29 @@ mvn javafx:run
 | After `Tools > Delete Demo Data`, Explore goes **disabled** again | `resetIngestedDataState()` is not clearing `archiveHasData`, leaving the menu enabled over a dropped database |
 | `Tools > Delete Demo Data` prompts, naming `dp-demo`, and clears the data | covered by `DemoDatabaseLifecycleLiveIT` at the API level; this is the dialog and menu-state half |
 
+### After a delete, the SAME session must still work
+
+The delete drops the database out from under a running ecosystem whose services hold collection
+handles bound at their own init. The rebuild is what keeps that session healthy, and its absence is
+invisible from inside the application — so this check is done from `mongosh`, not from the UI.
+
+Without leaving the app, after `Tools > Delete Demo Data`:
+
+1. `Ingest > Generate` some data again, and ingest it.
+2. `Explore > PV Statistics` and confirm the new PV is there.
+3. Then, from a shell:
+
+```bash
+mongosh "mongodb://admin:admin@localhost:27017/" --quiet --eval '
+  const d = db.getSiblingDB("dp-demo");
+  d.getCollectionNames().forEach(c => print(c + " indexes=" + d.getCollection(c).getIndexes().length));'
+```
+
+| Check | What a failure means |
+|---|---|
+| The re-ingest succeeds and the PV is visible | the session did not survive the delete at all |
+| `buckets` has **3** indexes, `pvMetadata` **5**, `configurations` **6**, `configurationActivations` **8** | the post-drop schema rebuild regressed. **The re-ingest succeeding above proves nothing on its own** — MongoDB recreates a dropped collection on the next write, so ingestion reports success into an unindexed database exactly as it does into a healthy one. Measured against the plain drop: `buckets` fell to 1 index and `pvMetadata` to 0, with every operation still reporting success. A restart repairs it |
+
 ---
 
 ## What this verification established, and what it did not
@@ -226,7 +268,7 @@ mvn javafx:run
 **Established** (observed, 2026-09-14, against services on 50051-50053 with 50054 closed):
 
 - Deployment-mode init against real remote services: succeeded in ~130 ms.
-- Status label resolved to `Deployment — localhost:50051`, over a file value of `demo` — verified
+- Status label resolved to `Deployment — localhost:50052`, over a file value of `demo` — verified
   through all three override paths: `-D` on a surefire-forked JVM (the probes), `-D` on the shaded
   jar, and `DP.CONFIG` with `javafx:run`. The one path that does **not** work is `-D` passed to
   `mvn javafx:run`, as the Setup section warns.

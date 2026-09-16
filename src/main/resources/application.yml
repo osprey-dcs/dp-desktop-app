@@ -33,9 +33,10 @@ DpDesktopApp:
   #                targets below, and never constructs a MongoDB client.  Ingestion and metadata
   #                authoring are disabled in this mode; the Explore views are enabled at launch.
   # An absent or unrecognized value is treated as "demo".
-  # Override at launch with -Ddp.DpDesktopApp.mode=deployment, or ship a deployment
-  # application.yml and point at it with -Ddp.config=<path> or the DP.CONFIG environment variable.
-  mode: demo
+  # Override at launch with --mode=deployment, with -Ddp.DpDesktopApp.mode=deployment, with the
+  # DP_DP_DESKTOP_APP_MODE environment variable, or by shipping a deployment application.yml and
+  # pointing at it with -Ddp.config=<path> or the DP.CONFIG environment variable.
+  mode: ${DP_DP_DESKTOP_APP_MODE:demo}
 
 # GrpcClient: General settings for gRPC clients.
 GrpcClient:
@@ -45,19 +46,23 @@ GrpcClient:
   hostname: localhost
 
   # Connect strings ("host:port") for the four services, used in deployment mode only.
-  # GrpcClient.ingestionConnectString is also read by dp-service's IngestionServiceClientUtility.
+  # These four keys are also defined in dp-service's application.yml, with the same names, the same
+  # defaults and the same environment variables.  THIS FILE SHADOWS THAT ONE on the classpath, so
+  # the ${...} forms are not decoration: written as plain literals here, the DP_GRPC_CLIENT_*
+  # environment variables that work for every other Data Platform component are silently ignored by
+  # this application, and a container configured that way connects to localhost instead.
 
   # GrpcClient.ingestionConnectString: Ingestion Service gRPC target.
-  ingestionConnectString: "localhost:50051"
+  ingestionConnectString: ${DP_GRPC_CLIENT_INGESTION_CONNECT_STRING:localhost:50051}
 
   # GrpcClient.queryConnectString: Query Service gRPC target.
-  queryConnectString: "localhost:50052"
+  queryConnectString: ${DP_GRPC_CLIENT_QUERY_CONNECT_STRING:localhost:50052}
 
   # GrpcClient.annotationConnectString: Annotation Service gRPC target.
-  annotationConnectString: "localhost:50053"
+  annotationConnectString: ${DP_GRPC_CLIENT_ANNOTATION_CONNECT_STRING:localhost:50053}
 
   # GrpcClient.ingestionStreamConnectString: Ingestion Stream Service gRPC target.
-  ingestionStreamConnectString: "localhost:50054"
+  ingestionStreamConnectString: ${DP_GRPC_CLIENT_INGESTION_STREAM_CONNECT_STRING:localhost:50054}
 
   # GrpcClient.keepAliveTimeSeconds: Sets the time (in seconds) since the last receipt before sending a keepalive ping.
   keepAliveTimeSeconds: 45

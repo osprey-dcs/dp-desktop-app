@@ -1465,6 +1465,13 @@ reset clears what the delete invalidated.
 individual records and cleaning them up. Here the drop *is* the subject. Running it wipes whatever
 demo data is present.
 
+**It therefore requires an explicit opt-in (`-Ddp.test.allowDemoDatabaseDrop=true`), not merely a
+reachable MongoDB.** Every other live IT here is safe to run against a developer's database because
+it only touches its own stamped records; this one is not. Gating it on reachability alone would make
+a routine `mvn test` silently destroy accumulated demo data — and since #4 that data survives
+restarts and is worth keeping, which is exactly what makes reachability insufficient consent. Before
+#4 a relaunch would have dropped it anyway.
+
 Two of its guards failed their mutation check on the first version, both the same shape — asserting
 a condition that already held:
 
@@ -1481,8 +1488,13 @@ Note also that the restart assertion deliberately does **not** poll: the data is
 Polling there would mask the exact failure the test exists to catch. The initial ingest does gate on
 visibility, for the documented asynchronous-ingestion lag.
 
-Run it alone with `mvn test -Dtest=DemoDatabaseLifecycleLiveIT`; watch it skip with
-`-Ddp.MongoClient.dbPort=1`.
+Run it with `mvn test -Dtest=DemoDatabaseLifecycleLiveIT -Ddp.test.allowDemoDatabaseDrop=true`;
+without that property it skips, as it does with `-Ddp.MongoClient.dbPort=1`.
+
+Its central assertion changed with the rebuild: the invariant is **the data is gone and the schema is
+intact**, not "the database name no longer exists". The name is present again by the time the delete
+returns, so asserting its absence would be asserting the bug the rebuild prevents. Both index guards
+were mutation-checked against a rebuild-less delete, failing with `expected: <3> but was: <0>`.
 
 **What live coverage still does not reach**: FXML rendering, clicks, navigation between views, and
 the editor forms. Those need the manual scenario in `plan/tickets/39/manual-verification.md`.
@@ -1505,6 +1517,15 @@ It is also what an IDE run configuration should carry, in the program arguments 
 forks a JVM that does not inherit Maven's system properties. The same `-D` *is* correct on the
 shaded jar, which is what makes the two easy to confuse. `DP.CONFIG=<file>` (with an `env` prefix in
 zsh) is the third working path and the shape a real install uses.
+
+**The four connect strings and the mode are environment-overridable**
+(`DP_GRPC_CLIENT_QUERY_CONNECT_STRING`, `DP_DP_DESKTOP_APP_MODE`, and so on), which is the shape a
+container install uses. This is not automatic: all four connect-string keys are *also* defined in
+dp-service's `application.yml`, and **this app's file shadows that one on the classpath**, so the
+`${VAR:default}` forms have to be repeated here. Written as plain literals they compile fine and the
+`DP_GRPC_CLIENT_*` variables that work for every other Data Platform component are silently ignored
+— a deployment configured that way connects to `localhost` instead of the host it was told to use.
+Precedence is `-Ddp.<key>` > environment variable > the file's default.
 
 `--mode` is translated into that same system property in `DpDesktopApplication.init()` rather than
 parsed locally, so there is ONE mode-resolution path: the typo rule (an unrecognized value resolves
@@ -1561,6 +1582,14 @@ not redden the build, and leftover stamped records are inert and identifiable. T
 - Default database: `dp-demo`
 - Managed through `InprocessServiceEcosystem` — **demo mode only**. Deployment mode never constructs
   a MongoDB client, so `MongoInterface` is unreachable there (see the Application Modes section)
+
+**The deployment status label names the QUERY target, not the ingestion one.** `describe()` feeds the
+status bar, the window title and the startup log, and in deployment mode it is the only thing in the
+UI answering "which archive am I pointed at". Deployment mode disables every ingestion path, so the
+ingestion host is the one service the application never calls there — naming it would print a host
+whose correctness has no observable consequence, beside results fetched from a host the label never
+mentions. `AppConfigurationTest` gives the four targets distinct hosts for exactly this reason; a
+test using one host for all four would pass either way.
 - Data persistence handled by gRPC service layer
 - MongoDB drivers: sync, reactive streams, core, and BSON
 
@@ -1624,6 +1653,20 @@ exploreEnabled = deploymentMode || archiveHasData || hasIngestedData
 cheaper and is the obvious implementation, but it would construct a MongoDB client — and deployment
 mode never constructing one is a structural safety property, not an incidental detail.
 
+**The probe is skipped entirely in deployment mode, and bounded at 5 seconds in demo mode.** It runs
+from `DpApplication.init()`, which JavaFX calls before `start()` — so there is no window yet and
+anything slow there is a blank screen with no feedback. The underlying call cannot bound itself:
+`queryPvStats` goes through dp-service's `ApiResponseObserverBase.await()`, whose timeout is **60
+seconds**, so a wedged query service (which the #4 manual verification actually hit) would hold the
+launch for a full minute. Deployment mode does not ask the question at all, because
+`exploreEnabled = deploymentMode || …` short-circuits and the answer is unused there. Timing out
+costs nothing, since the fallback answer is the same one a failure gets.
+
+`probeArchiveWithin()` is static and takes the query as a `Supplier` so the **bound** is testable
+without a service ecosystem, separately from `archiveHasDataFrom()`: that method decides what a
+returned result means, this one decides what happens when no result returns at all. Mutation-checked
+— unbounded, `ArchiveProbeTest` takes 60 seconds instead of 1 and the assertion fails.
+
 **A failed probe assumes the archive HAS data.** The asymmetry is deliberate and reads like a typo:
 guessing empty on an unreachable or slow service disables every Explore view over an archive that
 may be full — the exact bug the probe fixes, arriving precisely when the system is already
@@ -1650,6 +1693,32 @@ whole process even before the drop.
 **A failed drop must not clear the session state.** `deleteDemoDatabase()` returns false when the
 database is untouched, and the UI reports the failure rather than resetting — an application showing
 a pre-ingestion home view over a fully populated archive is worse than one showing an error.
+
+**The drop is followed by a schema REBUILD, and that is not optional.** Dropping a database destroys
+its collections *and every index on them* — including the unique indexes on `pvMetadata`,
+`configurations` and `configurationActivations` — while the services that are still running hold
+`MongoCollection` handles bound at their own init and create indexes only there. MongoDB silently
+recreates a collection on the next write, so without the rebuild the session continues against an
+**unindexed** database: ingestion, query and PV stats all keep returning success and nothing in the
+UI says anything. Measured against the plain drop: `buckets` fell from 3 indexes to 1 and
+`pvMetadata` from 5 to 0, and a subsequent ingest still reported success.
+
+Before #4 the drop only ever ran at launch, *ahead* of service init, so the indexes were always
+rebuilt immediately afterward; moving the drop to a menu item is what opened this gap.
+`rebuildDemoSchema()` closes it with a second `init()` against the now-empty database — `init()` is
+what creates every collection, runs migrations and creates every index, so the rebuild cannot drift
+from the real schema the way a hand-written copy would. A failed rebuild is reported as a **failed
+delete**: the data really is gone by then, so that is not strictly accurate, but reporting success
+would leave the user on a silently degraded database with nothing to act on, while reporting failure
+sends them to the log and to a restart, which is what repairs it.
+
+**`MongoInterface.fini()` overrides an inherited no-op, to actually close the client.**
+`MongoClientBase.fini()` logs and returns true; nothing anywhere in dp-service calls
+`MongoClient.close()`. That is tolerable for the long-lived clients the services hold, which live as
+long as the process, but not for the short-lived ones this class constructs — one per demo launch in
+`prepareDemoDatabase()` and two per delete — each carrying its own connection pool and monitoring
+threads. `mongoClient` is `protected` on `MongoSyncClient`, so a subclass is the only place this can
+be fixed without changing dp-service.
 
 ## Debugging and Logging
 - Log4j2 configuration in `src/main/resources/log4j2.xml` (currently set to DEBUG level)

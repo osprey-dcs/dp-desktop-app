@@ -1721,6 +1721,36 @@ long as the process, but not for the short-lived ones this class constructs — 
 threads. `mongoClient` is `protected` on `MongoSyncClient`, so a subclass is the only place this can
 be fixed without changing dp-service.
 
+## Releases
+
+Tagged as `rel-<version>`. `release.yml` publishes the shaded JAR and its SHA-256 checksum, built
+against `rel-<version>` of dp-grpc and dp-service — the three repos are tagged in lockstep.
+
+Release notes are version-controlled under `doc/release-notes/`, one document per release
+(`rel-<version>.md`), starting with 1.16.0; earlier releases were documented on the GitHub release
+itself. A release note is organized by issue ticket rather than by PR, since a ticket often spans
+several PRs, and a breaking release leads with an "Upgrading from <previous>" checklist that calls
+out silent behavior changes separately from compile errors. Add each new document to the table in
+the `## Release Notes` section of `README.md`.
+
+`release.yml` publishes `doc/release-notes/rel-<version>.md` as the GitHub release body via
+`body_path`, and fails the job **before the build** if the file is not present on the tagged
+commit. Write the notes and merge them **before** pushing the `rel-*` tag.
+
+**The early check matters more here than in the sibling repos.** This job builds dp-grpc and
+dp-service from source before it builds the app, so leaving the missing-notes failure to
+`action-gh-release` would surface it three builds late.
+
+**The notes path is derived from `VERSION`, not from `GITHUB_REF_NAME`** as it is in dp-grpc and
+dp-service. Those workflows have no `workflow_dispatch` path, so for them the two are always the
+same; here a manual dispatch runs from a branch, and `GITHUB_REF_NAME` would resolve to
+`doc/release-notes/main.md`.
+
+**A dry run warns rather than failing.** A manual dispatch defaults to `dry_run: true` and exists
+to rehearse the build *before* a release is ready — which is exactly when the notes do not exist
+yet. Failing there would block the rehearsal the dry run is for. Both publishing paths (a `rel-*`
+tag push, and a dispatch with `dry_run: false`) fail hard.
+
 ## Debugging and Logging
 - Log4j2 configuration in `src/main/resources/log4j2.xml` (currently set to DEBUG level)
 - Key logger names: `com.ospreydcs.dp.gui.*` for UI components

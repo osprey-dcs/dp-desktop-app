@@ -22,9 +22,9 @@ The easiest way to install the application is via the data-platform installer.  
 
 #### Running the Application
 
-The initial version of the application runs only in "demonstration mode".  Support for MLDP services running as remote gRPC targets will be added in the next release.
+The application runs in either of two modes.  In "demonstration mode", the default, it hosts the MLDP service implementations in its own process.  In "deployment mode", added in 1.16.0, it connects to already-running MLDP services as remote gRPC targets; that mode is read-only for this release, with ingestion and metadata authoring disabled.  See the [1.16.0 release notes](doc/release-notes/rel-1.16.0.md#remote-grpc-targets-4) for how to select the mode and configure the targets.
 
-To simplify the environment required to run in demonstration mode, the desktop application includes the MLDP service implementations running in the same process as the GUI, which communicates with the services via the "in-process" gRPC framework.  By default, the application uses a Mongo database called "dp-demo".  This avoids the need to run the MLDP services as separate Java applications, and data created by the demo application is not added to the production Mongo database.  The Mongo dp-demo database is reset each time the application runs, so any data saved during a session is lost the next time the application is run.
+To simplify the environment required to run in demonstration mode, the desktop application includes the MLDP service implementations running in the same process as the GUI, which communicates with the services via the "in-process" gRPC framework.  By default, the application uses a Mongo database called "dp-demo".  This avoids the need to run the MLDP services as separate Java applications, and data created by the demo application is not added to the production Mongo database.  As of 1.16.0 the dp-demo database is **no longer reset** at launch, so data saved during a session is still there the next time the application runs; use Tools -> Delete Demo Data to clear it.
 
 To run the application, change to the installation's "bin" directory and run the "app-run-desktop-app" script, e.g., 
 
@@ -36,6 +36,19 @@ cd ~/data-platform/bin
 The application window is opened and the application log messages appear in the command console.
 
 ![home view](./doc/images/home.png)
+
+## Release Notes
+
+Per-release notes live under [`doc/release-notes/`](doc/release-notes/), one document per
+release, covering what changed since the previous one and what upgrading requires.
+
+| Release | Notes |
+|---|---|
+| 1.16.0 | [rel-1.16.0](doc/release-notes/rel-1.16.0.md) — remote gRPC targets, Query API V2, three new Explore views, PV and machine configuration metadata authoring.  The demo database is no longer reset at launch. |
+
+Releases before 1.16.0 were documented on the
+[GitHub release](https://github.com/osprey-dcs/dp-desktop-app/releases) itself.  The `rel-*` tags
+remain the authority on what any past release contained.
 
 ## Using the application
 

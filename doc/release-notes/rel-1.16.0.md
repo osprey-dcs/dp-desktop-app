@@ -19,7 +19,7 @@ Read [Upgrading from 1.15.0](#upgrading-from-1150) before installing.
 - [Remote gRPC targets (#4)](#remote-grpc-targets-4)
 - [Query API V2, and query support for the new metadata APIs (#39)](#query-api-v2-and-query-support-for-the-new-metadata-apis-39)
 - [Annotation API modernization (#42)](#annotation-api-modernization-42)
-- [Sample status generation (#37)](#sample-status-generation-37)
+- [Sample status generation (#37, #38)](#sample-status-generation-37-38)
 - [Machine configuration authoring (#27, #36)](#machine-configuration-authoring-27-36)
 - [PV metadata authoring (#18)](#pv-metadata-authoring-18)
 - [Column metadata replaces request-level metadata (#17)](#column-metadata-replaces-request-level-metadata-17)
@@ -119,6 +119,11 @@ Deployment mode never constructs a MongoDB client, so none of this is reachable 
 
 ## Query API V2, and query support for the new metadata APIs (#39)
 
+#39 subsumed three earlier tickets, which were closed as not-planned rather than implemented
+separately: #19 (a view for querying PV metadata), #20 (a view for the V2 query API with PV and
+machine configuration metadata as search criteria) and #34 (a view for querying machine
+configuration and activation metadata).  All three are delivered by the work below.
+
 ### The data query migrated to Query API V2
 
 `Explore → Data` now issues `querySamples` rather than the retired V1 `queryTable`.  Visible
@@ -150,6 +155,9 @@ because the server rejects one.
 Adding to a dataset is refused for a pattern or metadata selection: a data block is a PV name list
 by definition, and building one from the displayed name list would save a dataset covering PVs the
 query never touched.
+
+The README's [Querying PV time-series data](../../README.md#querying-pv-time-series-data) section
+walks through the Query Editor with these controls in place.
 
 ### Two optional query filters
 
@@ -186,6 +194,8 @@ when every selected PV is filtered out at it.
   registry is not implemented yet, so a status in any other domain shows its raw code with an empty
   label rather than a guess.
 
+See also [Exploring metadata](../../README.md#exploring-metadata-added-in-1160) in the README.
+
 Loading a PV metadata record for editing hands the editor **the resolved record**, not the name
 that was typed.  `getPvMetadata()` resolves aliases, so searching by a historical name returns the
 record under its canonical one — and saving is a full-replace upsert keyed on the name.  Editing a
@@ -219,7 +229,7 @@ direction, and are fixed in the same release.
 of them.  The app sends one value per criterion from single text fields, so its own searches are
 unaffected — but the result sets differ for anything scripted against the API directly.
 
-## Sample status generation (#37)
+## Sample status generation (#37, #38)
 
 The data generation view gains an optional **sample status** checkbox, off by default.  When
 checked, every generated sample of every PV also gets a random EPICS-style alarm status
@@ -234,6 +244,8 @@ reports the same number while replacing rather than adding.
 A status save failure does not fail the ingestion — the data is already in the archive by then, and
 status generation is an opt-in demo extra.  Failures are reported alongside the count.
 
+See [Sample Status (demo)](../../README.md#sample-status-demo) in the README.
+
 ## Machine configuration authoring (#27, #36)
 
 New `Metadata → Machine Configuration` view, for creating configuration records and their
@@ -246,6 +258,9 @@ resolve — gating the section makes that rejection unreachable through normal u
 Both saves are **full-replace upserts**, so an existing record is confirmed before it is
 overwritten.  The confirmation names the record that was **found**, not what was typed.
 
+See [Creating machine configurations](../../README.md#creating-machine-configurations) in the README
+for the walkthrough.
+
 Activation id collisions are detected in two stages (#36): against activations created in the
 current session, and — for a record from an earlier session or another client — against the server.
 A supplied activation id is an upsert key, not a label, so a collision silently replaces the
@@ -256,6 +271,8 @@ but one blocks every subsequent activation in its entire category indefinitely.
 
 New `Metadata → PV` view, for creating and updating curated PV metadata — aliases, tags,
 attributes, description.
+
+See [Creating PV metadata](../../README.md#creating-pv-metadata) in the README for the walkthrough.
 
 The save is a **full-replace upsert**: it replaces the entire record for a PV name, and omitted
 fields are not preserved.  An existing record is therefore confirmed before it is overwritten,
@@ -271,6 +288,9 @@ archive actually stores and queries them.
 
 Unset provenance fields are omitted rather than sent as empty strings, and a panel with nothing
 entered sends no metadata field at all.
+
+The README's [Column Metadata](../../README.md#column-metadata) section covers the panel; note that
+its screenshot still shows the pre-1.16.0 "Request Details" panel.
 
 ## Test coverage and CI (#29)
 

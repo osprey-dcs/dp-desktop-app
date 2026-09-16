@@ -99,6 +99,7 @@ File → Connection, Preferences, Exit
 Ingest → Generate, Import (Fixed and Subscribe removed)
 Metadata → PV, Machine Configuration
 Explore → Data, PV Statistics, PV Metadata, Providers, Datasets, Annotations, Machine Configurations, Sample Statuses, Data Events
+Tools → Delete Demo Data
 ```
 
 **Menu Item Logic:**
@@ -1453,8 +1454,86 @@ mutation-checked: dropping the criteria failed with "the configuration selector 
 rows, so it is being DROPPED rather than applied", and neutering the codes failed with "the CODES are
 being ignored and only the domain is applied -- which silently widens every INCLUDE filter".
 
+**Demo database lifecycle test** (`DemoDatabaseLifecycleLiveIT`, added by #4 task 3): pins the
+behavior change that the demo database is no longer dropped at launch. Every claim in it is about
+what MongoDB still holds after a call returns, so none of it is reachable without a database:
+ingested data survives an ecosystem restart; this run's buckets are in `dp-demo` and **not** in
+dp-service's default `dp`; `deleteDemoDatabase()` actually removes the database; and the session
+reset clears what the delete invalidated.
+
+**It drops the configured database**, unlike the other live ITs, which avoid that by stamping
+individual records and cleaning them up. Here the drop *is* the subject. Running it wipes whatever
+demo data is present.
+
+**It therefore requires an explicit opt-in (`-Ddp.test.allowDemoDatabaseDrop=true`), not merely a
+reachable MongoDB.** Every other live IT here is safe to run against a developer's database because
+it only touches its own stamped records; this one is not. Gating it on reachability alone would make
+a routine `mvn test` silently destroy accumulated demo data — and since #4 that data survives
+restarts and is worth keeping, which is exactly what makes reachability insufficient consent. Before
+#4 a relaunch would have dropped it anyway.
+
+Two of its guards failed their mutation check on the first version, both the same shape — asserting
+a condition that already held:
+
+- the name-override guard asserted that the database `dp-demo` **exists**, which a previous run had
+  already made true. With the override removed it passed while 41 buckets went to `dp`. It now
+  counts documents per database, and asserts zero in `dp` — the negative half is what stops the
+  positive one passing on a leftover database.
+- the session-reset guard asserted `providerId` was null without ever registering a provider, so it
+  passed against a reset that cleared nothing. It now sets every field it asserts, and checks each
+  precondition first.
+
+Note also that the restart assertion deliberately does **not** poll: the data is confirmed visible
+*before* the restart, so anything less than an immediate hit afterward means the restart removed it.
+Polling there would mask the exact failure the test exists to catch. The initial ingest does gate on
+visibility, for the documented asynchronous-ingestion lag.
+
+Run it with `mvn test -Dtest=DemoDatabaseLifecycleLiveIT -Ddp.test.allowDemoDatabaseDrop=true`;
+without that property it skips, as it does with `-Ddp.MongoClient.dbPort=1`.
+
+Its central assertion changed with the rebuild: the invariant is **the data is gone and the schema is
+intact**, not "the database name no longer exists". The name is present again by the time the delete
+returns, so asserting its absence would be asserting the bug the rebuild prevents. Both index guards
+were mutation-checked against a rebuild-less delete, failing with `expected: <3> but was: <0>`.
+
 **What live coverage still does not reach**: FXML rendering, clicks, navigation between views, and
 the editor forms. Those need the manual scenario in `plan/tickets/39/manual-verification.md`.
+
+**Remote deployment targets are not reachable by any automated test** (#4), and cannot be: CI has no
+running dp-service instances. `plan/tickets/4/manual-verification.md` carries that scenario, along
+with the launch recipes.
+
+**Selecting the mode at launch.** Prefer the `--mode` argument, which works everywhere:
+
+```bash
+java -jar target/dp-desktop-app-1.16.0-shaded.jar --mode=deployment
+mvn javafx:run -Djavafx.args=--mode=deployment
+```
+
+It is also what an IDE run configuration should carry, in the program arguments of a
+`DpDesktopApplicationRunner` configuration.
+
+**`mvn javafx:run -Ddp.DpDesktopApp.mode=deployment` silently launches DEMO mode** -- the plugin
+forks a JVM that does not inherit Maven's system properties. The same `-D` *is* correct on the
+shaded jar, which is what makes the two easy to confuse. `DP.CONFIG=<file>` (with an `env` prefix in
+zsh) is the third working path and the shape a real install uses.
+
+**The four connect strings and the mode are environment-overridable**
+(`DP_GRPC_CLIENT_QUERY_CONNECT_STRING`, `DP_DP_DESKTOP_APP_MODE`, and so on), which is the shape a
+container install uses. This is not automatic: all four connect-string keys are *also* defined in
+dp-service's `application.yml`, and **this app's file shadows that one on the classpath**, so the
+`${VAR:default}` forms have to be repeated here. Written as plain literals they compile fine and the
+`DP_GRPC_CLIENT_*` variables that work for every other Data Platform component are silently ignored
+— a deployment configured that way connects to `localhost` instead of the host it was told to use.
+Precedence is `-Ddp.<key>` > environment variable > the file's default.
+
+`--mode` is translated into that same system property in `DpDesktopApplication.init()` rather than
+parsed locally, so there is ONE mode-resolution path: the typo rule (an unrecognized value resolves
+to DEMO, never DEPLOYMENT) therefore applies to the command line too. A local parser would be free
+to drift from it, and the direction it would drift is a misspelling becoming a connection attempt
+against production. An explicit `-D` wins over the argument, so a launcher script that always
+appends `--mode=demo` cannot override what an operator set deliberately. Both rules are
+mutation-checked in `ModeArgumentTest`.
 
 **Calculations import fixture** (`CalculationsWorkbookFixture`, added by #43): generates the
 multi-sheet XLSX used to exercise Annotation Builder → Import Calculations by hand, and through it
@@ -1501,9 +1580,146 @@ not redden the build, and leftover stamped records are inert and identifiable. T
 
 ## MongoDB Integration
 - Default database: `dp-demo`
-- Managed through `InprocessServiceEcosystem`
+- Managed through `InprocessServiceEcosystem` — **demo mode only**. Deployment mode never constructs
+  a MongoDB client, so `MongoInterface` is unreachable there (see the Application Modes section)
+
+**The deployment status label names the QUERY target, not the ingestion one.** `describe()` feeds the
+status bar, the window title and the startup log, and in deployment mode it is the only thing in the
+UI answering "which archive am I pointed at". Deployment mode disables every ingestion path, so the
+ingestion host is the one service the application never calls there — naming it would print a host
+whose correctness has no observable consequence, beside results fetched from a host the label never
+mentions. `AppConfigurationTest` gives the four targets distinct hosts for exactly this reason; a
+test using one host for all four would pass either way.
 - Data persistence handled by gRPC service layer
 - MongoDB drivers: sync, reactive streams, core, and BSON
+
+### The demo database is not dropped at launch (changed in #4)
+
+`MongoInterface.init()` used to do **two** unrelated things in one call: override the database name
+globally, and drop the database. Issue #4 removed only the drop.
+
+**This is the first release in which demo data survives a restart.** A demo that always started
+clean can now start with a previous session's providers, buckets, sample statuses and metadata.
+`Tools → Delete Demo Data` clears it on request, with a confirmation dialog naming the database.
+
+**The override is now VERIFIED, not just performed.** `prepareDemoDatabase()` returns a boolean and
+`InprocessServiceEcosystem.init()` aborts on false: after applying the override it re-reads
+`getMongoDatabaseName()` and refuses to start demo mode unless the effective name is `dp-demo`.
+"We called the method that sets it" and "it is actually set" are different claims, and the gap
+between them is silent — every read and write would agree on the WRONG database and nothing would
+error. Mutation-checked: removing the override now makes `DpApplication.init()` return false with
+`REFUSING TO START DEMO MODE: the effective database name is 'dp', not 'dp-demo'`, so no data
+reaches the deployment's database at all. That is prevention rather than the after-the-fact
+detection the bucket-location assertions provide.
+
+**The ordering requirement is real and was measured.** Moving one service's init ahead of
+`prepareDemoDatabase()` binds that service's Mongo clients to `dp` while the rest get `dp-demo` — a
+split-brain ecosystem, ingestion writing to one database while queries read another. Mutation-
+checked: two clients bound to `dp`, and all five tests in `DemoDatabaseLifecycleLiveIT` failed.
+`prepareDemoDatabase()` must stay the first statement in that method.
+
+**The demo status label names its database** (`Demo (in-process) — dp-demo`), for the same reason
+the deployment label names its host: "which archive am I looking at" has to be answerable from the
+UI in both modes. A demo label that named nothing meant a demo pointed at the wrong database looked
+exactly like a correct one.
+
+**The name override must stay in `MongoInterface.init()`**, and this is the hazard in the split
+rather than the drop. `MongoClientBase.setMongoDatabaseName()` is `protected static`, so only a
+subclass can call it — which is why the two operations shared a method in the first place. Removing
+the override along with the drop would silently point the demo at dp-service's default database
+name (`dp`), which in a real installation is **production**, and **nothing would error**: ingestion
+and query would both work, in the wrong database, because reads and writes would agree on the wrong
+name. `DemoDatabaseLifecycleLiveIT` counts buckets *per database* rather than asserting the demo
+name merely exists — an earlier version of that guard asserted existence and passed against a
+removed override, because a previous run's `dp-demo` was still on the server.
+
+**`hasIngestedData` and "the database is empty" stopped being the same statement.** The home view's
+pre-ingestion details used to say "No data has been ingested yet"; they now scope the claim to the
+session and name the database, because the archive may hold a previous run's data while
+`hasIngestedData` is false. For the same reason `Tools → Delete Demo Data` is gated on the **mode
+alone**, never on `hasIngestedData` — gating it on ingestion would leave exactly that leftover data
+undeletable.
+
+**The Explore menu needed the same correction, and did not get it in the first pass.** Gating it on
+`hasIngestedData` left a demo relaunched on a populated database with every Explore item disabled
+over hundreds of buckets — data in the archive, unreachable from the UI. `DpApplication` now probes
+the archive once at init and exposes `archiveHasData()`, so the rule is:
+
+```
+exploreEnabled = deploymentMode || archiveHasData || hasIngestedData
+```
+
+**The probe asks over gRPC (`queryPvStats`), never MongoDB.** Counting documents directly would be
+cheaper and is the obvious implementation, but it would construct a MongoDB client — and deployment
+mode never constructing one is a structural safety property, not an incidental detail.
+
+**The probe is skipped entirely in deployment mode, and bounded at 5 seconds in demo mode.** It runs
+from `DpApplication.init()`, which JavaFX calls before `start()` — so there is no window yet and
+anything slow there is a blank screen with no feedback. The underlying call cannot bound itself:
+`queryPvStats` goes through dp-service's `ApiResponseObserverBase.await()`, whose timeout is **60
+seconds**, so a wedged query service (which the #4 manual verification actually hit) would hold the
+launch for a full minute. Deployment mode does not ask the question at all, because
+`exploreEnabled = deploymentMode || …` short-circuits and the answer is unused there. Timing out
+costs nothing, since the fallback answer is the same one a failure gets.
+
+`probeArchiveWithin()` is static and takes the query as a `Supplier` so the **bound** is testable
+without a service ecosystem, separately from `archiveHasDataFrom()`: that method decides what a
+returned result means, this one decides what happens when no result returns at all. Mutation-checked
+— unbounded, `ArchiveProbeTest` takes 60 seconds instead of 1 and the assertion fails.
+
+**A failed probe assumes the archive HAS data.** The asymmetry is deliberate and reads like a typo:
+guessing empty on an unreachable or slow service disables every Explore view over an archive that
+may be full — the exact bug the probe fixes, arriving precisely when the system is already
+unhealthy. Guessing non-empty at worst opens a view that reports its own emptiness. The wrong guess
+must be the recoverable one. `archiveHasDataFrom()` is static so that policy is testable without a
+service ecosystem (`ArchiveProbeTest`), and the mutation that flips it is caught by two tests —
+it escaped the suite entirely until the decision was extracted from the private probe method.
+
+**`resetIngestedDataState()` clears `archiveHasData` too.** Leaving it set would keep every Explore
+item enabled over the database the delete just dropped — the mirror image of the bug the probe
+fixes. `archiveHasData` is kept separate from `hasIngestedData` rather than folded into it, because
+that flag also drives the home view's text and the Data Events gate: setting it at launch would make
+the home view claim this session ingested data it never touched, trading a menu bug for a
+truthfulness one. Data Events accordingly does **not** follow `archiveHasData` — leftover archive
+data says nothing about whether this session has subscriptions.
+
+**The delete action re-checks the mode at invocation**, in addition to its menu binding. This is the
+one action that earns defense in depth: a broken binding is invisible (a disabled item that becomes
+enabled still looks like a working menu), and the consequence in deployment mode would be a drop
+against someone else's archive. Note also that `MongoInterface.init()` sets the database name
+*globally* for the process, so reaching `deleteDemoDatabase()` in deployment mode would repoint the
+whole process even before the drop.
+
+**A failed drop must not clear the session state.** `deleteDemoDatabase()` returns false when the
+database is untouched, and the UI reports the failure rather than resetting — an application showing
+a pre-ingestion home view over a fully populated archive is worse than one showing an error.
+
+**The drop is followed by a schema REBUILD, and that is not optional.** Dropping a database destroys
+its collections *and every index on them* — including the unique indexes on `pvMetadata`,
+`configurations` and `configurationActivations` — while the services that are still running hold
+`MongoCollection` handles bound at their own init and create indexes only there. MongoDB silently
+recreates a collection on the next write, so without the rebuild the session continues against an
+**unindexed** database: ingestion, query and PV stats all keep returning success and nothing in the
+UI says anything. Measured against the plain drop: `buckets` fell from 3 indexes to 1 and
+`pvMetadata` from 5 to 0, and a subsequent ingest still reported success.
+
+Before #4 the drop only ever ran at launch, *ahead* of service init, so the indexes were always
+rebuilt immediately afterward; moving the drop to a menu item is what opened this gap.
+`rebuildDemoSchema()` closes it with a second `init()` against the now-empty database — `init()` is
+what creates every collection, runs migrations and creates every index, so the rebuild cannot drift
+from the real schema the way a hand-written copy would. A failed rebuild is reported as a **failed
+delete**: the data really is gone by then, so that is not strictly accurate, but reporting success
+would leave the user on a silently degraded database with nothing to act on, while reporting failure
+sends them to the log and to a restart, which is what repairs it.
+
+**`MongoInterface.fini()` overrides an inherited no-op, to actually close the client — a workaround
+for dp-service #282, to be removed when that lands.**
+`MongoClientBase.fini()` logs and returns true; nothing anywhere in dp-service calls
+`MongoClient.close()`. That is tolerable for the long-lived clients the services hold, which live as
+long as the process, but not for the short-lived ones this class constructs — one per demo launch in
+`prepareDemoDatabase()` and two per delete — each carrying its own connection pool and monitoring
+threads. `mongoClient` is `protected` on `MongoSyncClient`, so a subclass is the only place this can
+be fixed without changing dp-service.
 
 ## Debugging and Logging
 - Log4j2 configuration in `src/main/resources/log4j2.xml` (currently set to DEBUG level)

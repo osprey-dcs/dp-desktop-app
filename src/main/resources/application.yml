@@ -1,4 +1,12 @@
 # MongoClient: Settings for connection to MongoDB.
+#
+# NOTE: the database NAME is not configured here.  Demo mode overrides it in code to "dp-demo"
+# (MongoInterface.DEMO_DATABASE_NAME), before any service starts.  Deployment mode never constructs
+# a MongoDB client at all -- it talks to the GrpcClient.*ConnectString services below, which own
+# their own database connections.
+#
+# As of issue #4 the demo database is NO LONGER DROPPED at launch; it persists across restarts, and
+# Tools > Delete Demo Data clears it on request.
 MongoClient:
 
   # MongoClient.dbHost: The host that is running the MongoDB server.
@@ -14,11 +22,47 @@ MongoClient:
   # MongoClient.dbPassword: Password for dbUser for connection to MongoDB by Data Platform services.
   dbPassword: admin
 
+# DpDesktopApp: Settings for the desktop GUI application itself.
+DpDesktopApp:
+
+  # DpDesktopApp.mode: Which gRPC targets the application runs against.
+  #   demo       - starts a self-contained in-process service ecosystem backed by the local
+  #                dp-demo MongoDB database.  This is the default, and what you get with
+  #                "mvn javafx:run" or by running DpDesktopApplicationRunner with no flags.
+  #   deployment - connects to already-running remote services at the GrpcClient.*ConnectString
+  #                targets below, and never constructs a MongoDB client.  Ingestion and metadata
+  #                authoring are disabled in this mode; the Explore views are enabled at launch.
+  # An absent or unrecognized value is treated as "demo".
+  # Override at launch with --mode=deployment, with -Ddp.DpDesktopApp.mode=deployment, with the
+  # DP_DP_DESKTOP_APP_MODE environment variable, or by shipping a deployment application.yml and
+  # pointing at it with -Ddp.config=<path> or the DP.CONFIG environment variable.
+  mode: ${DP_DP_DESKTOP_APP_MODE:demo}
+
 # GrpcClient: General settings for gRPC clients.
 GrpcClient:
 
   # GrpcClient.hostname: Name of host running Data Platform services.
+  # NOTE: not used for client channel construction -- the *ConnectString settings below are.
   hostname: localhost
+
+  # Connect strings ("host:port") for the four services, used in deployment mode only.
+  # These four keys are also defined in dp-service's application.yml, with the same names, the same
+  # defaults and the same environment variables.  THIS FILE SHADOWS THAT ONE on the classpath, so
+  # the ${...} forms are not decoration: written as plain literals here, the DP_GRPC_CLIENT_*
+  # environment variables that work for every other Data Platform component are silently ignored by
+  # this application, and a container configured that way connects to localhost instead.
+
+  # GrpcClient.ingestionConnectString: Ingestion Service gRPC target.
+  ingestionConnectString: ${DP_GRPC_CLIENT_INGESTION_CONNECT_STRING:localhost:50051}
+
+  # GrpcClient.queryConnectString: Query Service gRPC target.
+  queryConnectString: ${DP_GRPC_CLIENT_QUERY_CONNECT_STRING:localhost:50052}
+
+  # GrpcClient.annotationConnectString: Annotation Service gRPC target.
+  annotationConnectString: ${DP_GRPC_CLIENT_ANNOTATION_CONNECT_STRING:localhost:50053}
+
+  # GrpcClient.ingestionStreamConnectString: Ingestion Stream Service gRPC target.
+  ingestionStreamConnectString: ${DP_GRPC_CLIENT_INGESTION_STREAM_CONNECT_STRING:localhost:50054}
 
   # GrpcClient.keepAliveTimeSeconds: Sets the time (in seconds) since the last receipt before sending a keepalive ping.
   keepAliveTimeSeconds: 45

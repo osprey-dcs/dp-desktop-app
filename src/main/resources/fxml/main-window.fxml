@@ -41,6 +41,13 @@
                   <MenuItem fx:id="dataEventsMenuItem" disable="true" onAction="#onDataEvents" text="Data Events" />
                </items>
             </Menu>
+            <Menu text="Tools">
+               <items>
+                  <!-- demo mode only; disabled by MainViewModel.deleteDemoDataEnabled in deployment
+                       mode, and re-checked against the mode in MainController.onDeleteDemoData() -->
+                  <MenuItem fx:id="deleteDemoDataMenuItem" onAction="#onDeleteDemoData" text="Delete Demo Data" />
+               </items>
+            </Menu>
          </menus>
       </MenuBar>
    </top>
@@ -53,7 +60,9 @@
       <ToolBar styleClass="navbar, navbar-default">
          <Label fx:id="statusLabel" styleClass="navbar-text" text="Ready" />
          <Region HBox.hgrow="ALWAYS" />
-         <Label fx:id="connectionStatusLabel" styleClass="navbar-text" text="In-Process Mode" />
+         <!-- text is replaced at runtime by the bound MainViewModel.connectionStatusText, which
+              carries AppConfiguration.describe() once the mode is known -->
+         <Label fx:id="connectionStatusLabel" styleClass="navbar-text" text="Connecting..." />
       </ToolBar>
    </bottom>
 </BorderPane>

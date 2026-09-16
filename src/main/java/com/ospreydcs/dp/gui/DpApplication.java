@@ -12,18 +12,27 @@ import com.ospreydcs.dp.grpc.v1.common.*;
 import com.ospreydcs.dp.grpc.v1.ingestion.RegisterProviderResponse;
 import com.ospreydcs.dp.grpc.v1.ingestionstream.PvConditionTrigger;
 import com.ospreydcs.dp.grpc.v1.ingestionstream.SubscribeDataEventResponse;
+import com.ospreydcs.dp.gui.config.AppConfiguration;
+import com.ospreydcs.dp.gui.config.RemoteChannelFactory;
 import com.ospreydcs.dp.gui.model.*;
 import com.ospreydcs.dp.service.common.model.ResultStatus;
 import com.ospreydcs.dp.service.common.protobuf.TimestampUtility;
 import com.ospreydcs.dp.service.inprocess.InprocessServiceEcosystem;
+import io.grpc.ManagedChannel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 public class DpApplication {
@@ -32,7 +41,9 @@ public class DpApplication {
     private static final Logger logger = LogManager.getLogger();
 
     // instance variables
+    private AppConfiguration configuration = null;
     private InprocessServiceEcosystem inprocessServiceEcosystem = null;
+    private List<ManagedChannel> remoteChannels = List.of();
     private ApiClient api = null;
     
     // state variables for cross-view usage
@@ -45,6 +56,22 @@ public class DpApplication {
     
     // application state tracking for home view
     private boolean hasIngestedData = false;
+
+    /**
+     * Whether the archive already held data when this application launched.
+     *
+     * <p><b>Distinct from {@code hasIngestedData}, and #4 is what made them distinct.</b>  That
+     * flag records that <i>this session</i> ingested; this one records that there is something to
+     * explore regardless of who put it there.  Before the demo database stopped being dropped at
+     * launch the two were the same statement in demo mode, which is why one flag used to serve
+     * both questions.
+     *
+     * <p>Kept separate rather than folded into {@code hasIngestedData} deliberately: that flag also
+     * drives the home view's text and the Data Events gate, so setting it here would make the home
+     * view claim this session ingested data it did not ingest -- trading a menu bug for a
+     * truthfulness one.
+     */
+    private boolean archiveHasData = false;
     private boolean hasPerformedQueries = false;
     private String lastOperationResult = null;
     private int totalPvsIngested = 0;
@@ -489,6 +516,12 @@ public class DpApplication {
 
     // Getters for application state tracking (for home view)
     public boolean hasIngestedData() { return hasIngestedData; }
+
+    /**
+     * Whether the archive held data at launch.  See the field for why this is not
+     * {@link #hasIngestedData()}.
+     */
+    public boolean archiveHasData() { return archiveHasData; }
     public boolean hasPerformedQueries() { return hasPerformedQueries; }
     public String getLastOperationResult() { return lastOperationResult; }
     public int getTotalPvsIngested() { return totalPvsIngested; }
@@ -537,6 +570,64 @@ public class DpApplication {
     public List<DataEventSubscription> getDataEventSubscriptions() {
         return new ArrayList<>(dataEventSubscriptions);
     }
+
+    /**
+     * Clears the session state that describes data in the archive, after the demo database has been
+     * deleted.
+     *
+     * <p>Called only from the Tools &gt; Delete Demo Data action, and only after the drop has
+     * actually succeeded.  The point is agreement between what the application claims and what the
+     * archive holds: {@code hasIngestedData} drives the Explore menu and the home view, so leaving
+     * it set after a delete would offer views onto an empty database and report counts for buckets
+     * that no longer exist -- which reads as the query paths being broken rather than as the data
+     * having been deleted on request.
+     *
+     * <p><b>Deliberately narrower than "reset everything".</b>  Three pieces of state are left
+     * alone, each for its own reason:
+     *
+     * <ul>
+     *   <li>{@code configuration} and the API client -- properties of how the application was
+     *       launched, not of the session.  The connection is still live and still correct.</li>
+     *   <li>{@code dataEventSubscriptions} -- each holds an open gRPC call.  Clearing the list would
+     *       leak those calls rather than end them, and cancelling them here would tear down streams
+     *       the user did not ask to stop.  They are left running, and they remain reachable through
+     *       {@link #getDataEventSubscriptions()}: the Data Events menu item going disabled hides the
+     *       view, it does not stop the subscriptions.  Ending them belongs to
+     *       {@code cancelDataEventSubscription()}, which is the only path that closes the call
+     *       rather than dropping the reference.</li>
+     *   <li>{@code dataBeginTime} / {@code dataEndTime} -- a query window the user chose, which is
+     *       still a perfectly good window to query once new data exists.</li>
+     * </ul>
+     */
+    public void resetIngestedDataState() {
+
+        hasIngestedData = false;
+        hasPerformedQueries = false;
+        totalPvsIngested = 0;
+        totalBucketsCreated = 0;
+
+        // The delete emptied the archive, so what the launch probe found is no longer true.  Left
+        // set, this would keep every Explore item enabled over an archive that was just dropped --
+        // the exact mirror of the bug the probe exists to fix, and the reason the reset must clear
+        // it rather than only the session flag.
+        archiveHasData = false;
+
+        // The PV list describes PVs that were in the archive.  Note the convention this field
+        // carries throughout DpApplication: empty means null, not an empty list -- setPvNames() and
+        // removePvName() both collapse to null, and getPvNames() callers are written against that.
+        pvNames = null;
+
+        // Provider registration is state held in the database that was just dropped, so the id no
+        // longer resolves.  Leaving it set would let a subsequent ingestion attempt reference a
+        // provider that does not exist -- generateAndIngestData() guards on providerId being
+        // non-null and would sail past that guard into a server rejection.
+        providerId = null;
+        providerName = null;
+
+        lastOperationResult = null;
+
+        logger.info("session state reset after demo database delete");
+    }
     
     // Individual PV name management methods (for pv-explore view)
     public void addPvName(String pvName) {
@@ -571,30 +662,286 @@ public class DpApplication {
 
     public boolean init() {
 
-        // create InprocessServiceEcosystem with default local grpc targets
+        configuration = AppConfiguration.fromConfiguration();
+        logger.info("initializing application in mode: {}", configuration.describe());
+
+        final boolean channelsReady = configuration.isDeployment()
+                ? initRemoteChannels()
+                : initInprocessEcosystem();
+
+        if (!channelsReady) {
+            return false;
+        }
+
+        if (!api.init()) {
+            // Release whatever init built before returning.  DpDesktopApplication.init() throws on a
+            // false return here, so fini() is never reached -- without this, a failed remote startup
+            // leaves all four channels and their event-loop threads alive for the life of the
+            // process, and a failed demo startup leaves the ecosystem running.
+            logger.error("api client init failed; releasing partially initialized resources");
+            fini();
+            return false;
+        }
+
+        archiveHasData = probeArchiveForData();
+
+        return true;
+    }
+
+    /**
+     * How long {@link #probeArchiveForData()} waits before giving up and assuming the archive has
+     * data.
+     *
+     * <p><b>Bounded because the probe runs before there is a window to look at.</b>
+     * {@code DpApplication.init()} is called from {@code DpDesktopApplication.init()}, which JavaFX
+     * runs before {@code start()} -- so anything slow here is a blank screen with no feedback, not a
+     * slow view.  The underlying call cannot bound itself: {@code queryPvStats} goes through
+     * dp-service's {@code ApiResponseObserverBase.await()}, whose timeout is 60 seconds, which is
+     * a minute of nothing on a wedged query service.  The #4 manual verification hit exactly that
+     * server state.
+     *
+     * <p>Five seconds is generous for a single aggregation against a local service and short enough
+     * that a user does not conclude the application failed to start.  Timing out costs nothing,
+     * because the fallback answer is the same one a failure gets.
+     */
+    private static final int ARCHIVE_PROBE_TIMEOUT_SECONDS = 5;
+
+    /**
+     * Asks the archive whether it already holds anything worth exploring.
+     *
+     * <p><b>Why this exists.</b>  Before #4 the demo database was dropped on every launch, so
+     * "this session ingested" and "there is something to explore" were the same statement and one
+     * flag answered both.  Demo data now survives a restart, and the Explore menu was left keyed on
+     * the session flag -- so a demo launched on top of a previous session's data showed every
+     * Explore item disabled with hundreds of buckets sitting in the database, unreachable from the
+     * UI.
+     *
+     * <p><b>It asks over gRPC, never MongoDB.</b>  Counting documents directly would be cheaper and
+     * is the obvious implementation, but it would construct a MongoDB client -- and deployment mode
+     * never constructing one is a structural safety property of this release, not an incidental
+     * detail.  {@code queryPvStats} is the same read the Explore views themselves perform, so a
+     * probe that succeeds is real evidence those views will have something to show.
+     *
+     * <p><b>A failure means "assume there is data", not "assume there is none".</b>  The two
+     * mistakes are not symmetric.  Guessing empty on an unreachable service hides an archive that
+     * may be full, reproducing exactly the bug this method fixes and offering no way to reach the
+     * data; guessing non-empty at worst opens views that report their own emptiness, which is a
+     * far better failure than a menu that cannot be clicked.  Note this also keeps a slow or
+     * briefly-unavailable service from silently disabling the application.
+     */
+    private boolean probeArchiveForData() {
+
+        // Deployment mode never asks the question.  MainViewModel derives
+        // exploreEnabled = deploymentMode || archiveHasData || hasIngestedData, so the answer is
+        // unused there -- and paying for it means a remote launch waits on the query service
+        // before showing a window.  Returning true rather than false keeps the flag consistent with
+        // what the menu rule concludes anyway, so a future reader of archiveHasData() in deployment
+        // mode is not told the archive is empty.
+        if (isDeploymentMode()) {
+            logger.info("skipping the archive probe: deployment mode enables the Explore views regardless");
+            return true;
+        }
+
+        return probeArchiveWithin(() -> queryPvStats(".*"), ARCHIVE_PROBE_TIMEOUT_SECONDS);
+    }
+
+    /**
+     * Runs an archive probe with a bounded wait, answering "the archive has data" for anything that
+     * is not a clean, timely, empty result.
+     *
+     * <p>Package-private and static, taking the query as a supplier, so the <b>bound</b> is testable
+     * without a service ecosystem -- the same reasoning that keeps {@code accumulatePages()} and
+     * {@code archiveHasDataFrom()} static.  It is worth pinning separately from
+     * {@code archiveHasDataFrom()} because it is a different failure: that method decides what a
+     * returned result means, this one decides what happens when no result returns at all.
+     *
+     * <p><b>Every abnormal outcome answers the same way</b> -- timeout, interruption, and a thrown
+     * exception all yield true, for the reason spelled out on {@code archiveHasDataFrom()}: the
+     * wrong guess must be the recoverable one.  A timed-out probe is <b>abandoned rather than
+     * waited on</b>; it runs on a daemon thread, so an answer that arrives late is simply discarded
+     * and cannot hold up shutdown.
+     */
+    static boolean probeArchiveWithin(
+            Supplier<QueryPvStatsApiResult> probeSupplier,
+            int timeoutSeconds
+    ) {
+
+        final ExecutorService probeExecutor =
+                Executors.newSingleThreadExecutor(runnable -> {
+                    final Thread thread = new Thread(runnable, "archive-probe");
+                    thread.setDaemon(true);
+                    return thread;
+                });
+
+        try {
+            final Future<QueryPvStatsApiResult> probe = probeExecutor.submit(probeSupplier::get);
+            return archiveHasDataFrom(probe.get(timeoutSeconds, TimeUnit.SECONDS));
+
+        } catch (TimeoutException e) {
+            // The same answer a failed probe gets, for the same reason -- see archiveHasDataFrom().
+            logger.warn(
+                    "archive probe did not answer within {} seconds; assuming the archive has data "
+                            + "so the Explore views stay reachable",
+                    timeoutSeconds);
+            return true;
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("archive probe interrupted; assuming the archive has data");
+            return true;
+
+        } catch (Exception e) {
+            logger.warn(
+                    "archive probe threw ({}); assuming the archive has data so the Explore views "
+                            + "stay reachable",
+                    e.getMessage(), e);
+            return true;
+
+        } finally {
+            // shutdownNow() rather than shutdown(): on the timeout path the task is still running
+            // and its result is no longer wanted.  The thread is a daemon, so an uninterruptible
+            // call blocked in gRPC cannot keep the JVM alive either way.
+            probeExecutor.shutdownNow();
+        }
+    }
+
+    /**
+     * Reads a probe result into the archive-has-data answer.
+     *
+     * <p>Package-private and static so the failure policy is testable without a service ecosystem,
+     * the same reasoning that keeps {@code accumulatePages()} and {@code emptyToNull()} static.  The
+     * policy is the part worth pinning: it is a deliberate asymmetry that reads like a typo.
+     *
+     * <p><b>A failed probe answers "yes", not "no".</b>  Guessing empty on an unreachable or slow
+     * service disables every Explore view over an archive that may be full -- the exact bug the
+     * probe exists to fix, with no way for the user to reach the data or to know why.  Guessing
+     * non-empty at worst opens views that report their own emptiness.  The wrong guess must be the
+     * recoverable one.
+     */
+    static boolean archiveHasDataFrom(QueryPvStatsApiResult result) {
+
+        if (result == null || result.isError()) {
+            final String msg = result == null ? "null result" : result.resultStatus.msg;
+            // Deliberately assuming data rather than none -- see the method javadoc.  Logged at
+            // WARN with the consequence spelled out, because the Explore menu being enabled over an
+            // archive nobody has confirmed is non-empty is a state worth being able to explain.
+            logger.warn(
+                    "archive probe failed, so the Explore menu is being ENABLED without confirming "
+                            + "the archive holds anything (a failed probe must not hide data). "
+                            + "Cause: {}",
+                    msg);
+            return true;
+        }
+
+        if (result.queryPvStatsResponse == null) {
+            logger.warn("archive probe returned success with no response; assuming the archive has data");
+            return true;
+        }
+
+        final int pvCount = result.queryPvStatsResponse.getStatsResult().getPvStatsCount();
+        logger.info("archive probe found {} PV(s)", pvCount);
+        return pvCount > 0;
+    }
+
+    /**
+     * Demo mode: start the self-contained in-process service ecosystem and point the ApiClient at
+     * its four channels.  Unchanged behavior from before issue #4, and the default.
+     */
+    private boolean initInprocessEcosystem() {
+
         inprocessServiceEcosystem = new InprocessServiceEcosystem();
         if (!inprocessServiceEcosystem.init()) {
             return false;
         }
 
-        // initialize ApiClient with grpc targets from default inprocess service ecosystem
         api = new ApiClient(
             inprocessServiceEcosystem.ingestionService.getIngestionChannel(),
             inprocessServiceEcosystem.queryService.getQueryChannel(),
             inprocessServiceEcosystem.annotationService.getChannel(),
             inprocessServiceEcosystem.ingestionStreamService.getChannel()
         );
-        if (!api.init()) {
+
+        return true;
+    }
+
+    /**
+     * Deployment mode: connect to four already-running remote services.
+     *
+     * <p>{@code inprocessServiceEcosystem} stays null on this path, and that is the safety
+     * property rather than an incidental one.  The in-process ecosystem is the only thing in the
+     * application that constructs a MongoDB client, so a deployment-mode launch cannot reach the
+     * demo database -- nor the drop path that used to run at launch -- however the rest of the
+     * application is later changed.  It is a structural guarantee, not a flag someone can get
+     * wrong.
+     *
+     * <p>{@code ApiClient} takes four plain {@code ManagedChannel}s, so every API call site is
+     * already transport-agnostic and none of them differ between the two modes.
+     */
+    private boolean initRemoteChannels() {
+
+        // Accumulated as they are built, rather than assigned once from a four-argument List.of(),
+        // so that a failure on the third connect string still leaves the first two reachable for
+        // shutdown below instead of leaking them.
+        final List<ManagedChannel> channels = new ArrayList<>();
+
+        try {
+            channels.add(RemoteChannelFactory.createChannel(configuration.getIngestionConnectString()));
+            channels.add(RemoteChannelFactory.createChannel(configuration.getQueryConnectString()));
+            channels.add(RemoteChannelFactory.createChannel(configuration.getAnnotationConnectString()));
+            channels.add(RemoteChannelFactory.createChannel(configuration.getIngestionStreamConnectString()));
+        } catch (Exception e) {
+            // A malformed connect string fails here rather than at first use, where it would
+            // surface as an unexplained query failure well after launch.
+            logger.error("failed creating remote grpc channels: {}", e.getMessage(), e);
+            for (ManagedChannel channel : channels) {
+                RemoteChannelFactory.shutdown(channel, "partially created remote service channel");
+            }
             return false;
         }
+
+        remoteChannels = channels;
+
+        api = new ApiClient(
+                remoteChannels.get(0),
+                remoteChannels.get(1),
+                remoteChannels.get(2),
+                remoteChannels.get(3)
+        );
 
         return true;
     }
 
     public boolean fini() {
-        api.fini();
-        inprocessServiceEcosystem.fini();
+
+        if (api != null) {
+            api.fini();
+        }
+
+        if (inprocessServiceEcosystem != null) {
+            inprocessServiceEcosystem.fini();
+        }
+
+        for (ManagedChannel channel : remoteChannels) {
+            RemoteChannelFactory.shutdown(channel, "remote service channel");
+        }
+        remoteChannels = List.of();
+
         return true;
+    }
+
+    /**
+     * The mode and targets this application was launched with.
+     *
+     * <p>Non-null only after {@link #init()}.  Callers that run before init -- there are none
+     * today, since {@code DpDesktopApplication.init()} runs first -- would see null.
+     */
+    public AppConfiguration getConfiguration() {
+        return configuration;
+    }
+
+    /** True when running against remote services; see the mode matrix in plan/tickets/4/plan.md. */
+    public boolean isDeploymentMode() {
+        return configuration != null && configuration.isDeployment();
     }
 
     public ResultStatus registerProvider(

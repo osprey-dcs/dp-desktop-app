@@ -1,6 +1,8 @@
 package com.ospreydcs.dp.gui;
 
+import com.ospreydcs.dp.service.inprocess.MongoInterface;
 import javafx.application.Platform;
+import javafx.concurrent.Task;
 import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
 import javafx.fxml.Initializable;
@@ -11,6 +13,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.URL;
+import java.util.Optional;
 import java.util.ResourceBundle;
 
 
@@ -46,6 +49,7 @@ public class MainController implements Initializable {
     // Explore > PV Metadata browser; this one opens the Metadata > PV editor
     @FXML private MenuItem pvMetadataCreateMenuItem;
     @FXML private MenuItem machineConfigCreateMenuItem;
+    @FXML private MenuItem deleteDemoDataMenuItem;
 
     // Dependencies
     private MainViewModel viewModel;
@@ -77,7 +81,7 @@ public class MainController implements Initializable {
         connectionMenuItem.disableProperty().bind(viewModel.connectionEnabledProperty().not());
         preferencesMenuItem.disableProperty().bind(viewModel.preferencesEnabledProperty().not());
         generateMenuItem.disableProperty().bind(viewModel.generateEnabledProperty().not());
-        // importMenuItem is now always enabled (no binding needed)
+        importMenuItem.disableProperty().bind(viewModel.importEnabledProperty().not());
         dataMenuItem.disableProperty().bind(viewModel.dataEnabledProperty().not());
         pvStatsMenuItem.disableProperty().bind(viewModel.pvStatsEnabledProperty().not());
         pvMetadataExploreMenuItem.disableProperty().bind(viewModel.pvMetadataExploreEnabledProperty().not());
@@ -88,8 +92,14 @@ public class MainController implements Initializable {
                 .bind(viewModel.configurationsExploreEnabledProperty().not());
         sampleStatusesMenuItem.disableProperty().bind(viewModel.sampleStatusesEnabledProperty().not());
         dataEventsMenuItem.disableProperty().bind(viewModel.dataEventsEnabledProperty().not());
-        // pvMetadataCreateMenuItem and machineConfigCreateMenuItem are always enabled (no binding
-        // needed) - creating metadata does not depend on data having been ingested in this session
+        // These three were unbound and default-enabled before #4, on the reasoning that creating
+        // metadata and importing real data do not depend on this session having ingested anything.
+        // That is still true -- but it was never the only question, and deployment mode is where
+        // the other one appears: all three write to the archive.  Unbound items are invisible to
+        // the mode rule in MainViewModel, so the FXML defaults would have silently survived it.
+        pvMetadataCreateMenuItem.disableProperty().bind(viewModel.pvMetadataCreateEnabledProperty().not());
+        machineConfigCreateMenuItem.disableProperty().bind(viewModel.machineConfigCreateEnabledProperty().not());
+        deleteDemoDataMenuItem.disableProperty().bind(viewModel.deleteDemoDataEnabledProperty().not());
     }
 
     // Dependency injection methods
@@ -274,6 +284,152 @@ public class MainController implements Initializable {
         switchToView("/fxml/machine-configuration.fxml");
     }
 
+    // Menu action handlers - Tools menu
+
+    /**
+     * Tools &gt; Delete Demo Data: drops the demo database, on confirmation.
+     *
+     * <p>This exists because #4 removed the drop that used to run at every launch.  The demo now
+     * accumulates data across restarts, so there has to be a deliberate way to clear it.
+     *
+     * <p><b>The mode is re-checked here, not only by the menu binding.</b>  The binding is a UI
+     * affordance and a future refactor can break one without any test noticing -- a disabled item
+     * that becomes enabled still looks like a working menu.  This check is what makes the action
+     * safe: in deployment mode the target database belongs to someone else's archive, the
+     * application never constructed a Mongo client for it, and running the drop anyway would be the
+     * single most destructive thing in the application.  Defense in depth on exactly one action, and
+     * the one that earns it.
+     */
+    @FXML
+    private void onDeleteDemoData() {
+
+        if (dpApplication == null) {
+            logger.warn("delete demo data requested before the application was injected; ignoring");
+            return;
+        }
+
+        // The guard the binding is not trusted to be.
+        if (dpApplication.isDeploymentMode()) {
+            logger.error("delete demo data requested in deployment mode; refusing");
+            viewModel.updateStatus("Delete Demo Data is not available when connected to a deployment.");
+            return;
+        }
+
+        if (!confirmDeleteDemoData()) {
+            viewModel.updateStatus("Ready");
+            return;
+        }
+
+        // Unbind before disabling: setDisable() on a bound property throws.  The item is disabled
+        // for the duration so the drop cannot be issued twice concurrently, which would have the
+        // second run against a database the first already removed.
+        deleteDemoDataMenuItem.disableProperty().unbind();
+        deleteDemoDataMenuItem.setDisable(true);
+        viewModel.updateStatus("Deleting demo database " + MongoInterface.DEMO_DATABASE_NAME + "...");
+
+        final Task<Boolean> deleteTask = new Task<>() {
+            @Override
+            protected Boolean call() {
+                return MongoInterface.deleteDemoDatabase();
+            }
+        };
+
+        // Outcome is applied in setOnSucceeded rather than published from inside call(), the same
+        // ordering rule the explore views follow: setOnSucceeded already runs on the FX thread, and
+        // a Platform.runLater from the task body would queue behind it.
+        deleteTask.setOnSucceeded(e -> {
+            final boolean dropped = Boolean.TRUE.equals(deleteTask.getValue());
+            if (dropped) {
+                onDemoDataDeleted();
+            } else {
+                // The database is untouched, so the session state must NOT be cleared -- an
+                // application showing no data beside a populated archive is worse than one showing
+                // a failure.
+                viewModel.updateStatus(
+                        "Failed to delete the demo database. See the log for details; the data is unchanged.");
+            }
+            restoreDeleteDemoDataMenuItem();
+        });
+
+        deleteTask.setOnFailed(e -> {
+            logger.error("demo database delete task failed", deleteTask.getException());
+            viewModel.updateStatus(
+                    "Failed to delete the demo database: "
+                            + (deleteTask.getException() == null
+                                    ? "unknown error"
+                                    : deleteTask.getException().getMessage()));
+            restoreDeleteDemoDataMenuItem();
+        });
+
+        final Thread deleteThread = new Thread(deleteTask);
+        deleteThread.setDaemon(true);
+        deleteThread.start();
+    }
+
+    /**
+     * Re-binds the menu item after the action completes.
+     *
+     * <p>The handler disables the item directly for the duration of the drop, which requires
+     * unbinding it first -- setDisable() on a bound property throws.  Rebinding rather than simply
+     * re-enabling is the point: re-enabling would leave the item permanently detached from
+     * deleteDemoDataEnabled, so it would stay enabled through any later state change.
+     */
+    private void restoreDeleteDemoDataMenuItem() {
+        deleteDemoDataMenuItem.disableProperty().bind(viewModel.deleteDemoDataEnabledProperty().not());
+    }
+
+    /**
+     * Brings the application back to its pre-ingestion state after a successful delete.
+     *
+     * <p>All three of these follow from the same fact -- the data is gone -- and all three are
+     * needed.  Resetting the DpApplication state alone would leave the menus enabled, since they
+     * only re-derive when something asks them to; refreshing the menus alone would re-derive them
+     * from state that still claims data exists.
+     */
+    private void onDemoDataDeleted() {
+
+        dpApplication.resetIngestedDataState();
+
+        // Re-derive the Explore menu, which hangs off hasIngestedData and has just become false.
+        viewModel.refreshMenuStates();
+
+        // The home view is showing post-ingestion hints and counts for data that no longer exists.
+        if (homeController != null) {
+            homeController.getViewModel().resetApplicationState();
+        }
+
+        viewModel.updateStatus(
+                "Deleted demo database " + MongoInterface.DEMO_DATABASE_NAME
+                        + ". Use the Ingest menu to generate or import data.");
+        logger.info("demo database deleted and session state reset");
+    }
+
+    /**
+     * Asks whether to drop the demo database, naming it explicitly.
+     *
+     * <p>The name is in the dialog rather than only in the menu label because "demo data" is a
+     * description and {@code dp-demo} is the thing that actually gets dropped -- and a MongoDB
+     * instance can hold more than one database, so naming which one is the difference between an
+     * informed confirmation and a hopeful one.
+     */
+    private boolean confirmDeleteDemoData() {
+
+        final Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Delete demo data?");
+        alert.setHeaderText("Drop the MongoDB database \"" + MongoInterface.DEMO_DATABASE_NAME + "\"?");
+        alert.setContentText(
+                "This permanently deletes everything in it: ingested PV data, providers, PV and "
+                        + "machine configuration metadata, datasets, annotations and sample statuses.\n\n"
+                        + "This cannot be undone.\n\nDelete it?");
+
+        if (primaryStage != null) {
+            alert.initOwner(primaryStage);
+        }
+
+        final Optional<ButtonType> choice = alert.showAndWait();
+        return choice.isPresent() && choice.get() == ButtonType.OK;
+    }
+
     // Utility methods for view management
     public void switchToView(String fxmlPath) {
         try {
@@ -284,7 +440,15 @@ public class MainController implements Initializable {
             FXMLLoader loader = new FXMLLoader(getClass().getResource(fxmlPath));
             contentPane.getChildren().clear();
             contentPane.getChildren().add(loader.load());
-            
+
+            // The home view is no longer displayed, so release it.  The field is otherwise a
+            // reference to a controller whose scene graph has just been discarded, and the
+            // "if (homeController != null)" guards elsewhere -- onDemoDataDeleted() in particular --
+            // read as handling that case while actually operating on the detached view.  Nothing is
+            // lost: loadHomeView() rebuilds the controller and refreshHomeView() re-derives its
+            // state from DpApplication, which is the authority either way.
+            homeController = null;
+
             // Inject dependencies into the new controller if it needs them
             Object controller = loader.getController();
             if (controller instanceof DataGenerationController) {

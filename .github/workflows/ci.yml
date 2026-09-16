@@ -40,10 +40,10 @@ jobs:
         # can be repointed by whoever controls the action's repo, and every run would pick
         # up the new code with no diff and no review.  Dependabot (.github/dependabot.yml)
         # keeps the pins current.
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up JDK
-        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: 21
@@ -54,7 +54,7 @@ jobs:
         # excluded: they are rebuilt every run, track sibling main rather than this repo's
         # pom.xml (the cache key), and a cache entry is immutable once saved -- caching
         # them would pin progressively staler jars under an unchanged key.
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.m2/repository
@@ -64,7 +64,7 @@ jobs:
             ${{ runner.os }}-maven-
 
       - name: Checkout dp-grpc dependency
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: 'osprey-dcs/dp-grpc'
           path: dp-grpc
@@ -78,7 +78,7 @@ jobs:
         run: mvn -B -Dmaven.test.skip=true install
 
       - name: Checkout dp-service dependency
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: 'osprey-dcs/dp-service'
           path: dp-service

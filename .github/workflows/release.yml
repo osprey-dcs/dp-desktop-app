@@ -150,6 +150,12 @@ jobs:
         if: env.DRY_RUN != 'true'
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
+          # Explicit, because tag_name defaults to github.ref_name -- which on a manual
+          # dispatch is the selected BRANCH, not a tag.  Left implicit, a non-dry-run
+          # dispatch from main would create or update a release tagged "main" carrying
+          # rel-<version> artifacts and notes.  The tag-push path is unchanged: there
+          # VERSION is derived from the tag, so this resolves to the same ref_name.
+          tag_name: rel-${{ env.VERSION }}
           files: |
             release/dp-desktop-app-${{ env.VERSION }}.jar
             release/dp-desktop-app-${{ env.VERSION }}.jar.sha256

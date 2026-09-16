@@ -56,13 +56,14 @@ mode setting:
 - **`deployment`** — connects to the four services at their configured connect strings, and
   **never constructs a MongoDB client at all**.
 
-Deployment mode is deliberately read-only for this release.  Ingestion (`Ingest → Generate`,
-`Ingest → Import`), metadata authoring (`Metadata → PV`, `Metadata → Machine Configuration`),
-`Explore → Data Events` and `Tools → Delete Demo Data` are all disabled; the Explore views are
-enabled at launch rather than after an ingestion, since a real archive already has data to browse.
-Dataset, annotation and export actions within the Explore views remain available — they are the
-analysis workflow and write no PV time-series data.  Re-enabling import and metadata authoring
-against a live archive is deferred to a follow-on.
+Deployment mode deliberately writes no PV time-series data and authors no curated metadata for
+this release.  Ingestion (`Ingest → Generate`, `Ingest → Import`), metadata authoring
+(`Metadata → PV`, `Metadata → Machine Configuration`), `Explore → Data Events` and
+`Tools → Delete Demo Data` are all disabled; the Explore views are enabled at launch rather than
+after an ingestion, since a real archive already has data to browse.  It is **not** a read-only
+mode: dataset save, annotation save and export within the Explore views remain available — they
+are the analysis workflow, and they write annotation records rather than archive data.
+Re-enabling import and metadata authoring against a live archive is deferred to a follow-on.
 
 ### Selecting the mode
 
@@ -234,8 +235,9 @@ unaffected — but the result sets differ for anything scripted against the API 
 The data generation view gains an optional **sample status** checkbox, off by default.  When
 checked, every generated sample of every PV also gets a random EPICS-style alarm status
 (`NO_ALARM` / `MINOR_ALARM` / `MAJOR_ALARM` / `INVALID_ALARM`, weighted roughly 85/10/4/1) in domain
-`epics_alarm`, layer `demo_generator`.  This exercises the Sample Status API added in dp-grpc #121,
-and produces data for the new `Explore → Sample Statuses` view and the sample status query filter.
+`epics_alarm`, layer `demo_generator`.  This exercises the Sample Status API defined in dp-grpc
+issue #121, and produces data for the new `Explore → Sample Statuses` view and the sample status
+query filter.
 
 The reported count is an **upsert** count, not an insert count: statuses are keyed on
 (PV, timestamp, domain, layer) and fully replace, so re-generating over the same PVs and time range

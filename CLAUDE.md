@@ -1737,6 +1737,15 @@ the `## Release Notes` section of `README.md`.
 `body_path`, and fails the job **before the build** if the file is not present on the tagged
 commit. Write the notes and merge them **before** pushing the `rel-*` tag.
 
+**Cross-file links in a release note must be absolute, pinned to the release tag.** The notes are
+published verbatim as the release body, and GitHub does not resolve a relative link there — it emits
+the href unchanged and the browser resolves it against `/releases/tag/<tag>`, so
+`](../../README.md#x)` 404s. This was verified against dp-grpc's published `rel-1.16.0` body, where
+it is live. Use `https://github.com/osprey-dcs/dp-desktop-app/blob/rel-<version>/README.md#x`,
+pinned to the tag rather than `main` so an old release's notes point at the README it shipped with.
+Same-document anchors are unaffected. dp-grpc and dp-service still carry the relative form and are
+broken the same way; fixing dp-grpc needs the stored release body edited, not just the file.
+
 **The early check matters more here than in the sibling repos.** This job builds dp-grpc and
 dp-service from source before it builds the app, so leaving the missing-notes failure to
 `action-gh-release` would surface it three builds late.

@@ -24,6 +24,15 @@ dp-grpc and implemented in dp-service, and the three repos are tagged in lockste
 of any release here exists because that API changed underneath it.  Those sections should point at
 the dp-grpc or dp-service ticket rather than restating its reasoning.
 
+**Link to other files by absolute URL, pinned to the release tag.**  These notes are published
+verbatim as the GitHub release body, and GitHub does not resolve a relative link there: it emits the
+href unchanged, and the browser resolves it against `/releases/tag/<tag>` rather than against the
+file's location.  `](../../README.md#x)` becomes `github.com/<org>/<repo>/README.md#x`, which 404s.
+Use `https://github.com/osprey-dcs/dp-desktop-app/blob/rel-<version>/README.md#x` instead, pinned to
+the tag rather than to `main` so a reader of an old release lands on the README that release
+shipped with.  Same-document anchors (`](#section)`) are unaffected and work correctly in a release
+body.
+
 **Correct the `README.md` statements a release falsifies, in the same change.**  1.16.0 made two of
 them obsolete — that the app ran only in demonstration mode, and that the demo database was reset at
 launch — and a release note describing a behavior change beside a README still asserting the old

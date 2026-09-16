@@ -156,7 +156,7 @@ Adding to a dataset is refused for a pattern or metadata selection: a data block
 by definition, and building one from the displayed name list would save a dataset covering PVs the
 query never touched.
 
-The README's [Querying PV time-series data](../../README.md#querying-pv-time-series-data) section
+The README's [Querying PV time-series data](https://github.com/osprey-dcs/dp-desktop-app/blob/rel-1.16.0/README.md#querying-pv-time-series-data) section
 walks through the Query Editor with these controls in place.
 
 ### Two optional query filters
@@ -194,7 +194,7 @@ when every selected PV is filtered out at it.
   registry is not implemented yet, so a status in any other domain shows its raw code with an empty
   label rather than a guess.
 
-See also [Exploring metadata](../../README.md#exploring-metadata-added-in-1160) in the README.
+See also [Exploring metadata](https://github.com/osprey-dcs/dp-desktop-app/blob/rel-1.16.0/README.md#exploring-metadata-added-in-1160) in the README.
 
 Loading a PV metadata record for editing hands the editor **the resolved record**, not the name
 that was typed.  `getPvMetadata()` resolves aliases, so searching by a historical name returns the
@@ -244,7 +244,7 @@ reports the same number while replacing rather than adding.
 A status save failure does not fail the ingestion — the data is already in the archive by then, and
 status generation is an opt-in demo extra.  Failures are reported alongside the count.
 
-See [Sample Status (demo)](../../README.md#sample-status-demo) in the README.
+See [Sample Status (demo)](https://github.com/osprey-dcs/dp-desktop-app/blob/rel-1.16.0/README.md#sample-status-demo) in the README.
 
 ## Machine configuration authoring (#27, #36)
 
@@ -258,7 +258,7 @@ resolve — gating the section makes that rejection unreachable through normal u
 Both saves are **full-replace upserts**, so an existing record is confirmed before it is
 overwritten.  The confirmation names the record that was **found**, not what was typed.
 
-See [Creating machine configurations](../../README.md#creating-machine-configurations) in the README
+See [Creating machine configurations](https://github.com/osprey-dcs/dp-desktop-app/blob/rel-1.16.0/README.md#creating-machine-configurations) in the README
 for the walkthrough.
 
 Activation id collisions are detected in two stages (#36): against activations created in the
@@ -272,7 +272,7 @@ but one blocks every subsequent activation in its entire category indefinitely.
 New `Metadata → PV` view, for creating and updating curated PV metadata — aliases, tags,
 attributes, description.
 
-See [Creating PV metadata](../../README.md#creating-pv-metadata) in the README for the walkthrough.
+See [Creating PV metadata](https://github.com/osprey-dcs/dp-desktop-app/blob/rel-1.16.0/README.md#creating-pv-metadata) in the README for the walkthrough.
 
 The save is a **full-replace upsert**: it replaces the entire record for a PV name, and omitted
 fields are not preserved.  An existing record is therefore confirmed before it is overwritten,
@@ -289,7 +289,7 @@ archive actually stores and queries them.
 Unset provenance fields are omitted rather than sent as empty strings, and a panel with nothing
 entered sends no metadata field at all.
 
-The README's [Column Metadata](../../README.md#column-metadata) section covers the panel; note that
+The README's [Column Metadata](https://github.com/osprey-dcs/dp-desktop-app/blob/rel-1.16.0/README.md#column-metadata) section covers the panel; note that
 its screenshot still shows the pre-1.16.0 "Request Details" panel.
 
 ## Test coverage and CI (#29)

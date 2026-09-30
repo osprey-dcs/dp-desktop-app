@@ -1723,8 +1723,10 @@ be fixed without changing dp-service.
 
 ## Releases
 
-Tagged as `rel-<version>`. `release.yml` publishes the shaded JAR and its SHA-256 checksum, built
-against `rel-<version>` of dp-grpc and dp-service — the three repos are tagged in lockstep.
+Tagged as `rel-<version>`. `release.yml` publishes the shaded JAR, a `SHA256SUMS` over it, and a
+keyless Sigstore signature over that (`SHA256SUMS.cosign.bundle`), built against `rel-<version>` of
+dp-grpc and dp-service — the three repos are tagged in lockstep, in that order. Signing landed in
+#24, ported from dp-service #221; the plan is `plan/tickets/24/plan.md`.
 
 Release notes are version-controlled under `doc/release-notes/`, one document per release
 (`rel-<version>.md`), starting with 1.16.0; earlier releases were documented on the GitHub release
@@ -1750,15 +1752,79 @@ broken the same way; fixing dp-grpc needs the stored release body edited, not ju
 dp-service from source before it builds the app, so leaving the missing-notes failure to
 `action-gh-release` would surface it three builds late.
 
-**The notes path is derived from `VERSION`, not from `GITHUB_REF_NAME`** as it is in dp-grpc and
-dp-service. Those workflows have no `workflow_dispatch` path, so for them the two are always the
-same; here a manual dispatch runs from a branch, and `GITHUB_REF_NAME` would resolve to
-`doc/release-notes/main.md`.
+**The notes path is derived from `VERSION`**, which on a release is the tag minus `rel-` — the same
+file the siblings resolve from `GITHUB_REF_NAME`. The notes check runs only on a release; a
+rehearsal publishes nothing and stages a placeholder body.
 
-**A dry run warns rather than failing.** A manual dispatch defaults to `dry_run: true` and exists
-to rehearse the build *before* a release is ready — which is exactly when the notes do not exist
-yet. Failing there would block the rehearsal the dry run is for. Both publishing paths (a `rel-*`
-tag push, and a dispatch with `dry_run: false`) fail hard.
+The draft for the next release lives in the version-less `doc/release-notes/NEXT.md`, renamed at
+cut time by the checklist at its foot. It links to `blob/main/…` because the tag does not exist yet;
+repointing those links is a cut step.
+
+### Signing and the release workflow
+
+**Three jobs, so the signing token never shares a job with project code.** `build`
+(`contents: read`) builds dp-grpc, dp-service and the app; `sign` (`id-token: write`) has **no
+checkout** and runs only `sha256sum` and `cosign` over what `build` uploaded; `publish`
+(`contents: write`) has no signing token. A job holding `id-token: write` exposes the token-request
+credentials to every step, and `build` runs every Maven plugin of two other repositories — keep
+anything that checks out or builds code out of `sign`. The split cannot stop `build` from tampering
+with the jar before it is checksummed; it confines the signing identity to what `build` handed over.
+
+**Only a `rel-*` tag push publishes.** `IS_RELEASE` is defined once in `build`'s env and repeated
+**textually** in `publish.if` — a job `if:` cannot read `env`, and passing it as a `build` output
+would let the job running other repositories' code decide whether publishing happens. Keep the two
+copies identical. The #22 `dry_run` publishing dispatch is gone: a release published that way would
+be signed under a branch identity with trigger `workflow_dispatch`, which the published verify
+command rejects.
+
+**On a release the tag must equal the POM's `project.version`, `dp-grpc.version` and
+`dp-service.version`**, and both sibling `rel-<version>` tags must exist, or the run fails before
+any build. `git ls-remote --exit-code` exit 2 is "no such tag"; any other failure is reported as
+unreachable, never as a missing tag. A rehearsal resolves the siblings **together**: the
+`sibling_ref` input if given, else both POM tags if both exist, else `main` for both — never a mix.
+`sibling_ref` is a branch or tag **name**, never a commit SHA: one value names the ref in two
+repositories, which a SHA cannot do.
+
+**Rehearse with `gh workflow run release.yml --ref <branch>`, never by pushing a tag.** A dispatch
+runs the workflow file as it exists at the target ref, so a PR branch rehearses its own copy. Every
+rehearsal signs for real and leaves a permanent public Rekor entry naming its branch.
+
+**Never dispatch `release.yml` against a tag.** Against a tag cut after #24 it is refused ("Derive
+version"), since its certificate would carry the release's own identity. Against **`rel-1.16.0`** it
+is not refused: that tag's copy is the old single-job workflow, and
+`-f version=<v> -f dry_run=false` rebuilds unsigned and overwrites `rel-<v>`'s jar
+(`overwrite_files: true`). This cannot be removed from the tag. Signing makes the damage
+detectable — the replaced jar fails `sha256sum -c` against the signed `SHA256SUMS` — but not
+impossible. Renaming the workflow file on `main` would close it, and was rejected because it breaks
+pre-merge rehearsal and moves the identity off the siblings' `release.yml@…` shape.
+
+**The verify identity is exact:**
+`https://github.com/osprey-dcs/dp-desktop-app/.github/workflows/release.yml@refs/tags/rel-<version>`,
+with `--certificate-github-workflow-trigger push`. Renaming `release.yml` changes every future
+release's identity and must update `README.env` and the release notes in the same change.
+
+**`sign` verifies its own bundle before uploading it**, with that exact command built from the run's
+`github.repository`, `github.ref` and `github.event_name`. On a release it is literally the
+published command; on a rehearsal the same expressions resolve to the branch and
+`workflow_dispatch`, so every rehearsal exercises it. It exists because the release-only paths
+cannot be rehearsed: without it, a certificate the documented command rejects would publish and be
+found by a user. The workflow filename is written literally there, as in `README.env`, so a rename
+fails the check rather than verifying against the new name.
+
+**cosign is pinned to v3.1.3 and documented as the minimum verifier**, ahead of the siblings' v3.0.6:
+every version up to v3.1.2 has a verify-side identity bypass (GHSA-fx35-mq7g-6g98). What protects
+users is the version `README.env` tells them to verify with, so it names a minimum rather than "the
+version the signatures were produced with". Dependabot does not track the `cosign-release` input,
+so nothing flags it falling behind.
+
+**A failed publish is re-run, not retagged.** Re-running the failed jobs of the tag's own run reuses
+`build`'s and `sign`'s artifacts, which are retained for **30 days**; after that a re-run of the
+failed jobs fails at download, and the recovery is a full re-run of the tag's run, which re-signs.
+`publish` takes `tag_name` from the pushed tag (`github.ref_name`), never from `build`'s outputs.
+`overwrite_files` replaces same-named assets but does not delete ones no longer produced. Only a
+re-cut of `rel-1.16.0` can hit that — an older tag re-pushed runs its own commit's workflow, and one
+moved onto a commit carrying this workflow fails the tag/POM check — and it would leave
+`dp-desktop-app-1.16.0.jar.sha256` beside the new `SHA256SUMS`; delete it by hand first.
 
 ## Debugging and Logging
 - Log4j2 configuration in `src/main/resources/log4j2.xml` (currently set to DEBUG level)

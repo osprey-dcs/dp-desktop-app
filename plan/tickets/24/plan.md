@@ -13,7 +13,8 @@
     the shape ported here, with the image half dropped.
 - **Related**: [#21](https://github.com/osprey-dcs/dp-desktop-app/issues/21) / PR #22 — SHA-pinned
   actions, and the `workflow_dispatch` + `dry_run` path this plan retires (D2).
-- **Status**: triaged and planned 2026-09-28 against `main` at `7b1a378`. Not yet implemented.
+- **Status**: triaged and planned 2026-09-28 against `main` at `7b1a378`; Dependabot #41 merged
+  2026-09-30 (`c29b58e`), clearing the one prerequisite. Not yet implemented.
 
 ## Overview
 
@@ -124,13 +125,13 @@ added the check in #298's review; this plan takes it from the start (D5).
 - **The build runs no tests** (`-DskipTests` on all three builds); `ci.yml` does. That is unchanged
   and unaffected here.
 - **`ci.yml` is unaffected.** It neither signs nor publishes.
-- **Existing action pins are older than the siblings'** (`checkout` v4.4.0 vs dp-service's v7.0.1,
-  `action-gh-release` v2.6.2 vs v3.0.3). Dependabot PR
-  [#41](https://github.com/osprey-dcs/dp-desktop-app/pull/41), open since 2026-09-01, bumps
-  `release.yml` and `ci.yml` to exactly dp-service's versions. **Merge #41 before starting Task 1**
-  (see Dependencies): the rewrite then starts from the siblings' pins instead of conflicting with
-  them, and no major bump is mixed into this change. New actions use the siblings' pins,
-  re-verified 2026-09-28:
+- **Existing action pins now match the siblings'.** At triage they were older (`checkout` v4.4.0,
+  `action-gh-release` v2.6.2). Dependabot PR
+  [#41](https://github.com/osprey-dcs/dp-desktop-app/pull/41) bumped them and merged 2026-09-30
+  (`c29b58e`), ahead of Task 1 so the rewrite starts from these pins rather than conflicting with
+  them: `checkout` v7.0.1 and `action-gh-release` v3.0.3, as in dp-service, and `setup-java`
+  v6.0.1, one patch ahead of dp-service's v6.0.0. No major bump is mixed into this change. New
+  actions use the siblings' pins, re-verified 2026-09-28:
   `upload-artifact` v7.0.1 → `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`, `download-artifact`
   v8.0.1 → `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`, both the latest release.
 
@@ -418,10 +419,9 @@ release page as a consumer would, on macOS or Windows as well as Linux, before a
 
 - **Depends on nothing unmerged upstream.** Both siblings are merged and rehearsed; this repo
   builds them from source and never consumes their signed assets.
-- **Merge Dependabot #41 first.** It edits every `uses:` line in `release.yml`, which Task 1
-  rewrites; landing it after would be a conflict resolved by hand in a signing workflow. Its
-  `ci.yml` half gets its CI run on the way in, and `release.yml`'s new pins are exercised by Task 5's
-  rehearsal.
+- **Dependabot #41 is merged** (2026-09-30), as this plan required before Task 1: it edited every
+  `uses:` line in the `release.yml` that Task 1 rewrites. Its `release.yml` pins have not run yet —
+  no release or dispatch since — so Task 5's rehearsal is also their first exercise.
 - **Required before the next `rel-*` tag** for that release to ship signed. If it misses, the next
   release ships unsigned as 1.16.0 did, and `NEXT.md` must not claim otherwise.
 - **The next release's tagging order is unchanged**: dp-grpc, then dp-service, then this repo —

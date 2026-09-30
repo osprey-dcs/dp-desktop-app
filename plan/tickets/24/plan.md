@@ -102,13 +102,26 @@ gh workflow run release.yml --ref rel-1.16.0 -f version=<v> -f dry_run=false
 
 still runs the **old** single-job workflow: it rebuilds unsigned and publishes to `rel-<v>` with
 `overwrite_files: true`. With `<v>` naming a signed release, it would replace that release's jar
-with an unsigned rebuild. Nothing in this repo can remove that — the file at the tag is immutable
-short of deleting the tag. What signing changes is that the damage becomes **detectable**: the
-replaced jar no longer matches the signed `SHA256SUMS`, so `sha256sum -c` fails for every consumer.
+with an unsigned rebuild. The file at the tag cannot be changed short of deleting the tag. What
+signing changes is that the damage becomes **detectable**: the replaced jar no longer matches the
+signed `SHA256SUMS`, so `sha256sum -c` fails for every consumer.
+
+The path stays open only while a workflow named `release.yml` with a `workflow_dispatch` trigger
+exists on the default branch, which is what makes a dispatch possible at all. *Rejected:* renaming
+the new workflow and removing `release.yml` from `main`, which would close it. The rename would
+break Task 5's pre-merge rehearsal, which dispatches the PR branch's copy and works only because
+`release.yml` already exists on `main`; a new filename cannot be dispatched until after it merges.
+It would also move this repo's certificate identity off the `release.yml@…` shape both siblings
+publish. Against that, the hazard needs write access, an explicit `dry_run=false` (the old input
+defaults to `true`), and a version naming a signed release, and signing makes its damage
+detectable.
 
 It is not a privilege escalation (dispatch needs write access, which can push tags anyway); it is an
 accident hazard. It is documented in CLAUDE.md with the rule "never dispatch `release.yml` against a
 tag" (Task 4), exactly as dp-service documents its permanent "never push a tag to rehearse".
+GitHub's immutable releases would be a stronger guard. They are left out of scope because their
+interaction with `action-gh-release`'s upload-after-create and `overwrite_files` has not been
+checked.
 
 ### 6. Nothing checks the tag against the POM
 
@@ -215,8 +228,9 @@ In "Derive version": the tag's version must equal `project.version`, `dp-grpc.ve
 `dp-service.version` (read with `mvn -B -q -DforceStdout help:evaluate`), or the run fails before
 any build with "bump the POM and retag". This also closes the follow-on the dp-grpc plan left
 open ("Tag and version validation") for this repo. The version must further match
-`^[0-9A-Za-z.+-]+$`, since it becomes a filename and crosses into `sign`, which reads it through
-step `env:` only.
+`^[0-9][0-9A-Za-z.+-]*$`, since it becomes a filename and crosses into `sign` and `publish`, which
+read it through `env:` only. The leading digit rules out a value starting with `-` being read as
+an option.
 
 ### D6 — A dispatch against a tag ref is refused (svc-D5 amendment)
 
@@ -254,17 +268,40 @@ This is the one repo of the three whose jar is typically run on a workstation ra
 server. `README.env` and `NEXT.md` therefore give, alongside `sha256sum -c SHA256SUMS`:
 
 - **macOS:** `shasum -a 256 -c SHA256SUMS`
-- **Windows (PowerShell):** `Get-FileHash -Algorithm SHA256 dp-desktop-app-<version>.jar`, compared
-  by eye against the hash in `SHA256SUMS` (there is no built-in `-c` equivalent)
+- **Windows (PowerShell):** there is no built-in `-c` equivalent, so the command compares the hash
+  itself and prints `True` or `False`, rather than leaving a 64-character comparison to the eye:
+
+  ```powershell
+  $f='dp-desktop-app-<version>.jar'; (Get-FileHash -Algorithm SHA256 $f).Hash -eq ((Select-String -Path SHA256SUMS -SimpleMatch $f).Line -split '\s+')[0]
+  ```
+
+  `-eq` is case-insensitive, so `Get-FileHash`'s uppercase hash matches `SHA256SUMS`'s lowercase
+  one. Task 5 runs this command, and `NEXT.md` says that anything other than `True` means the jar
+  must not be run.
 
 `cosign` ships binaries for all three, and `verify-blob` is the same command everywhere; the only
 Windows difference is line continuation, so the command is also given on one line.
 
-### D10 — cosign pinned to the siblings' version, with one retry
+### D10 — cosign v3.1.3, verified with v3.1.3 or later, with one retry
 
-`cosign-release: 'v3.0.6'` on the installer, matching dp-grpc and dp-service so `README.env` can
-name one version across the train (v3.1.3 is the latest release and verified these signatures
-locally in dp-service's rehearsal). Bumping it is a train-wide decision, not this ticket's.
+`cosign-release: 'v3.1.3'` on the installer. The siblings pin v3.0.6, which is affected by
+[GHSA-fx35-mq7g-6g98](https://github.com/sigstore/cosign/security/advisories/GHSA-fx35-mq7g-6g98)
+(high; all versions up to v3.1.2, fixed in v3.1.3 on 2026-08-06). A substituted legacy bundle
+can embed a public key that makes `verify-blob` skip the certificate identity and issuer checks.
+Replacing the jar, `SHA256SUMS` and the bundle together is exactly the attacker this ticket
+defends against, so a verifier with the flaw would make the signature worthless.
+
+The flaw is in **verification**, so what protects users is the version the docs name. `README.env`
+and `NEXT.md` therefore say "verify with cosign **v3.1.3 or later**" as a minimum, not "the
+signatures are produced with vX", which reads as an instruction to install that version. The
+installer is pinned to the same version because Task 5 verifies with it too.
+
+The decision to match the siblings' version is dropped. v3.1.3 already verified these signatures
+locally in dp-service's rehearsal, so the move carries no known compatibility cost, and a matching
+version is not worth steering users to a vulnerable verifier. dp-grpc and dp-service need the same
+change (dp-service's `README.env` currently says "produced with cosign v3.0.6"). That belongs in
+follow-up tickets in those repos, not yet filed, rather than here.
+
 `sign-blob` retries once after 30 s, per dp-service's rehearsal losing a signing step to a
 connection reset at Sigstore's timestamp authority.
 
@@ -306,12 +343,13 @@ jobs:
     env: { VERSION: needs.build.outputs.version }
     # download build-outputs -> release/   (NO checkout)
     # SHA256SUMS, working-directory: release (finding 2)
-    # cosign-installer (cosign-release v3.0.6); sign-blob with one retry (D10)
+    # cosign-installer (cosign-release v3.1.3); sign-blob with one retry (D10)
     # upload-artifact signatures: SHA256SUMS + SHA256SUMS.cosign.bundle
 
   publish:                    # contents: write
     needs: [build, sign]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/rel-')   # = IS_RELEASE
+    env: { VERSION: needs.build.outputs.version }   # GITHUB_ENV does not cross jobs; bind it, as sign does
     # download both -> release/
     # action-gh-release: tag_name rel-${VERSION}; jar, SHA256SUMS, bundle;
     #   body_path release/RELEASE_NOTES.md; fail_on_unmatched_files: true; overwrite_files: true
@@ -365,7 +403,7 @@ reasoning carries over (rehearsal trigger, target-ref copy, `IS_RELEASE`, the jo
 siblings and no image.
 
 **Task 2 — `README.env`.** Replace "Release Contents" and step 2 with dp-service's jar text: what
-`SHA256SUMS` covers and does not, the cosign pointer and version, the exact-identity verify command
+`SHA256SUMS` covers and does not, the cosign pointer with the v3.1.3 minimum (D10), the exact-identity verify command
 with this repo's identity, and the "keep every flag as written" explanation. Add D9's platform
 variants. Add a line saying releases through 1.16.0 shipped an unsigned `.sha256` with a
 `release/`-prefixed path.
@@ -387,7 +425,8 @@ radius. Record in CLAUDE.md, as permanent rules: rehearse with `gh workflow run 
 - all three jobs run and `publish` is **skipped**; `sign` has no checkout and no `mvn`
 - `VERSION` is the POM's `1.16.0`, and the log names the sibling refs (`rel-1.16.0` for both)
 - the downloaded `SHA256SUMS` has a bare filename, and `sha256sum -c` / `shasum -a 256 -c` pass in a
-  flat directory
+  flat directory; D9's PowerShell command prints `True`, and `False` against a modified jar
+- every local `cosign verify-blob` below is run with v3.1.3 or later (D10)
 - `cosign verify-blob` **passes** with the exact `release.yml@refs/heads/<branch>` identity
 - it **fails** with the published `@refs/tags/rel-1.16.0` identity, with
   `--certificate-github-workflow-trigger push`, and with the **dp-service** identity (D7)

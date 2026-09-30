@@ -1,6 +1,7 @@
 # Release Notes
 
 One document per release, named `rel-<version>.md` to match the git tag, starting with 1.16.0.
+The release in progress is drafted in [`NEXT.md`](NEXT.md) (see below).
 Releases before that were documented on the
 [GitHub release](https://github.com/osprey-dcs/dp-desktop-app/releases) itself; the `rel-*` tags
 remain the authority on what any past release contained.
@@ -38,6 +39,18 @@ them obsolete — that the app ran only in demonstration mode, and that the demo
 launch — and a release note describing a behavior change beside a README still asserting the old
 behavior is worse than either alone.
 
+## The draft for the next release: `NEXT.md`
+
+Sections for the upcoming release accumulate in the version-less `NEXT.md` as tickets land, so each
+is written while fresh and reviewed in the PR that causes it — the convention dp-grpc and
+dp-service use. At cut time it is renamed to `rel-<version>.md` and finished, following the
+**Cutting the release** checklist at its foot, and a fresh `NEXT.md` is started.
+
+`NEXT.md` never names the upcoming version: a file committed under a guessed version is stranded,
+and fails the release-notes check on the tag that does ship. That is also why its cross-file links
+point at `blob/main/…` rather than at a tag, contrary to the rule above: the tag does not exist
+yet. Repointing them is a step in the cut checklist.
+
 ## Publishing
 
 `release.yml` publishes `doc/release-notes/rel-<version>.md` as the GitHub release body via
@@ -47,6 +60,7 @@ leaving that check to the publish step would surface a missing file three builds
 
 Write the notes and merge them **before** pushing the `rel-*` tag.
 
-A manual `workflow_dispatch` run defaults to a dry run and only warns about missing notes, since a
-rehearsal usually happens before the notes are written.  Both publishing paths — a `rel-*` tag push,
-and a dispatch with `dry_run: false` — fail hard.
+Only a `rel-*` tag push publishes.  A manual `workflow_dispatch` run is a rehearsal: it builds and
+signs, publishes nothing, and skips the notes check, since a rehearsal usually happens before the
+notes are written.  (Through 1.16.0 a dispatch with `dry_run: false` could also publish; #24
+removed that path.)

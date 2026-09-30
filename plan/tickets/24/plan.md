@@ -471,6 +471,18 @@ Run 36769998025's artifacts, downloaded into one flat directory:
 | **dp-service** identity (D7) | fail | `no matching CertificateIdentity` |
 | one hex digit of `SHA256SUMS` altered | fail | `invalid signature` |
 
+**Review follow-up (2026-09-30, `0a41477`).** PR #50's review added a `Verify signature` step to
+`sign` (the documented `verify-blob` command, identity from `github.repository`/`github.ref`, trigger
+from `github.event_name`), took `publish`'s `tag_name` from `github.ref_name`, raised artifact
+retention to 30 days, and scoped `sibling_ref` to branch/tag names.
+[36772063684](https://github.com/osprey-dcs/dp-desktop-app/actions/runs/36772063684), no inputs:
+`build` ✅ `sign` ✅ `publish` skipped. `Verify signature` logged "Verifying against identity
+…/release.yml@refs/heads/issue-24-sigstore (trigger workflow_dispatch)" then `Verified OK`; both
+artifacts expire 2026-10-30. The step fails closed on a mismatch because it is cosign's own exit
+status, and the table above already shows the same command failing on the wrong trigger or identity.
+On a release it resolves to exactly the published identity, so Task 6's first run is now checked
+before `publish` rather than after.
+
 **Not rehearsed:**
 
 - **D9's PowerShell one-liner.** There was no PowerShell on the rehearsal machine, so the command

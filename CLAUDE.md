@@ -1782,6 +1782,8 @@ command rejects.
 any build. `git ls-remote --exit-code` exit 2 is "no such tag"; any other failure is reported as
 unreachable, never as a missing tag. A rehearsal resolves the siblings **together**: the
 `sibling_ref` input if given, else both POM tags if both exist, else `main` for both — never a mix.
+`sibling_ref` is a branch or tag **name**, never a commit SHA: one value names the ref in two
+repositories, which a SHA cannot do.
 
 **Rehearse with `gh workflow run release.yml --ref <branch>`, never by pushing a tag.** A dispatch
 runs the workflow file as it exists at the target ref, so a PR branch rehearses its own copy. Every
@@ -1801,6 +1803,14 @@ pre-merge rehearsal and moves the identity off the siblings' `release.yml@…` s
 with `--certificate-github-workflow-trigger push`. Renaming `release.yml` changes every future
 release's identity and must update `README.env` and the release notes in the same change.
 
+**`sign` verifies its own bundle before uploading it**, with that exact command built from the run's
+`github.repository`, `github.ref` and `github.event_name`. On a release it is literally the
+published command; on a rehearsal the same expressions resolve to the branch and
+`workflow_dispatch`, so every rehearsal exercises it. It exists because the release-only paths
+cannot be rehearsed: without it, a certificate the documented command rejects would publish and be
+found by a user. The workflow filename is written literally there, as in `README.env`, so a rename
+fails the check rather than verifying against the new name.
+
 **cosign is pinned to v3.1.3 and documented as the minimum verifier**, ahead of the siblings' v3.0.6:
 every version up to v3.1.2 has a verify-side identity bypass (GHSA-fx35-mq7g-6g98). What protects
 users is the version `README.env` tells them to verify with, so it names a minimum rather than "the
@@ -1808,9 +1818,13 @@ version the signatures were produced with". Dependabot does not track the `cosig
 so nothing flags it falling behind.
 
 **A failed publish is re-run, not retagged.** Re-running the failed jobs of the tag's own run reuses
-`build`'s artifact. `overwrite_files` replaces same-named assets but does not delete ones no longer
-produced, so re-cutting a tag up to 1.16.0 would leave its stale `.sha256` beside the new
-`SHA256SUMS`; delete it by hand first.
+`build`'s and `sign`'s artifacts, which are retained for **30 days**; after that a re-run of the
+failed jobs fails at download, and the recovery is a full re-run of the tag's run, which re-signs.
+`publish` takes `tag_name` from the pushed tag (`github.ref_name`), never from `build`'s outputs.
+`overwrite_files` replaces same-named assets but does not delete ones no longer produced. Only a
+re-cut of `rel-1.16.0` can hit that — an older tag re-pushed runs its own commit's workflow, and one
+moved onto a commit carrying this workflow fails the tag/POM check — and it would leave
+`dp-desktop-app-1.16.0.jar.sha256` beside the new `SHA256SUMS`; delete it by hand first.
 
 ## Debugging and Logging
 - Log4j2 configuration in `src/main/resources/log4j2.xml` (currently set to DEBUG level)

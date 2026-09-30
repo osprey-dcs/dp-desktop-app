@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       sibling_ref:
-        description: "Optional dp-grpc/dp-service ref for BOTH siblings (e.g. main). Default: the POM's rel- tags if both exist, else main for both."
+        description: "Optional branch or tag NAME applied to BOTH siblings, dp-grpc and dp-service (e.g. main). Not a commit SHA. Default: the POM's rel- tags if both exist, else main for both."
         required: false
         default: ''
 
@@ -150,7 +150,9 @@ jobs:
       # no release ever builds, and the one most likely to fail for reasons unrelated to the
       # change being rehearsed (#24 plan D4).
       #
-      # sibling_ref arrives through env, never spliced into the script with ${{ }}.
+      # sibling_ref arrives through env, never spliced into the script with ${{ }}.  It must be a
+      # branch or tag name: one value names the ref in two repositories, which a commit SHA
+      # cannot do, and `git ls-remote` matches ref names only, so a SHA is reported as missing.
       - name: Resolve sibling refs
         id: siblings
         env:
@@ -277,7 +279,9 @@ jobs:
             release/dp-desktop-app-${{ env.VERSION }}.jar
             release/RELEASE_NOTES.md
           if-no-files-found: error
-          retention-days: 7
+          # Long enough to re-run a failed publish ("re-run, not retag"): a re-run downloads
+          # these, so after they expire the only recovery is a full re-run, which re-signs.
+          retention-days: 30
 
   sign:
     needs: build
@@ -335,6 +339,32 @@ jobs:
             sign
           }
 
+      # Verify the bundle just produced, with the exact identity README.env documents, before
+      # anything is uploaded.  On a release this IS the published command: the identity resolves
+      # to release.yml@refs/tags/rel-<version> and the trigger to `push`.  On a rehearsal the
+      # same expressions resolve to the branch and `workflow_dispatch`, so every rehearsal
+      # exercises the check.  The release-only paths cannot be rehearsed, and without this a
+      # certificate the documented command rejects -- after a workflow rename, say -- would
+      # publish, and the first to find out would be a user.
+      #
+      # The workflow filename is written literally, as README.env writes it, rather than taken
+      # from `github.workflow_ref`, so a renamed workflow fails here instead of verifying against
+      # its own new name.
+      - name: Verify signature
+        working-directory: release
+        env:
+          IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
+          TRIGGER: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          echo "Verifying against identity ${IDENTITY} (trigger ${TRIGGER})"
+          cosign verify-blob \
+            --bundle SHA256SUMS.cosign.bundle \
+            --certificate-identity "${IDENTITY}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-github-workflow-trigger "${TRIGGER}" \
+            SHA256SUMS
+
       - name: Upload signatures
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -343,7 +373,9 @@ jobs:
             release/SHA256SUMS
             release/SHA256SUMS.cosign.bundle
           if-no-files-found: error
-          retention-days: 7
+          # Long enough to re-run a failed publish ("re-run, not retag"): a re-run downloads
+          # these, so after they expire the only recovery is a full re-run, which re-signs.
+          retention-days: 30
 
   publish:
     needs: [build, sign]
@@ -374,10 +406,11 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          # Equal to the default on a tag push, the only event that reaches this job; kept
-          # explicit as belt-and-braces, since a default of github.ref_name on any other event
-          # would name a branch.
-          tag_name: rel-${{ env.VERSION }}
+          # The event's own tag, not a value derived from build's outputs: the release is
+          # published to exactly the tag that was pushed.  This equals the action's default on
+          # a tag push, the only event that reaches this job; it is stated so the intent does not
+          # depend on that default.
+          tag_name: ${{ github.ref_name }}
           files: |
             release/dp-desktop-app-${{ env.VERSION }}.jar
             release/SHA256SUMS
@@ -388,10 +421,11 @@ jobs:
           # asset -- here, potentially a release with no signature and no failure.
           fail_on_unmatched_files: true
           # Overwrites assets of the SAME name; it does not remove assets whose names are no
-          # longer produced.  Re-cutting a tag from before signing would therefore leave that
-          # release's dp-desktop-app-<version>.jar.sha256 sitting beside the new SHA256SUMS --
-          # unsigned, and recording the old broken `release/`-prefixed path.  Delete the stale
-          # .sha256 asset by hand before re-cutting any tag up to 1.16.0.
+          # longer produced.  Only a re-cut of rel-1.16.0 can reach this: an older tag re-pushed
+          # runs its own commit's workflow, and moving one onto a commit carrying this workflow
+          # fails the tag/POM check.  Such a re-cut would leave rel-1.16.0's
+          # dp-desktop-app-1.16.0.jar.sha256 beside the new SHA256SUMS -- unsigned, and recording
+          # the old broken `release/`-prefixed path.  Delete that asset by hand first.
           overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

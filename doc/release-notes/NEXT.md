@@ -43,12 +43,15 @@ run itself and recorded in the public Rekor transparency log.
 The release workflow is now split into three jobs. `build` builds dp-grpc, dp-service and this app
 with read-only permissions. `sign` holds the OIDC signing token, but checks out no code and runs
 nothing from any repository: it checksums and signs only what `build` handed over. `publish` can
-write to the release but holds no signing token.
+write to the release but holds no signing token. Before anything is uploaded, `sign` verifies the
+new signature with the same `cosign verify-blob` command given below, so a release whose signature
+the documented command would reject fails instead of publishing.
 
 **The release workflow no longer publishes from a manual dispatch.** Publishing is gated on a
 `rel-*` tag push; a `workflow_dispatch` run is a rehearsal that builds and signs but cannot publish.
 The `version` and `dry_run` inputs added in 1.16.0 are gone: a rehearsal takes its version from the
-POM, and an optional `sibling_ref` input selects the dp-grpc and dp-service ref to build against.
+POM, and an optional `sibling_ref` input selects the dp-grpc and dp-service branch or tag to build
+against.
 
 **The asset names change.** A scripted download of `dp-desktop-app-<version>.jar.sha256` will get a
 404 against this release. Published assets are now:

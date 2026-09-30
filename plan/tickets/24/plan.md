@@ -14,7 +14,8 @@
 - **Related**: [#21](https://github.com/osprey-dcs/dp-desktop-app/issues/21) / PR #22 — SHA-pinned
   actions, and the `workflow_dispatch` + `dry_run` path this plan retires (D2).
 - **Status**: triaged and planned 2026-09-28 against `main` at `7b1a378`; Dependabot #41 merged
-  2026-09-30 (`c29b58e`), clearing the one prerequisite. Not yet implemented.
+  2026-09-30 (`c29b58e`), clearing the one prerequisite. Tasks 1–5 implemented and rehearsed
+  2026-09-30 in PR #50 (see **Rehearsal results**); Task 6 waits on the next release.
 
 ## Overview
 
@@ -440,6 +441,44 @@ Record run IDs and results in this plan, as the sibling plans do.
 
 **Task 6 — Close out.** After the next release is cut, verify the published jar end to end from the
 release page as a consumer would, on macOS or Windows as well as Linux, before announcing it.
+
+## Rehearsal results (Task 5, 2026-09-30)
+
+All against branch `issue-24-sigstore` at `4a23465`; local checks with cosign v3.1.3.
+
+| Run | Dispatch | Result |
+|---|---|---|
+| [36769998025](https://github.com/osprey-dcs/dp-desktop-app/actions/runs/36769998025) | no inputs | `build` ✅ `sign` ✅ `publish` skipped. `VERSION` 1.16.0 from the POM; "Sibling refs: dp-grpc rel-1.16.0, dp-service rel-1.16.0 (rehearsal: POM versions)" |
+| [36770330908](https://github.com/osprey-dcs/dp-desktop-app/actions/runs/36770330908) | `sibling_ref=main` | `build` ✅ `sign` ✅ `publish` skipped. "Sibling refs: main for both (rehearsal: sibling_ref input)" |
+| [36770597532](https://github.com/osprey-dcs/dp-desktop-app/actions/runs/36770597532) | `sibling_ref=no-such-ref` | `build` ❌ at **Resolve sibling refs** ("sibling_ref 'no-such-ref' does not exist in osprey-dcs/dp-grpc"), before any checkout; `sign` and `publish` skipped |
+
+`sign`'s steps are exactly download, `SHA256SUMS`, install cosign, sign, upload: no checkout and no
+`mvn`. The installer log confirms the **v3.1.3** binary signed. It bootstraps with v3.0.6 only to
+check the v3.1.3 download against cosign's published release key, which is key-based
+verification, not the keyless identity check GHSA-fx35-mq7g-6g98 concerns.
+
+Run 36769998025's artifacts, downloaded into one flat directory:
+
+| Check | Expected | Result |
+|---|---|---|
+| `SHA256SUMS` content | bare filename | `13131f93…c851  dp-desktop-app-1.16.0.jar` |
+| `sha256sum -c` / `shasum -a 256 -c` | OK | OK / OK |
+| `shasum -a 256 -c` after appending a byte to the jar | FAILED | FAILED |
+| `verify-blob`, identity `release.yml@refs/heads/issue-24-sigstore` | pass | Verified OK |
+| same, plus `--certificate-github-workflow-trigger workflow_dispatch` | pass | Verified OK |
+| same, plus `--certificate-github-workflow-trigger push` | fail | `expected GithubWorkflowTrigger to be "push", got "workflow_dispatch"` |
+| identity `…@refs/tags/rel-1.16.0` (the published form) | fail | `no matching CertificateIdentity` |
+| **dp-service** identity (D7) | fail | `no matching CertificateIdentity` |
+| one hex digit of `SHA256SUMS` altered | fail | `invalid signature` |
+
+**Not rehearsed:**
+
+- **D9's PowerShell one-liner.** There was no PowerShell on the rehearsal machine, so the command
+  is unexercised. Run it on Windows (expect `True`, then `False` after altering the jar) before the
+  PR leaves draft or, at the latest, in Task 6.
+- **The release-only paths** (tag/POM check, strict sibling tags, notes check, `publish`) and
+  **D6's tag-ref refusal.** Every existing tag carries an older workflow file, so these rest on
+  their expressions until the next real release, as dp-service's did. Task 6 is their first run.
 
 ## Out of scope
 

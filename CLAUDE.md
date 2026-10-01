@@ -1745,8 +1745,8 @@ the href unchanged and the browser resolves it against `/releases/tag/<tag>`, so
 `](../../README.md#x)` 404s. This was verified against dp-grpc's published `rel-1.16.0` body, where
 it is live. Use `https://github.com/osprey-dcs/dp-desktop-app/blob/rel-<version>/README.md#x`,
 pinned to the tag rather than `main` so an old release's notes point at the README it shipped with.
-Same-document anchors are unaffected. dp-grpc and dp-service still carry the relative form and are
-broken the same way; fixing dp-grpc needs the stored release body edited, not just the file.
+Same-document anchors are unaffected. The other four repos' `rel-1.16.0` bodies were checked on
+2026-09-30 and are clean (osprey-dcs/data-platform#98).
 
 **The links are checked, not left to review** (#51; the rules, R1–R5 and N1–N3, are
 osprey-dcs/data-platform#98 and the script's docstring). `.github/scripts/check-release-notes.py`
@@ -1755,17 +1755,16 @@ file. In a `rel-*.md` it fails a relative link; any `github.com/osprey-dcs/<repo
 `raw.githubusercontent.com` link, into any of the five repos, not pinned to the file's own tag (a
 full 40-character commit SHA is also accepted, for a target that did not exist at the tag); a path or
 `#anchor` into this repo missing from the working tree, or an anchor at a duplicated heading; a
-leftover `rel-<version>`, `<version>` or `<previous>`; and a `--certificate-identity` that is not
+leftover `rel-<version>` or `<previous>` (a bare `<version>` is allowed); and a `--certificate-identity` that is not
 exactly `release.yml@refs/tags/<the file's tag>`. A verify command is not required, since
 `rel-1.16.0.md` predates signing. `NEXT.md` is the other way round: links stay on `main`,
 placeholders are allowed, and its paths and anchors are checked, so a PR renaming a heading it links
 to fails. **Which notes count as already released:** every `rel-*.md` except the highest version;
 those get only the form rules (relative links, pinning, placeholders, identity), because checking an
 immutable file against today's tree would fail it the first time a heading is renamed. The script
-is a verbatim copy of dp-python-lib's `.dev/tools/check-release-notes.py` except for the
-configuration block at its top; fix it there and copy it here rather than diverging. It lives in
-`.github/scripts/` because `.dev/` is gitignored here, at the same depth so its `REPO_ROOT` resolves
-unchanged.
+is a verbatim copy of dp-python-lib's `.github/scripts/check-release-notes.py` (the same path in
+all five repos) except for the configuration block at its top; fix it there and copy it here rather
+than diverging.
 
 **The early check matters more here than in the sibling repos.** This job builds dp-grpc and
 dp-service from source before it builds the app, so leaving the missing-notes failure to

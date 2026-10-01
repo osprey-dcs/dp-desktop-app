@@ -169,18 +169,18 @@ When the version is known and the release is being cut:
    compile errors, per this directory's
    [`README.md`](https://github.com/osprey-dcs/dp-desktop-app/blob/main/doc/release-notes/README.md).
 4. **Repoint every `blob/main/...` link to `blob/rel-<version>/...`**, including links into the
-   other osprey-dcs repos, which release in lockstep, and **replace `rel-<version>`** in the
-   verify commands' `--certificate-identity` with this release's tag. This file is published as the
-   release body via `body_path`, where a relative link 404s and a `main` link drifts as the repo
-   moves on. Don't hunt for them by eye: step 6 lists every one you missed.
+   other four lockstep repos (dp-grpc, dp-service, dp-python-lib, data-platform), and **replace
+   `rel-<version>`** in the verify commands' `--certificate-identity` with this release's tag. This
+   file is published as the release body via `body_path`, where a relative link 404s and a `main`
+   link drifts as the repo moves on. Don't hunt for them by eye: step 6 lists every one you missed.
 5. **Delete this "Cutting the release" section** and update Contents.
 6. **Run `python3 .github/scripts/check-release-notes.py`** and fix everything it lists; CI runs it
    on the PR too, and `release.yml` again on the tag. For the new file it fails on a relative link;
-   a link into any osprey-dcs repo not pinned to `rel-<version>`, including a stale tag copied from
-   older notes; a path or `#anchor` into this repo missing from the tree being tagged, or pointing
-   at a duplicated heading; a leftover `rel-<version>` or `<previous>`; and a
-   `--certificate-identity` not ending `release.yml@refs/tags/rel-<version>`. The rules are in the
-   script's docstring (osprey-dcs/data-platform#98).
+   a link into any of the five lockstep repos not pinned to `rel-<version>`, including a stale tag
+   copied from older notes; a path or `#anchor` into this repo missing from the tree being tagged,
+   or pointing at a duplicated heading; a leftover `rel-<version>` or `<previous>`; and a
+   `--certificate-identity` that is not exactly this repo's `release.yml@refs/tags/rel-<version>`.
+   The rules are in the script's docstring (osprey-dcs/data-platform#98).
 7. **Add the row to `README.md`'s `## Release Notes` table**, newest first, with a one-line
    summary and **Breaking.** if it is.
 8. **Decide whether the release is breaking** and say so in the opening if it is. #24 renames the

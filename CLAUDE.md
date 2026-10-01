@@ -1745,16 +1745,36 @@ the href unchanged and the browser resolves it against `/releases/tag/<tag>`, so
 `](../../README.md#x)` 404s. This was verified against dp-grpc's published `rel-1.16.0` body, where
 it is live. Use `https://github.com/osprey-dcs/dp-desktop-app/blob/rel-<version>/README.md#x`,
 pinned to the tag rather than `main` so an old release's notes point at the README it shipped with.
-Same-document anchors are unaffected. dp-grpc and dp-service still carry the relative form and are
-broken the same way; fixing dp-grpc needs the stored release body edited, not just the file.
+Same-document anchors are unaffected. The other four repos' `rel-1.16.0` bodies were checked on
+2026-09-30 and are clean (osprey-dcs/data-platform#98).
+
+**The links are checked, not left to review** (#51; the rules, R1–R5 and N1–N3, are
+osprey-dcs/data-platform#98 and the script's docstring). `.github/scripts/check-release-notes.py`
+runs in CI on every PR over every `rel-*.md` and `NEXT.md`, and again in `release.yml` on the tagged
+file. In a `rel-*.md` it fails a relative link; any `github.com/osprey-dcs/<repo>/blob|tree/<ref>` or
+`raw.githubusercontent.com` link, into any of the five repos, not pinned to the file's own tag (a
+full 40-character commit SHA is also accepted, for a target that did not exist at the tag); a path or
+`#anchor` into this repo missing from the working tree, or an anchor at a duplicated heading; a
+leftover `rel-<version>` or `<previous>` (a bare `<version>` is allowed); and a `--certificate-identity` that is not
+exactly `release.yml@refs/tags/<the file's tag>`. A verify command is not required, since
+`rel-1.16.0.md` predates signing. `NEXT.md` is the other way round: links stay on `main`,
+placeholders are allowed, and its paths and anchors are checked, so a PR renaming a heading it links
+to fails. **Which notes count as already released:** every `rel-*.md` except the highest version;
+those get only the form rules (relative links, pinning, placeholders, identity), because checking an
+immutable file against today's tree would fail it the first time a heading is renamed. The script
+is a verbatim copy of dp-python-lib's `.github/scripts/check-release-notes.py` (the same path in
+all five repos) except for the configuration block at its top; fix it there and copy it here rather
+than diverging.
 
 **The early check matters more here than in the sibling repos.** This job builds dp-grpc and
 dp-service from source before it builds the app, so leaving the missing-notes failure to
 `action-gh-release` would surface it three builds late.
 
 **The notes path is derived from `VERSION`**, which on a release is the tag minus `rel-` — the same
-file the siblings resolve from `GITHUB_REF_NAME`. The notes check runs only on a release; a
-rehearsal publishes nothing and stages a placeholder body.
+file the siblings resolve from `GITHUB_REF_NAME`. On a release a missing file or any checker problem
+fails the job. A rehearsal publishes nothing and stages a placeholder body, so the same step only
+warns: it checks `rel-<POM version>.md` if that exists, else every notes file. Both branches key off
+the job-level `IS_RELEASE`, not a step `if:`.
 
 The draft for the next release lives in the version-less `doc/release-notes/NEXT.md`, renamed at
 cut time by the checklist at its foot. It links to `blob/main/…` because the tag does not exist yet;

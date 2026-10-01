@@ -21,6 +21,21 @@ permissions:
   contents: read
 
 jobs:
+  # Its own job, so it reports in seconds and independently of the sibling builds below.
+  # Checks every doc/release-notes/rel-*.md and NEXT.md against osprey-dcs/data-platform#98's
+  # rules (#51): no relative links, osprey-dcs links pinned to the file's tag (main in NEXT.md),
+  # paths and #anchors into this repo that exist, no leftover placeholders, and the exact cosign
+  # identity.  It also fails the PR that renames a heading NEXT.md links to.  Stdlib-only, so the
+  # runner's system python3 is enough.  release.yml runs it again on the tagged file.
+  release-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check release notes
+        run: python3 .github/scripts/check-release-notes.py
+
   build:
     runs-on: ubuntu-latest
 

@@ -122,22 +122,44 @@ jobs:
 
       # Checked before the build rather than left to action-gh-release, which fails the job on
       # a missing body_path only after dp-grpc, dp-service and this app have all been built.
-      # Every release from 1.16.0 on ships notes; see CLAUDE.md "Releases".  Skipped on a
-      # rehearsal, which publishes nothing and so has no release body to look for.
+      # Every release from 1.16.0 on ships notes; see CLAUDE.md "Releases".
+      #
+      # The notes are then run through the release-notes checker (#51, data-platform#98): its
+      # links, placeholders and cosign identity.  CI already runs it on every PR; this is the
+      # backstop for a tag pushed on a commit CI never checked.  The checker is stdlib-only, so
+      # the runner's system python3 is enough.
+      #
+      # A release fails on a missing file or on any problem.  A rehearsal publishes nothing, so
+      # it only warns: it checks rel-<POM version>.md if that exists (the file a release would
+      # publish), else every notes file, so a dispatch still shows the backstop running.  Both
+      # paths key off the job-level IS_RELEASE, like every other release-only behaviour here.
+      # NOTES_PATH is set only on a release.
       #
       # The path is derived from VERSION; on a release that is the tag minus `rel-`, so it is
       # the same file the siblings resolve from GITHUB_REF_NAME.
       - name: Verify release notes exist
-        if: env.IS_RELEASE == 'true'
         run: |
           set -euo pipefail
+          CHECKER=.github/scripts/check-release-notes.py
           NOTES="doc/release-notes/rel-${VERSION}.md"
-          if [ ! -f "$NOTES" ]; then
-            echo "::error::Release notes not found at $NOTES."
-            echo "::error::Add the notes for ${VERSION} and re-run, or retag once they are on the tagged commit."
-            exit 1
+          if [ "${IS_RELEASE}" = "true" ]; then
+            if [ ! -f "$NOTES" ]; then
+              echo "::error::Release notes not found at $NOTES."
+              echo "::error::Add the notes for ${VERSION} and re-run, or retag once they are on the tagged commit."
+              exit 1
+            fi
+            if ! python3 "$CHECKER" "$NOTES"; then
+              echo "::error::$NOTES fails the release-notes checker; the problems are listed above. Fix the notes, then retag once the fix is on the tagged commit."
+              exit 1
+            fi
+            echo "NOTES_PATH=$NOTES" >> "$GITHUB_ENV"
+          elif [ -f "$NOTES" ]; then
+            python3 "$CHECKER" "$NOTES" \
+              || echo "::warning::$NOTES fails the release-notes checker; a release from this commit would fail here. The problems are listed above."
+          else
+            python3 "$CHECKER" \
+              || echo "::warning::The release notes fail the release-notes checker; the problems are listed above. (Rehearsal: no rel-${VERSION}.md, so every notes file was checked.)"
           fi
-          echo "NOTES_PATH=$NOTES" >> "$GITHUB_ENV"
 
       # A release builds strictly against rel-${VERSION} of BOTH siblings, and fails here, before
       # any build, if either has not been tagged: that is the dependency-order check (dp-service
@@ -258,9 +280,9 @@ jobs:
       # instead: the upload below treats a missing path as an error, and a rehearsal should fail
       # on a real problem, not on the absence of something it was never going to publish.
       #
-      # Gated on IS_RELEASE rather than GITHUB_REF_TYPE: NOTES_PATH is set only by the
-      # release-only step above, so a dispatch against a tag would reference it unset and abort
-      # under `set -u`.  "Derive version" refuses such a run first; this gate should not
+      # Gated on IS_RELEASE rather than GITHUB_REF_TYPE: "Verify release notes exist" sets
+      # NOTES_PATH only on a release, so a dispatch against a tag would reference it unset and
+      # abort under `set -u`.  "Derive version" refuses such a run first; this gate should not
       # depend on that.
       - name: Stage release notes
         run: |

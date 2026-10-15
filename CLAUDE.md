@@ -1832,7 +1832,8 @@ found by a user. The workflow filename is written literally there, as in `README
 fails the check rather than verifying against the new name.
 
 **cosign is pinned to v3.1.3 and documented as the minimum verifier**, ahead of the siblings' v3.0.6:
-every version up to v3.1.2 has a verify-side identity bypass (GHSA-fx35-mq7g-6g98). What protects
+v3.1.2 and earlier, and v2 before the v2.6.5 backport, have a verify-side identity bypass
+(GHSA-fx35-mq7g-6g98). What protects
 users is the version `README.env` tells them to verify with, so it names a minimum rather than "the
 version the signatures were produced with". Dependabot does not track the `cosign-release` input,
 so nothing flags it falling behind.
